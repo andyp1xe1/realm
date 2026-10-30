@@ -5,6 +5,8 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.ResizeMode.Companion.scaleToBounds
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -20,6 +22,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+/** How long a tab takes to zoom in or out; the overview fades over the same time. */
+const val TabZoomMillis = 380
 
 /** Widest a page gets; the feed and the tab overview share it. */
 val PageWidth = 820.dp
@@ -45,10 +50,30 @@ fun Modifier.tabBounds(key: String, shape: Shape): Modifier {
         this@tabBounds.sharedBounds(
             rememberSharedContentState("tab:$key"),
             visibility,
-            boundsTransform = { _, _ -> tween(380) },
+            boundsTransform = { _, _ -> tween(TabZoomMillis) },
             // By width, from the bottom: a tile is the bottom of its page (newest items, composer), shrunk.
             resizeMode = scaleToBounds(ContentScale.FillWidth, Alignment.BottomCenter),
             clipInOverlayDuringTransition = OverlayClip(shape),
+        )
+    }
+}
+
+/**
+ * The top bar stays put while the page under it zooms: the feed's bar and the overview's crossfade in place.
+ * Without a transition around it (previews), it does nothing.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun Modifier.topBarBounds(): Modifier {
+    val shared = LocalSharedTransition.current ?: return this
+    val visibility = LocalTabTransition.current ?: return this
+    return with(shared) {
+        this@topBarBounds.sharedBounds(
+            rememberSharedContentState("top-bar"),
+            visibility,
+            enter = fadeIn(tween(TabZoomMillis)),
+            exit = fadeOut(tween(TabZoomMillis)),
+            boundsTransform = { _, _ -> tween(TabZoomMillis) },
         )
     }
 }

@@ -187,7 +187,7 @@ private fun zoom(h: Home) {
     h.showTabs()
     for (n in 1..40) {
         val img = frame()
-        if (n in setOf(6, 12, 18, 40)) File(out, "zoom-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        if (n in setOf(6, 12, 18, 24, 40)) File(out, "zoom-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
     }
     scene.close()
     println("${out.path}/zoom-*.png")

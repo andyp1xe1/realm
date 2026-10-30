@@ -132,7 +132,8 @@ fun Tabs(home: Home) {
     SharedTransitionLayout {
         AnimatedContent(
             current,
-            transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(160)) },
+            // The overview fades in as the tab shrinks into it, and out as a tab grows from it.
+            transitionSpec = { fadeIn(tween(TabZoomMillis)) togetherWith fadeOut(tween(TabZoomMillis)) },
             contentAlignment = Alignment.TopCenter,
         ) { key ->
             CompositionLocalProvider(LocalSharedTransition provides this@SharedTransitionLayout, LocalTabTransition provides this) {
@@ -182,7 +183,7 @@ fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
         },
     ) {
         // top bar
-        Row(Modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.topBarBounds().fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (searching) {
                 IconButton(onClick = ::closeSearch) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close search") }
                 var q by remember { mutableStateOf(TextFieldValue(model.query)) }

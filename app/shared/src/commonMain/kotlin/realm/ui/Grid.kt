@@ -99,7 +99,7 @@ fun Grid(home: Home) {
     BackHandler(enabled = home.open != null) { home.hideTabs() }
 
     Column(Modifier.widthIn(max = PageWidth).fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.topBarBounds().fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             PageTitle(null, Modifier.weight(1f))
             IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, "Settings") }
             TabsButton(spaces.size) { home.hideTabs() }
