@@ -1,10 +1,12 @@
-// realm — a personal dump. One Worker, one R2 bucket, one D1 database.
+// realm — a personal dump. One Worker, one R2 bucket, one D1 database, any number of realms.
 //
-//   /api/...        owner access, `Authorization: Bearer $REALM_TOKEN`
-//   /s/<token>/...  the same routes, limited by the link's scope
+//   /api/realms/<id>/...  owner access to one realm, `Authorization: Bearer $REALM_TOKEN`
+//   /api/...              the same routes on the first realm, plus /api/realms and /api/links
+//   /s/<token>/...        the same routes on the link's realm, limited by the link's scope
 //
-// Scopes: item (download one item) · drop (upload only) · read (list, search, download)
-//         full (read + upload + edit/delete) · owner (everything, incl. managing links)
+// Scopes: drop (upload only) · read (list, search, download) · full (read + upload + edit/delete)
+//         owner (everything, incl. realms and links). A read link can be a selection: it then
+//         sees only the items picked for it, and a selection of one downloads at the bare link.
 
 export interface Env {
   DB: D1Database;
@@ -12,12 +14,22 @@ export interface Env {
   REALM_TOKEN: string;
 }
 
-type Scope = "owner" | "full" | "read" | "drop" | "item";
+/** Bump with every release, so clients can tell a deployment needs updating. */
+const VERSION = 2;
+
+type Scope = "owner" | "full" | "read" | "drop";
+
+interface Realm {
+  id: string;
+  name: string;
+  created: number;
+}
 
 interface Link {
   token: string;
   scope: Scope;
-  item: string | null;
+  realm: string;
+  selection: number; // 1 = sees only its link_items
   label: string | null;
   expires: number | null;
   max_uses: number | null;
@@ -35,6 +47,7 @@ interface Item {
   mime: string | null;
   size: number | null;
   key?: string | null;
+  realm: string;
   src: string | null;
   created: number;
 }
@@ -45,6 +58,7 @@ interface Ctx {
   url: URL;
   scope: Scope;
   link: Link | null;
+  realm: Realm | null; // null on owner routes above any one realm
   base: string; // absolute URL prefix for this principal, e.g. https://x/s/abc
   src: string;
 }
@@ -67,10 +81,110 @@ const SCOPES: Record<string, Scope[]> = {
 const MAX_LIMIT = 200;
 const KINDS = ["note", "link", "image", "audio", "video", "file"];
 
+// Each step runs once, in order, as one transaction. Append new steps; never edit old ones.
+export const MIGRATIONS: string[][] = [
+  [
+    `CREATE TABLE IF NOT EXISTS items (
+      id      TEXT PRIMARY KEY,          -- time-sortable, newest = largest
+      kind    TEXT NOT NULL,             -- note | link | image | audio | video | file
+      text    TEXT,                      -- note body or file caption
+      name    TEXT,                      -- file name
+      mime    TEXT,
+      size    INTEGER,
+      key     TEXT,                      -- R2 object key (files only)
+      src     TEXT,                      -- who dumped it: android, desktop, cli, link:<label>
+      created INTEGER NOT NULL           -- epoch ms
+    )`,
+    `CREATE INDEX IF NOT EXISTS items_kind ON items(kind, id)`,
+    `CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(text, name, content='items', content_rowid='rowid')`,
+    `CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
+      INSERT INTO items_fts(rowid, text, name) VALUES (new.rowid, new.text, new.name);
+    END`,
+    `CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
+      INSERT INTO items_fts(items_fts, rowid, text, name) VALUES ('delete', old.rowid, old.text, old.name);
+    END`,
+    `CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
+      INSERT INTO items_fts(items_fts, rowid, text, name) VALUES ('delete', old.rowid, old.text, old.name);
+      INSERT INTO items_fts(rowid, text, name) VALUES (new.rowid, new.text, new.name);
+    END`,
+    `CREATE TABLE IF NOT EXISTS links (
+      token    TEXT PRIMARY KEY,
+      scope    TEXT NOT NULL,            -- item | drop | read | full
+      item     TEXT,                     -- for scope=item
+      label    TEXT,
+      expires  INTEGER,                  -- epoch ms, NULL = never
+      max_uses INTEGER,                  -- NULL = unlimited
+      uses     INTEGER NOT NULL DEFAULT 0,
+      max_bytes INTEGER,                 -- upload budget for drop/full links, NULL = unlimited
+      bytes    INTEGER NOT NULL DEFAULT 0,
+      created  INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS uploads (
+      id      TEXT PRIMARY KEY,
+      key     TEXT NOT NULL,
+      r2id    TEXT NOT NULL,
+      name    TEXT NOT NULL,
+      mime    TEXT NOT NULL,
+      text    TEXT,
+      src     TEXT,
+      owner   TEXT,                      -- link token that started it, NULL = owner
+      created INTEGER NOT NULL
+    )`,
+  ],
+  // Realms. Everything so far lands in "Main", and item links become read links with a selection of one.
+  [
+    `CREATE TABLE realms (id TEXT PRIMARY KEY, name TEXT NOT NULL, created INTEGER NOT NULL)`,
+    `INSERT INTO realms (id, name, created) VALUES ('main', 'Main', CAST(strftime('%s', 'now') AS INTEGER) * 1000)`,
+    `ALTER TABLE items ADD COLUMN realm TEXT NOT NULL DEFAULT 'main'`,
+    `DROP INDEX items_kind`,
+    `CREATE INDEX items_realm ON items(realm, id)`,
+    `CREATE INDEX items_realm_kind ON items(realm, kind, id)`,
+    `ALTER TABLE uploads ADD COLUMN realm TEXT NOT NULL DEFAULT 'main'`,
+    `ALTER TABLE links ADD COLUMN realm TEXT NOT NULL DEFAULT 'main'`,
+    `ALTER TABLE links ADD COLUMN selection INTEGER NOT NULL DEFAULT 0`,
+    `CREATE TABLE link_items (token TEXT NOT NULL, item TEXT NOT NULL, PRIMARY KEY (token, item))`,
+    `CREATE INDEX link_items_item ON link_items(item)`,
+    `INSERT INTO link_items (token, item) SELECT token, item FROM links WHERE scope = 'item'`,
+    `UPDATE links SET scope = 'read', selection = 1 WHERE scope = 'item'`,
+    `ALTER TABLE links DROP COLUMN item`,
+  ],
+];
+
+const migrated = new WeakMap<D1Database, Promise<void>>();
+
+/** Brings the database up to date once per isolate, so deploying new code is the whole upgrade. */
+function ready(env: Env): Promise<void> {
+  let p = migrated.get(env.DB);
+  if (!p) {
+    p = migrate(env.DB).catch((e) => {
+      migrated.delete(env.DB);
+      throw e;
+    });
+    migrated.set(env.DB, p);
+  }
+  return p;
+}
+
+async function migrate(db: D1Database) {
+  await db.prepare("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL)").run();
+  const version = async () => (await db.prepare("SELECT v FROM meta WHERE k = 'schema'").first<{ v: number }>())?.v ?? 0;
+  for (let v = await version(); v < MIGRATIONS.length; v = await version()) {
+    try {
+      await db.batch([
+        ...MIGRATIONS[v].map((sql) => db.prepare(sql)),
+        db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('schema', ?)").bind(v + 1),
+      ]);
+    } catch (e) {
+      if ((await version()) <= v) throw e; // otherwise another isolate got there first
+    }
+  }
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     if (req.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
     try {
+      await ready(env);
       return cors(await handle(req, env));
     } catch (e) {
       if (e instanceof HttpError) return cors(json({ error: e.message }, e.status));
@@ -81,15 +195,19 @@ export default {
 
   /** Daily: abort multipart uploads nobody finished, forget dead links. */
   async scheduled(_event: unknown, env: Env): Promise<void> {
+    await ready(env);
     const cutoff = Date.now() - 24 * 3600 * 1000;
     const { results } = await env.DB.prepare("SELECT * FROM uploads WHERE created < ?").bind(cutoff).all<Upload>();
     for (const up of results) {
       await env.BUCKET.resumeMultipartUpload(up.key, up.r2id).abort().catch(() => {});
       await env.DB.prepare("DELETE FROM uploads WHERE id = ?").bind(up.id).run();
     }
-    await env.DB.prepare(
-      "DELETE FROM links WHERE (expires IS NOT NULL AND expires < ?) OR (max_uses IS NOT NULL AND uses >= max_uses)",
-    ).bind(Date.now()).run();
+    await env.DB.batch([
+      env.DB.prepare(
+        "DELETE FROM links WHERE (expires IS NOT NULL AND expires < ?) OR (max_uses IS NOT NULL AND uses >= max_uses)",
+      ).bind(Date.now()),
+      env.DB.prepare("DELETE FROM link_items WHERE token NOT IN (SELECT token FROM links)"),
+    ]);
   },
 };
 
@@ -107,16 +225,20 @@ async function handle(req: Request, env: Env): Promise<Response> {
     const auth = req.headers.get("authorization") || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!env.REALM_TOKEN || !safeEqual(token, env.REALM_TOKEN)) throw new HttpError(401, "bad token");
-    const ctx: Ctx = { req, env, url, scope: "owner", link: null, base: `${url.origin}/api`, src: src || "api" };
-    return route(ctx, parts.slice(1));
+    const ctx: Ctx = { req, env, url, scope: "owner", link: null, realm: null, base: `${url.origin}/api`, src: src || "api" };
+    return owner(ctx, parts.slice(1));
   }
 
   if (parts[0] === "s" && parts[1]) {
-    const link = await env.DB.prepare("SELECT * FROM links WHERE token = ?").bind(parts[1]).first<Link>();
-    if (!link || (link.expires && link.expires < Date.now())) throw new HttpError(404, "link not found or expired");
-    if (link.max_uses != null && link.uses >= link.max_uses) throw new HttpError(410, "link used up");
+    const row = await env.DB.prepare(
+      "SELECT links.*, realms.name AS realm_name, realms.created AS realm_created FROM links JOIN realms ON realms.id = links.realm WHERE token = ?",
+    ).bind(parts[1]).first<Link & { realm_name: string; realm_created: number }>();
+    if (!row || (row.expires && row.expires < Date.now())) throw new HttpError(404, "link not found or expired");
+    if (row.max_uses != null && row.uses >= row.max_uses) throw new HttpError(410, "link used up");
+    const { realm_name, realm_created, ...link } = row;
     const ctx: Ctx = {
       req, env, url, scope: link.scope, link,
+      realm: { id: link.realm, name: realm_name, created: realm_created },
       base: `${url.origin}/s/${link.token}`,
       src: link.label ? `link:${link.label}` : "link",
     };
@@ -127,20 +249,54 @@ async function handle(req: Request, env: Env): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
+/** Owner routes that sit above any one realm; the rest go to a realm. */
+async function owner(ctx: Ctx, p: string[]): Promise<Response> {
+  const m = ctx.req.method;
+  const [a, b, ...rest] = p;
+
+  if (a === "realms") {
+    if (!b) {
+      if (m === "GET") return json({ realms: await realmsWithStats(ctx.env) });
+      if (m === "POST") return createRealm(ctx);
+      throw new HttpError(404, "not found");
+    }
+    const realm = await ctx.env.DB.prepare("SELECT * FROM realms WHERE id = ?").bind(b).first<Realm>();
+    if (!realm) throw new HttpError(404, "no such realm");
+    if (!rest.length) {
+      if (m === "GET") return json((await realmsWithStats(ctx.env, realm.id))[0]);
+      if (m === "PATCH") return renameRealm(ctx, realm);
+      if (m === "DELETE") return deleteRealm(ctx, realm);
+      throw new HttpError(404, "not found");
+    }
+    return route({ ...ctx, realm, base: `${ctx.base}/realms/${encodeURIComponent(realm.id)}` }, rest);
+  }
+
+  if (a === "links" && !(m === "POST" && !b)) return links(ctx, b);
+  if (a === "info" || (!a && (m === "GET" || m === "HEAD"))) return route(ctx, p);
+
+  // Everything else works on the first realm, so clients that predate realms keep working.
+  const first = await ctx.env.DB.prepare("SELECT * FROM realms ORDER BY created, id LIMIT 1").first<Realm>();
+  if (!first) throw new HttpError(404, "no realms yet; create one with POST /api/realms");
+  return route({ ...ctx, realm: first }, p);
+}
+
 async function route(ctx: Ctx, p: string[]): Promise<Response> {
   const m = ctx.req.method;
   const [a, b, c] = p;
 
   if (!a) {
-    if (m !== "GET" && m !== "HEAD") {
-      if (ctx.scope === "item") throw new HttpError(405, "method not allowed");
-      return createFromBody(ctx); // POST to the bare link = dump something
-    }
-    if (ctx.scope === "item") return raw(ctx, ctx.link!.item!);
+    if (m !== "GET" && m !== "HEAD") return createFromBody(ctx); // POST to the bare link = dump something
+    const only = await soleItem(ctx);
+    if (only) return raw(ctx, only);
     return wantsHtml(ctx.req) ? htmlPage(ctx) : text(agentHelp(ctx), 200, "text/markdown; charset=utf-8");
   }
 
-  if (a === "raw" && !b && ctx.scope === "item") return raw(ctx, ctx.link!.item!);
+  if (a === "info" && !b && m === "GET") return info(ctx);
+
+  if (a === "raw" && !b) {
+    const only = await soleItem(ctx);
+    if (only) return raw(ctx, only);
+  }
 
   if (a === "items") {
     if (!b) {
@@ -169,17 +325,88 @@ async function route(ctx: Ctx, p: string[]): Promise<Response> {
     if (b && !c && m === "DELETE") return abortUpload(ctx, b);
   }
 
-  if (a === "links") {
-    need(ctx, "owner");
-    if (!b && m === "GET") return listLinks(ctx);
-    if (!b && m === "POST") return createLink(ctx);
-    if (b && m === "DELETE") {
-      await ctx.env.DB.prepare("DELETE FROM links WHERE token = ?").bind(b).run();
-      return json({ ok: true });
-    }
-  }
+  if (a === "links" && !c) return links(ctx, b);
 
   throw new HttpError(404, "not found");
+}
+
+/** What a client needs to know before connecting. Free: it never spends a use. */
+async function info(ctx: Ctx): Promise<Response> {
+  const l = ctx.link;
+  const out: Record<string, unknown> = { version: VERSION, scope: ctx.scope, realm: ctx.realm };
+  if (l) {
+    Object.assign(out, {
+      label: l.label,
+      expires: l.expires,
+      uses_left: l.max_uses != null ? l.max_uses - l.uses : null,
+      bytes_left: l.max_bytes != null ? l.max_bytes - l.bytes : null,
+    });
+    if (l.selection) {
+      const { results } = await ctx.env.DB.prepare(
+        "SELECT items.* FROM link_items JOIN items ON items.id = link_items.item WHERE link_items.token = ? ORDER BY items.id DESC LIMIT 2",
+      ).bind(l.token).all<Item>();
+      const n = await ctx.env.DB.prepare("SELECT COUNT(*) AS n FROM link_items WHERE token = ?").bind(l.token).first<{ n: number }>();
+      out.items = n?.n ?? 0;
+      if (results.length === 1) out.item = publicItem(results[0]);
+    }
+  }
+  return json(out);
+}
+
+/** The item a selection of exactly one points at; its link downloads it directly. */
+async function soleItem(ctx: Ctx): Promise<string | null> {
+  if (!ctx.link?.selection) return null;
+  const { results } = await ctx.env.DB.prepare("SELECT item FROM link_items WHERE token = ? LIMIT 2")
+    .bind(ctx.link.token).all<{ item: string }>();
+  return results.length === 1 ? results[0].item : null;
+}
+
+// ---------- realms ----------
+
+async function realmsWithStats(env: Env, id?: string) {
+  const { results } = await env.DB.prepare(
+    `SELECT realms.*,
+       (SELECT COUNT(*) FROM items WHERE items.realm = realms.id) AS count,
+       (SELECT MAX(created) FROM items WHERE items.realm = realms.id) AS updated
+     FROM realms ${id ? "WHERE id = ?" : ""} ORDER BY created, id`,
+  ).bind(...(id ? [id] : [])).all<Realm & { count: number; updated: number | null }>();
+  return results;
+}
+
+async function realmName(ctx: Ctx): Promise<string> {
+  const j = (await ctx.req.json().catch(() => ({}))) as { name?: string };
+  const name = (j.name || "").trim().slice(0, 60);
+  if (!name) throw new HttpError(400, "name required");
+  return name;
+}
+
+async function createRealm(ctx: Ctx): Promise<Response> {
+  const realm: Realm = { id: newId(), name: await realmName(ctx), created: Date.now() };
+  await ctx.env.DB.prepare("INSERT INTO realms (id, name, created) VALUES (?, ?, ?)").bind(realm.id, realm.name, realm.created).run();
+  return json({ ...realm, count: 0, updated: null }, 201);
+}
+
+async function renameRealm(ctx: Ctx, realm: Realm): Promise<Response> {
+  const name = await realmName(ctx);
+  await ctx.env.DB.prepare("UPDATE realms SET name = ? WHERE id = ?").bind(name, realm.id).run();
+  return json((await realmsWithStats(ctx.env, realm.id))[0]);
+}
+
+/** Deletes the realm with everything in it, its links included. */
+async function deleteRealm(ctx: Ctx, realm: Realm): Promise<Response> {
+  const db = ctx.env.DB;
+  const { results: files } = await db.prepare("SELECT key FROM items WHERE realm = ? AND key IS NOT NULL").bind(realm.id).all<{ key: string }>();
+  const { results: ups } = await db.prepare("SELECT * FROM uploads WHERE realm = ?").bind(realm.id).all<Upload>();
+  await db.batch([
+    db.prepare("DELETE FROM link_items WHERE token IN (SELECT token FROM links WHERE realm = ?)").bind(realm.id),
+    db.prepare("DELETE FROM links WHERE realm = ?").bind(realm.id),
+    db.prepare("DELETE FROM uploads WHERE realm = ?").bind(realm.id),
+    db.prepare("DELETE FROM items WHERE realm = ?").bind(realm.id),
+    db.prepare("DELETE FROM realms WHERE id = ?").bind(realm.id),
+  ]);
+  for (const up of ups) await ctx.env.BUCKET.resumeMultipartUpload(up.key, up.r2id).abort().catch(() => {});
+  for (let i = 0; i < files.length; i += 1000) await ctx.env.BUCKET.delete(files.slice(i, i + 1000).map((f) => f.key));
+  return json({ ok: true });
 }
 
 // ---------- items ----------
@@ -188,8 +415,12 @@ async function list(ctx: Ctx): Promise<Response> {
   need(ctx, "read");
   const q = ctx.url.searchParams;
   const limit = Math.min(Math.max(parseInt(q.get("limit") || "50") || 50, 1), MAX_LIMIT);
-  const where: string[] = [];
-  const args: unknown[] = [];
+  const where = ["items.realm = ?"];
+  const args: unknown[] = [ctx.realm!.id];
+  if (ctx.link?.selection) {
+    where.push("items.id IN (SELECT item FROM link_items WHERE token = ?)");
+    args.push(ctx.link.token);
+  }
 
   const kinds = [...new Set((q.get("kind") || "").split(",").map((k) => k.trim()))].filter((k) => KINDS.includes(k));
   if (kinds.length) {
@@ -220,7 +451,7 @@ async function list(ctx: Ctx): Promise<Response> {
 
   // `after` pages forward (oldest first) so clients can poll for new items.
   const order = after && !before ? "ASC" : "DESC";
-  const sql = `SELECT items.* FROM ${from} ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY items.id ${order} LIMIT ?`;
+  const sql = `SELECT items.* FROM ${from} WHERE ${where.join(" AND ")} ORDER BY items.id ${order} LIMIT ?`;
   const { results } = await ctx.env.DB.prepare(sql).bind(...args, limit + 1).all<Item>();
   const more = results.length > limit;
   const items = results.slice(0, limit);
@@ -277,7 +508,7 @@ async function insertNote(ctx: Ctx, body: string): Promise<Item> {
     kind: /^https?:\/\/\S+$/.test(body.trim()) ? "link" : "note",
     text: body,
     name: null, mime: null, size: null, key: null,
-    src: ctx.src,
+    realm: ctx.realm!.id, src: ctx.src,
     created: Date.now(),
   };
   await insert(ctx.env, item);
@@ -308,25 +539,29 @@ async function putFile(
   // The id is taken after the upload so it sorts after anything created meanwhile (clients poll by id).
   const item: Item = {
     id: newId(), kind: kindOf(type), text: caption || null, name, mime: type,
-    size: obj?.size ?? null, key, src: ctx.src, created: Date.now(),
+    size: obj?.size ?? null, key, realm: ctx.realm!.id, src: ctx.src, created: Date.now(),
   };
   await insert(ctx.env, item);
   return item;
 }
 
 async function insert(env: Env, i: Item) {
-  await env.DB.prepare(
-    "INSERT INTO items (id, kind, text, name, mime, size, key, src, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).bind(i.id, i.kind, i.text, i.name, i.mime, i.size, i.key ?? null, i.src, i.created).run();
+  await insertStmt(env, i).run();
+}
+
+function insertStmt(env: Env, i: Item) {
+  return env.DB.prepare(
+    "INSERT INTO items (id, kind, text, name, mime, size, key, realm, src, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(i.id, i.kind, i.text, i.name, i.mime, i.size, i.key ?? null, i.realm, i.src, i.created);
 }
 
 async function getItem(ctx: Ctx, id: string, perm: keyof typeof SCOPES): Promise<Item> {
-  if (ctx.scope === "item") {
-    if (perm !== "read" || ctx.link!.item !== id) throw new HttpError(403, "forbidden");
-  } else {
-    need(ctx, perm);
-  }
-  const item = await ctx.env.DB.prepare("SELECT * FROM items WHERE id = ?").bind(id).first<Item>();
+  need(ctx, perm);
+  const item = ctx.link?.selection
+    ? await ctx.env.DB.prepare(
+      "SELECT items.* FROM items JOIN link_items ON link_items.item = items.id AND link_items.token = ? WHERE items.id = ? AND items.realm = ?",
+    ).bind(ctx.link.token, id, ctx.realm!.id).first<Item>()
+    : await ctx.env.DB.prepare("SELECT * FROM items WHERE id = ? AND realm = ?").bind(id, ctx.realm!.id).first<Item>();
   if (!item) throw new HttpError(404, "no such item");
   return item;
 }
@@ -343,9 +578,13 @@ async function patchItem(ctx: Ctx, id: string): Promise<Response> {
 
 async function deleteItem(ctx: Ctx, id: string): Promise<Response> {
   const item = await getItem(ctx, id, "modify");
+  // A selection left empty would show nothing, so its link goes too.
   await ctx.env.DB.batch([
     ctx.env.DB.prepare("DELETE FROM items WHERE id = ?").bind(id),
-    ctx.env.DB.prepare("DELETE FROM links WHERE item = ?").bind(id),
+    ctx.env.DB.prepare("DELETE FROM link_items WHERE item = ?").bind(id),
+    ctx.env.DB.prepare(
+      "DELETE FROM links WHERE selection = 1 AND NOT EXISTS (SELECT 1 FROM link_items WHERE link_items.token = links.token)",
+    ),
   ]);
   if (item.key) await ctx.env.BUCKET.delete(item.key); // an orphaned object is better than a dangling item
   return json({ ok: true });
@@ -448,7 +687,7 @@ function parseRange(h: string | null): R2Range | "invalid" | null {
 
 interface Upload {
   id: string; key: string; r2id: string; name: string; mime: string;
-  text: string | null; src: string | null; owner: string | null; created: number;
+  text: string | null; realm: string; src: string | null; owner: string | null; created: number;
 }
 
 async function startUpload(ctx: Ctx): Promise<Response> {
@@ -461,14 +700,16 @@ async function startUpload(ctx: Ctx): Promise<Response> {
   const key = `f/${id}/${name}`;
   const mp = await ctx.env.BUCKET.createMultipartUpload(key, { httpMetadata: { contentType: mime } });
   await ctx.env.DB.prepare(
-    "INSERT INTO uploads (id, key, r2id, name, mime, text, src, owner, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).bind(id, key, mp.uploadId, name, mime, j.text || null, ctx.src, ctx.link?.token ?? null, Date.now()).run();
+    "INSERT INTO uploads (id, key, r2id, name, mime, text, realm, src, owner, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(id, key, mp.uploadId, name, mime, j.text || null, ctx.realm!.id, ctx.src, ctx.link?.token ?? null, Date.now()).run();
   return json({ upload: id }, 201);
 }
 
 async function loadUpload(ctx: Ctx, id: string): Promise<Upload> {
   const up = await ctx.env.DB.prepare("SELECT * FROM uploads WHERE id = ?").bind(id).first<Upload>();
-  if (!up || (ctx.scope !== "owner" && up.owner !== ctx.link?.token)) throw new HttpError(404, "no such upload");
+  if (!up || up.realm !== ctx.realm!.id || (ctx.scope !== "owner" && up.owner !== ctx.link?.token)) {
+    throw new HttpError(404, "no such upload");
+  }
   return up;
 }
 
@@ -495,14 +736,9 @@ async function completeUpload(ctx: Ctx, id: string): Promise<Response> {
   );
   const item: Item = {
     id: newId(), kind: kindOf(up.mime), text: up.text, name: up.name, mime: up.mime,
-    size: obj.size, key: up.key, src: up.src, created: Date.now(),
+    size: obj.size, key: up.key, realm: up.realm, src: up.src, created: Date.now(),
   };
-  await ctx.env.DB.batch([
-    ctx.env.DB.prepare("DELETE FROM uploads WHERE id = ?").bind(id),
-    ctx.env.DB.prepare(
-      "INSERT INTO items (id, kind, text, name, mime, size, key, src, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(item.id, item.kind, item.text, item.name, item.mime, item.size, item.key, item.src, item.created),
-  ]);
+  await ctx.env.DB.batch([ctx.env.DB.prepare("DELETE FROM uploads WHERE id = ?").bind(id), insertStmt(ctx.env, item)]);
   return json(publicItem(item), 201);
 }
 
@@ -515,21 +751,39 @@ async function abortUpload(ctx: Ctx, id: string): Promise<Response> {
 
 // ---------- links ----------
 
+/** Owner link management; on a realm's routes it only sees that realm's links. */
+async function links(ctx: Ctx, token: string | undefined): Promise<Response> {
+  need(ctx, "owner");
+  const m = ctx.req.method;
+  if (!token && m === "GET") return listLinks(ctx);
+  if (!token && m === "POST") return createLink(ctx);
+  if (token && (m === "DELETE" || m === "PATCH")) {
+    const link = await ctx.env.DB.prepare("SELECT * FROM links WHERE token = ?").bind(token).first<Link>();
+    if (!link || (ctx.realm && link.realm !== ctx.realm.id)) throw new HttpError(404, "no such link");
+    if (m === "PATCH") return patchLink(ctx, link);
+    await ctx.env.DB.batch([
+      ctx.env.DB.prepare("DELETE FROM link_items WHERE token = ?").bind(token),
+      ctx.env.DB.prepare("DELETE FROM links WHERE token = ?").bind(token),
+    ]);
+    return json({ ok: true });
+  }
+  throw new HttpError(404, "not found");
+}
+
 async function createLink(ctx: Ctx): Promise<Response> {
   const j = (await ctx.req.json().catch(() => ({}))) as {
-    scope?: Scope; item?: string; ttl?: number; uses?: number; label?: string; max_bytes?: number;
+    scope?: Scope | "item"; items?: string[]; item?: string; ttl?: number; uses?: number; label?: string; max_bytes?: number;
   };
-  const scope = j.scope || (j.item ? "item" : "drop");
-  if (!["item", "drop", "read", "full"].includes(scope)) throw new HttpError(400, "scope must be item|drop|read|full");
-  if (scope === "item") {
-    if (!j.item) throw new HttpError(400, "item required");
-    const exists = await ctx.env.DB.prepare("SELECT id FROM items WHERE id = ?").bind(j.item).first();
-    if (!exists) throw new HttpError(404, "no such item");
-  }
+  // {scope: "item", item} is how clients asked for a one-item link before selections.
+  const items = j.items ?? (j.item ? [j.item] : undefined);
+  const scope = j.scope === "item" ? "read" : j.scope || (items ? "read" : "drop");
+  if (!["drop", "read", "full"].includes(scope)) throw new HttpError(400, "scope must be drop|read|full");
+  if (items && scope !== "read") throw new HttpError(400, "a link to picked items can only read");
   const link: Link = {
     token: randomToken(),
     scope,
-    item: scope === "item" ? j.item! : null,
+    realm: ctx.realm!.id,
+    selection: items ? 1 : 0,
     label: j.label?.slice(0, 40) || null,
     expires: j.ttl && j.ttl > 0 ? Date.now() + j.ttl * 1000 : null,
     max_uses: j.uses && j.uses > 0 ? j.uses : null,
@@ -538,21 +792,67 @@ async function createLink(ctx: Ctx): Promise<Response> {
     bytes: 0,
     created: Date.now(),
   };
-  await ctx.env.DB.prepare(
-    "INSERT INTO links (token, scope, item, label, expires, max_uses, uses, max_bytes, bytes, created) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?)",
-  ).bind(link.token, link.scope, link.item, link.label, link.expires, link.max_uses, link.max_bytes, link.created).run();
-  return json(publicLink(ctx, link), 201);
+  const picked = items ? await checkSelection(ctx, link.realm, items) : [];
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare(
+      "INSERT INTO links (token, scope, realm, selection, label, expires, max_uses, uses, max_bytes, bytes, created) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?)",
+    ).bind(link.token, link.scope, link.realm, link.selection, link.label, link.expires, link.max_uses, link.max_bytes, link.created),
+    ...selectionStmts(ctx, link.token, picked),
+  ]);
+  return json(publicLink(ctx, link, picked), 201);
+}
+
+/** Replaces what a selection link sees. */
+async function patchLink(ctx: Ctx, link: Link): Promise<Response> {
+  const j = (await ctx.req.json().catch(() => ({}))) as { items?: string[] };
+  if (!j.items) throw new HttpError(400, "nothing to change");
+  if (!link.selection) throw new HttpError(400, "this link sees the whole realm");
+  const picked = await checkSelection(ctx, link.realm, j.items);
+  await ctx.env.DB.batch([
+    ctx.env.DB.prepare("DELETE FROM link_items WHERE token = ?").bind(link.token),
+    ...selectionStmts(ctx, link.token, picked),
+  ]);
+  return json(publicLink(ctx, link, picked));
+}
+
+/** The picked ids, deduplicated, once they're all known to be in the realm. */
+async function checkSelection(ctx: Ctx, realm: string, items: unknown): Promise<string[]> {
+  if (!Array.isArray(items) || !items.length || !items.every((i) => typeof i === "string")) {
+    throw new HttpError(400, "items must be a list of item ids");
+  }
+  const ids = [...new Set(items as string[])];
+  // json_each keeps it one bound parameter; D1 allows only 100 per query.
+  const found = await ctx.env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM items WHERE realm = ? AND id IN (SELECT value FROM json_each(?))",
+  ).bind(realm, JSON.stringify(ids)).first<{ n: number }>();
+  if (found?.n !== ids.length) throw new HttpError(404, "no such item");
+  return ids;
+}
+
+function selectionStmts(ctx: Ctx, token: string, ids: string[]) {
+  if (!ids.length) return [];
+  return [
+    ctx.env.DB.prepare("INSERT INTO link_items (token, item) SELECT ?, value FROM json_each(?)").bind(token, JSON.stringify(ids)),
+  ];
 }
 
 async function listLinks(ctx: Ctx): Promise<Response> {
+  const realm = ctx.realm ? " AND links.realm = ?" : "";
+  const args = [Date.now(), ...(ctx.realm ? [ctx.realm.id] : [])];
   const { results } = await ctx.env.DB.prepare(
-    "SELECT * FROM links WHERE expires IS NULL OR expires > ? ORDER BY created DESC",
-  ).bind(Date.now()).all<Link>();
-  return json({ links: results.map((l) => publicLink(ctx, l)) });
+    `SELECT * FROM links WHERE (expires IS NULL OR expires > ?)${realm} ORDER BY created DESC`,
+  ).bind(...args).all<Link>();
+  const { results: picks } = await ctx.env.DB.prepare(
+    `SELECT link_items.* FROM link_items JOIN links ON links.token = link_items.token WHERE (expires IS NULL OR expires > ?)${realm}`,
+  ).bind(...args).all<{ token: string; item: string }>();
+  const byLink = new Map<string, string[]>();
+  for (const p of picks) byLink.set(p.token, [...(byLink.get(p.token) ?? []), p.item]);
+  return json({ links: results.map((l) => publicLink(ctx, l, byLink.get(l.token) ?? [])) });
 }
 
-function publicLink(ctx: Ctx, l: Link) {
-  return { ...l, url: `${ctx.url.origin}/s/${l.token}` };
+function publicLink(ctx: Ctx, l: Link, items: string[]) {
+  const { selection, ...rest } = l;
+  return { ...rest, ...(selection ? { items } : {}), url: `${ctx.url.origin}/s/${l.token}` };
 }
 
 /** Count one use of a limited link; throws once the link is spent. */
@@ -644,19 +944,33 @@ function cors(res: Response): Response {
 // ---------- docs for agents & a tiny page for humans ----------
 
 function agentHelp(ctx: Ctx): string {
-  const B = ctx.base;
+  // Above any one realm, the owner gets the realm routes spelled out with a placeholder id.
+  const B = ctx.realm ? ctx.base : `${ctx.base}/realms/<realm>`;
   const auth = ctx.scope === "owner" ? ` -H "Authorization: Bearer $REALM_TOKEN"` : "";
   const exp = ctx.link?.expires ? `Expires ${new Date(ctx.link.expires).toISOString()}.` : "Does not expire.";
   const uses = ctx.link?.max_uses != null ? ` ${ctx.link.max_uses - ctx.link.uses} uses left.` : "";
+  const picked = ctx.link?.selection ? " This link sees only the items picked for it." : "";
   const out = [
-    `# realm — ${ctx.scope} access`,
+    `# realm — ${ctx.realm ? `"${ctx.realm.name}", ` : ""}${ctx.scope} access`,
     ``,
-    `realm is a personal dump of notes and files. ${ctx.link ? exp + uses : ""}`,
+    `realm is a personal dump of notes and files, kept in realms.${picked} ${ctx.link ? exp + uses : ""}`,
     `Base URL: ${B}`,
     `No login needed beyond this URL${auth ? " plus the bearer token" : ""}. All responses are JSON unless noted.`,
+    `curl -s${auth} "${B}/info"   # what this access allows, without spending a use`,
     ``,
   ];
-  const item = `Item: {id, kind: note|link|image|audio|video|file, text, name, mime, size, src, created(epoch ms)}`;
+  if (ctx.scope === "owner" && !ctx.realm) {
+    out.push(
+      `## Realms`,
+      `curl -s${auth} "${ctx.base}/realms"   → {"realms": [{id, name, created, count, updated}]}`,
+      `curl -s${auth} -X POST "${ctx.base}/realms" -H 'content-type: application/json' -d '{"name":"Trip"}'`,
+      `curl -s${auth} -X PATCH "${ctx.base}/realms/<realm>" -H 'content-type: application/json' -d '{"name":"Holiday"}'`,
+      `curl -s${auth} -X DELETE "${ctx.base}/realms/<realm>"   # deletes everything in it`,
+      `The routes below work per realm. Without /realms/<realm>, they use the first realm.`,
+      ``,
+    );
+  }
+  const item = `Item: {id, kind: note|link|image|audio|video|file, text, name, mime, size, realm, src, created(epoch ms)}`;
   if (SCOPES.read.includes(ctx.scope)) {
     out.push(
       `## Find things`,
@@ -699,8 +1013,11 @@ function agentHelp(ctx: Ctx): string {
     out.push(
       `## Share links`,
       `curl -s${auth} -X POST "${B}/links" -H 'content-type: application/json' -d '{"scope":"drop","ttl":86400,"label":"bob"}'`,
-      `scope: item (needs "item": id) | drop | read | full · ttl seconds (omit = forever) · uses (omit = unlimited) · max_bytes upload budget`,
+      `curl -s${auth} -X POST "${B}/links" -H 'content-type: application/json' -d '{"items":["<id>","<id>"],"uses":3}'   # just these items`,
+      `scope: drop | read | full · items: ids to share only those (read only; one item downloads at the link itself)`,
+      `ttl seconds (omit = forever) · uses (omit = unlimited) · max_bytes upload budget`,
       `curl -s${auth} "${B}/links"  ·  curl -s${auth} -X DELETE "${B}/links/<token>"`,
+      `curl -s${auth} -X PATCH "${B}/links/<token>" -H 'content-type: application/json' -d '{"items":["<id>"]}'   # change what it shares`,
       ``,
     );
   }
@@ -749,11 +1066,13 @@ async function htmlPage(ctx: Ctx): Promise<Response> {
 <span class=hint>Ctrl+Enter to send</span><button id=go class=send title=Send>${svg("send")}</button></div>
 <div id=log></div></section>`
     : "";
-  const sub = ctx.scope === "drop" ? "Drop notes and files here" : ctx.scope === "read" ? "Read-only" : "Shared dump";
+  const sub = ctx.scope === "drop" ? "Drop notes and files here" : ctx.link?.selection ? "Shared with you"
+    : ctx.scope === "read" ? "Read-only" : "Shared dump";
+  const title = esc(ctx.realm?.name || "realm");
   const exp = ctx.link?.expires ? ` · link expires <time data-t="${ctx.link.expires}"></time>` : "";
 
   const body = `<!doctype html><html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>realm</title><style>
+<title>${title}</title><style>
 :root{color-scheme:dark;--bg:#0e0e11;--card:#18181d;--card2:#1f1f26;--line:#2a2a33;--text:#e7e7ea;--mute:#8a8a96;--a:#9d8cff;--on-a:#0e0e11;--tile:#2a2547;--on-tile:#e4deff;--err:#ff7a85}
 @media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#fafafb;--card:#f1f1f4;--card2:#eaeaee;--line:#dadae0;--text:#1b1b1f;--mute:#6b6b76;--a:#5b48e8;--on-a:#fff;--tile:#e8e4ff;--on-tile:#1e1650;--err:#d93a4a}}
 *{box-sizing:border-box}html{background:var(--bg)}
@@ -790,7 +1109,7 @@ textarea::placeholder,input::placeholder{color:var(--mute)}
 .meta{display:block;margin:4px 0 0 8px;color:var(--mute);font-size:11px;opacity:.85}
 .empty{color:var(--mute);text-align:center;margin:48px 0}
 </style>
-<header><h1>realm</h1><p>${sub}${exp}</p></header>${composer}${feed}
+<header><h1>${title}</h1><p>${sub}${exp}</p></header>${composer}${feed}
 <script>
 const B=${JSON.stringify(ctx.base)},P=32*1024*1024,R=${canRead},$=id=>document.getElementById(id);
 for(const t of document.querySelectorAll('time[data-t]')){const d=new Date(+t.dataset.t);t.textContent=d.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}

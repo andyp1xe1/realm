@@ -1,6 +1,5 @@
 // Minimal in-memory stand-ins for D1 (backed by node:sqlite) and R2, enough to exercise the worker.
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
 
 class Stmt {
   db: DatabaseSync;
@@ -27,12 +26,24 @@ class Stmt {
   }
 }
 
-export function mockD1() {
-  const db = new DatabaseSync(":memory:");
-  db.exec(readFileSync(new URL("../schema.sql", import.meta.url), "utf8"));
+/** An empty database, like a fresh D1; the worker creates its tables on the first request. */
+export function mockD1(db = new DatabaseSync(":memory:")) {
   return {
+    db,
     prepare: (sql: string) => new Stmt(db, sql),
-    batch: async (stmts: Stmt[]) => Promise.all(stmts.map((s) => s.run())),
+    // Like D1, a batch is one transaction.
+    batch: async (stmts: Stmt[]) => {
+      db.exec("BEGIN");
+      try {
+        const out = [];
+        for (const s of stmts) out.push(await s.run());
+        db.exec("COMMIT");
+        return out;
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    },
   };
 }
 
@@ -97,8 +108,8 @@ export function mockR2() {
       }
       return { ...meta(key, o), body: new Response(data).body };
     },
-    async delete(key: string) {
-      objects.delete(key);
+    async delete(keys: string | string[]) {
+      for (const k of [keys].flat()) objects.delete(k);
     },
     async createMultipartUpload(key: string, opts?: { httpMetadata?: { contentType?: string } }) {
       const id = `mp${++n}`;

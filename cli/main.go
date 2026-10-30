@@ -28,7 +28,7 @@ const usage = `realm — dump notes and files from anywhere
   realm cat <id|last>             print a note or file to stdout
   realm edit <id> <text...>       replace a note's text / a file's caption
   realm rm <id>...                delete
-  realm link <id>                 download link for one item   (--ttl 1d  --uses 3)
+  realm link <id>...              link to just these items     (--ttl 1d  --uses 3)
   realm link --drop|--read|--full share link for the whole dump (--ttl --label --max-size)
   realm links                     list active links
   realm revoke <token>            kill a link
@@ -49,14 +49,14 @@ type Item struct {
 }
 
 type Link struct {
-	Token   string  `json:"token"`
-	Scope   string  `json:"scope"`
-	Item    *string `json:"item"`
-	Label   *string `json:"label"`
-	Expires *int64  `json:"expires"`
-	MaxUses *int64  `json:"max_uses"`
-	Uses    int64   `json:"uses"`
-	URL     string  `json:"url"`
+	Token   string   `json:"token"`
+	Scope   string   `json:"scope"`
+	Items   []string `json:"items"`
+	Label   *string  `json:"label"`
+	Expires *int64   `json:"expires"`
+	MaxUses *int64   `json:"max_uses"`
+	Uses    int64    `json:"uses"`
+	URL     string   `json:"url"`
 }
 
 type Client struct {
@@ -145,7 +145,8 @@ func login(args []string) error {
 	if c.token == "" && !strings.Contains(c.base, "/s/") {
 		return errors.New("a server url needs a token; share links (…/s/<token>) don't")
 	}
-	if err := c.do("GET", "/", nil, nil); err != nil {
+	// /info answers for any link without downloading anything or spending a use.
+	if err := c.do("GET", "/info", nil, nil); err != nil {
 		return fmt.Errorf("can't reach %s: %w", c.base, err)
 	}
 	p := configPath()
@@ -546,14 +547,18 @@ func (c *Client) link(args []string) error {
 		body["scope"] = "read"
 	case *full:
 		body["scope"] = "full"
-	case fs.NArg() == 1:
-		it, err := c.resolve(fs.Arg(0))
-		if err != nil {
-			return err
+	case fs.NArg() > 0:
+		var ids []string
+		for _, a := range fs.Args() {
+			it, err := c.resolve(a)
+			if err != nil {
+				return err
+			}
+			ids = append(ids, it.ID)
 		}
-		body["scope"], body["item"] = "item", it.ID
+		body["items"] = ids
 	default:
-		return errors.New("usage: realm link <id> | --drop | --read | --full")
+		return errors.New("usage: realm link <id>... | --drop | --read | --full")
 	}
 	if *ttl != "" {
 		d, err := parseDur(*ttl)
@@ -598,8 +603,8 @@ func (c *Client) links() error {
 			uses += "/" + strconv.FormatInt(*l.MaxUses, 10)
 		}
 		what := l.Scope
-		if l.Item != nil {
-			what += ":" + *l.Item
+		if l.Items != nil {
+			what += ":" + strings.Join(l.Items, ",")
 		}
 		if l.Label != nil {
 			what += " (" + *l.Label + ")"

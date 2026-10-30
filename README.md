@@ -1,6 +1,6 @@
 # realm
 
-realm is a personal dump for notes and files. Anything you type, paste, drop, or record lands in one searchable place, and a share link gives a friend or an agent access without a login.
+realm is a personal dump for notes and files. Anything you type, paste, drop, or record lands in a searchable realm, and a share link gives a friend or an agent access without a login. One deployment holds as many realms as you like.
 
 <p>
   <img src="docs/app.png" alt="The realm app: a feed of notes, a link, a voice note, and a PDF, with the composer at the bottom" width="300">
@@ -22,11 +22,10 @@ cd worker
 npm install
 npx wrangler login
 npm run deploy      # creates the R2 bucket and D1 database
-npm run db:init
 openssl rand -base64 32 | tee /dev/stderr | npx wrangler secret put REALM_TOKEN
 ```
 
-The last command prints your owner token. To run the worker locally with in-memory storage and the token `dev`, run `npm run serve`.
+The last command prints your owner token. The worker sets up and upgrades its own tables on the first request, so redeploying is the whole upgrade. To run the worker locally with in-memory storage and the token `dev`, run `npm run serve`.
 
 ## Use the CLI
 
@@ -54,16 +53,17 @@ On first launch, enter the worker URL and token, or a share link. To create and 
 
 ## Share links
 
-Each link lives at `https://…/s/<token>` and can have an expiry and a use limit. Links that can upload can also have a size budget.
+Each link opens one realm at `https://…/s/<token>` and can have an expiry and a use limit. Links that can upload can also have a size budget.
 
 | Scope  | Allows                                   |
 |--------|------------------------------------------|
-| `item` | Downloading one item                     |
 | `drop` | Adding notes and files                   |
 | `read` | Listing, searching, and downloading      |
 | `full` | Everything except managing links         |
 
-Fetched with curl, a link returns markdown instructions for exactly what it allows. In a browser, a drop link shows an upload page and a read link shows a searchable list. The owner API is the same at `/api/` with `Authorization: Bearer $REALM_TOKEN`.
+A `read` link can also share just a selection of items, and you can change the selection later. A selection of one item downloads straight from the link. `GET /s/<token>/info` describes a link without using it up.
+
+Fetched with curl, a link returns markdown instructions for exactly what it allows. In a browser, a drop link shows an upload page and a read link shows a searchable list. The owner API is the same at `/api/realms/<id>/` with `Authorization: Bearer $REALM_TOKEN`. Realms are listed and created at `/api/realms`, and the plain `/api/` routes use your first realm.
 
 ## Limits
 
