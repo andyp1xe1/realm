@@ -69,9 +69,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.backhandler.BackHandler
-import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.text.style.TextOverflow
 import realm.Home
 import realm.Model
@@ -96,11 +101,7 @@ fun App(platform: Platform) {
 
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.TopCenter) {
-                when {
-                    home.isEmpty -> Setup(home)
-                    model != null -> Main(model, home.open?.name.orEmpty(), onBack = home::close)
-                    else -> Grid(home)
-                }
+                if (home.isEmpty) Setup(home) else Tabs(home)
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp)) {
                     Snackbar(it, shape = MaterialTheme.shapes.small, containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)
                 }
@@ -119,10 +120,38 @@ fun App(platform: Platform) {
     }
 }
 
-/** One realm's feed. [onBack] returns to the overview. */
-@OptIn(ExperimentalComposeUiApi::class)
+/** The current realm's feed, or the tab overview zoomed out from it. */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun Main(model: Model, title: String, onBack: () -> Unit) {
+fun Tabs(home: Home) {
+    // Keyed by the realm, not the Space: a fresh Space each recomposition would restart the animation.
+    val current = home.openKey.takeUnless { home.showingTabs || home.model == null }
+    SharedTransitionLayout {
+        AnimatedContent(
+            current,
+            transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(160)) },
+            contentAlignment = Alignment.TopCenter,
+        ) { key ->
+            CompositionLocalProvider(LocalSharedTransition provides this@SharedTransitionLayout, LocalTabTransition provides this) {
+                val space = key?.let { k -> home.spaces.firstOrNull { it.key == k } }
+                if (space == null) {
+                    Grid(home)
+                } else {
+                    Box(
+                        Modifier.fillMaxSize().tabBounds(space.key, MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        Main(home.modelOf(space), space.name, tabs = home.spaces.size, onTabs = home::showTabs)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One realm's feed. [onTabs] zooms out to the tab overview. */
+@Composable
+fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
     var searching by remember { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
     val searchFocus = remember { FocusRequester() }
@@ -138,23 +167,19 @@ fun Main(model: Model, title: String, onBack: () -> Unit) {
         model.filter = Filter.All
     }
 
-    BackHandler(enabled = !searching, onBack = onBack)
 
     Column(
-        Modifier.widthIn(max = 820.dp).fillMaxSize().onPreviewKeyEvent { e ->
+        Modifier.widthIn(max = PageWidth).fillMaxSize().onPreviewKeyEvent { e ->
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when {
                 e.key == Key.F && (e.isCtrlPressed || e.isMetaPressed) -> { searching = true; true }
                 e.key == Key.Escape && searching -> { closeSearch(); true }
                 else -> false
             }
-        }.onKeyEvent { e ->
-            // After the composer, which uses Escape itself while editing or expanded.
-            if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) { onBack(); true } else false
         },
     ) {
         // top bar
-        Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (searching) {
                 IconButton(onClick = ::closeSearch) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close search") }
                 var q by remember { mutableStateOf(TextFieldValue(model.query)) }
@@ -170,17 +195,10 @@ fun Main(model: Model, title: String, onBack: () -> Unit) {
                 if (q.text.isNotEmpty()) IconButton(onClick = { q = TextFieldValue(""); model.query = "" }) { Icon(Icons.Outlined.Close, "Clear") }
                 LaunchedEffect(Unit) { searchFocus.requestFocus() }
             } else {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "All realms") }
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(start = 4.dp),
-                )
+                PageTitle(title, Modifier.weight(1f))
                 ShareButton { showShare = true }
                 IconButton(onClick = { searching = true }) { Icon(Icons.Outlined.Search, "Search") }
+                TabsButton(tabs, onTabs)
             }
         }
         AnimatedVisibility(searching) {
@@ -211,7 +229,23 @@ fun Main(model: Model, title: String, onBack: () -> Unit) {
         }
     }
 
-    if (showShare) ShareDialog(model) { showShare = false }
+    if (showShare) ShareDialog(model, title) { showShare = false }
+}
+
+/** Height of both screens' top bars; their text starts where the content's gutter does, plus a little. */
+val TopBarHeight = 56.dp
+
+/** The top bar's title, lined up with the page content below it. */
+@Composable
+fun PageTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.padding(start = PageGutter),
+    )
 }
 
 @Composable

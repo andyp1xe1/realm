@@ -1,5 +1,6 @@
 package realm
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -39,6 +40,8 @@ class Pending(val key: Int, val text: String?, val file: LocalFile?, val caption
  */
 class Model(val platform: Platform, private val scope: CoroutineScope, val api: Api, private val loadImages: Boolean = true) {
     val items = mutableStateListOf<Item>() // newest first
+    /** The feed's scroll position, kept here so it survives a trip through the tab overview. */
+    val listState = LazyListState()
     val pending = mutableStateListOf<Pending>()
     /** Files waiting in the composer for a caption and a tap on send. */
     val staged = mutableStateListOf<LocalFile>()

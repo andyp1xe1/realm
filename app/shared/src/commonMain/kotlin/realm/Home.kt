@@ -56,7 +56,11 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         private set
     val realms = mutableStateListOf<Realm>()
     val shared = mutableStateListOf<Space.Shared>()
+    /** The current realm, like the current tab; the first one unless another was open last time. */
     var openKey by mutableStateOf<String?>(null)
+        private set
+    /** The tab overview is up instead of the current realm's feed. */
+    var showingTabs by mutableStateOf(false)
         private set
     /** Files or text from outside that arrived with no realm open, waiting for one to be picked. */
     var incoming by mutableStateOf<Incoming?>(null)
@@ -75,7 +79,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
 
     val spaces: List<Space> get() = realms.map { own(it) } + shared
     val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
-    val model: Model? get() = open?.let(::model)
+    val model: Model? get() = open?.let(::modelOf)
     val isEmpty get() = server == null && shared.isEmpty()
 
     init {
@@ -90,7 +94,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         prefs.get("links")?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.forEach { url ->
             shared += Space.Shared(url, null, null, linkApi(url))
         }
-        openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } }
+        openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
         refresh()
     }
 
@@ -135,7 +139,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
             realms.clear()
             realms.addAll(list)
             prefs.set("realms", json.encodeToString(list))
-            if (openKey?.startsWith("realm:") == true && open == null) close()
+            if (open == null) reopen()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -162,6 +166,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
 
     fun thumb(id: String): ImageBitmap? = thumbs[id]
 
+    /** An image for a tile: the open feed's copy if it has one, else the tile's own. */
+    fun image(space: Space, item: Item): ImageBitmap? = models[space.key]?.image(item.id) ?: thumbs[item.id]
+
     suspend fun loadThumb(space: Space, item: Item) {
         if (space.limited || item.id in thumbs || item.id in thumbLoading || (item.size ?: 0) > Model.MAX_INLINE_IMAGE) return
         thumbLoading += item.id
@@ -181,27 +188,38 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     fun open(space: Space) {
         openKey = space.key
         prefs.set("open", space.key)
+        showingTabs = false
         val waiting = incoming ?: return
         if (space.canWrite) {
-            model(space).receive(waiting)
+            modelOf(space).receive(waiting)
             incoming = null
         }
     }
 
-    fun close() {
-        openKey = null
-        prefs.set("open", null)
+    fun showTabs() {
+        showingTabs = true
+    }
+
+    /** Back to the current realm, if there is one. */
+    fun hideTabs() {
+        if (open != null) showingTabs = false
+    }
+
+    /** After the current realm goes away: the first one left, as when a browser tab closes. */
+    private fun reopen() {
+        openKey = spaces.firstOrNull()?.key
+        prefs.set("open", openKey)
     }
 
     /** Hands files or text from outside to the open realm, or holds them until one is picked. */
     fun receive(i: Incoming) {
         val m = model
-        if (m != null && open?.canWrite == true) return m.receive(i)
+        if (m != null && open?.canWrite == true && !showingTabs) return m.receive(i)
         incoming = i
         spaces.filter { it.canWrite }.singleOrNull()?.let(::open) // only one place it can go
     }
 
-    private fun model(space: Space): Model = models.getOrPut(space.key) { Model(platform, scope, space.api, loadImages = !space.limited) }
+    fun modelOf(space: Space): Model = models.getOrPut(space.key) { Model(platform, scope, space.api, loadImages = !space.limited) }
 
     // ---------- signing in and connecting ----------
 
@@ -231,7 +249,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         server?.close()
         server = null
         listOf("server", "token", "realms").forEach { prefs.set(it, null) }
-        if (open == null) close()
+        if (open == null) reopen()
     }
 
     /** Adds a share link as a tile and opens it; returns an error message or null. */
@@ -261,7 +279,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         shared.remove(space)
         forget(space.key)
         saveLinks()
-        if (openKey == space.key) close()
+        if (open == null) reopen()
     }
 
     private fun saveLinks() = prefs.set("links", json.encodeToString(shared.map { it.url }))
@@ -303,7 +321,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
                 realms.removeAll { it.id == realm.id }
                 forget(ownKey(realm.id))
                 prefs.set("realms", json.encodeToString(realms.toList()))
-                if (openKey == ownKey(realm.id)) close()
+                if (open == null) reopen()
             } catch (e: Exception) {
                 message = explain(e)
             }

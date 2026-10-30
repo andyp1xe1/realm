@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Audiotrack
@@ -74,11 +73,13 @@ import androidx.compose.material3.TextButton
 import realm.Item
 import realm.Model
 import realm.Pending
+import realm.Platform
+import androidx.compose.ui.graphics.ImageBitmap
 import realm.humanSize
 
 @Composable
 fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) {
-    val state = rememberLazyListState()
+    val state = model.listState
     val platform = model.platform
 
     // Newest at the bottom, like a chat. Index 0 is the bottom-most row.
@@ -114,7 +115,8 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) 
         state = state,
         reverseLayout = true,
         contentPadding = PaddingValues(bottom = bottomPadding),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        // Bottom: a short feed sits on the composer like a chat, not at the top with a gap below.
+        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.Bottom),
     ) {
         item { Spacer(Modifier.height(8.dp)) }
         items(model.pending.reversed(), key = { "p${it.key}" }) { PendingRow(it, model) }
@@ -127,6 +129,47 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) 
                 ItemRow(item, model)
             }
         }
+    }
+}
+
+private fun isInlineImage(item: Item) = item.kind == "image" && (item.size ?: 0) <= Model.MAX_INLINE_IMAGE
+
+private fun metaText(item: Item, platform: Platform) = buildString {
+    append(platform.formatTime(item.created))
+    item.src?.takeIf { it != platform.name }?.let { append(" · ").append(it) }
+}
+
+/** What's in an item's bubble; [image] is the picture, once there is one. */
+@Composable
+private fun ItemBody(item: Item, image: ImageBitmap?) {
+    when {
+        isInlineImage(item) -> ImageContent(item, image)
+        item.name != null -> Column {
+            FileRow(item.name, fileDetails(item.size, item.name)) { KindIcon(item.kind, item.mime) }
+            Caption(item.text)
+        }
+        else -> NoteContent(item.text.orEmpty())
+    }
+}
+
+/**
+ * The feed as a plain picture: the same rows, oldest first, with nothing to tap and nothing lazy.
+ * Tab tiles draw it at page size and shrink it, so it zooms seamlessly into the real feed.
+ */
+@Composable
+fun FeedPicture(items: List<Item>, platform: Platform, image: (Item) -> ImageBitmap?, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        var day: String? = null
+        for (item in items.asReversed()) {
+            val d = platform.formatDay(item.created)
+            if (d != day) DayHeader(d)
+            day = d
+            Column(Modifier.fillMaxWidth().padding(horizontal = PageGutter, vertical = 2.dp)) {
+                Bubble { ItemBody(item, image(item)) }
+                Meta(metaText(item, platform))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -170,7 +213,7 @@ private fun ItemRow(item: Item, model: Model) {
     val isFile = item.name != null
     val tap: () -> Unit = if (isFile) ({ model.open(item) }) else ({ menu = true })
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = PageGutter, vertical = 2.dp)) {
         Box {
             Bubble(
                 Modifier
@@ -188,23 +231,12 @@ private fun ItemRow(item: Item, model: Model) {
                     }
                     .combinedClickable(onClick = tap, onLongClick = { menu = true }),
             ) {
-                when {
-                    item.kind == "image" && (item.size ?: 0) <= Model.MAX_INLINE_IMAGE -> ImageContent(item, model)
-                    isFile -> Column {
-                        FileRow(item.name.orEmpty(), fileDetails(item.size, item.name)) { KindIcon(item.kind, item.mime) }
-                        Caption(item.text)
-                    }
-                    else -> NoteContent(item.text.orEmpty())
-                }
+                if (isInlineImage(item)) LaunchedEffect(item.id) { model.loadImage(item) }
+                ItemBody(item, model.image(item.id))
             }
             ItemMenu(item, model, menu, onDismiss = { menu = false }, onView = { viewing = true })
         }
-        Meta(
-            buildString {
-                append(model.platform.formatTime(item.created))
-                item.src?.takeIf { it != model.platform.name }?.let { append(" · ").append(it) }
-            },
-        )
+        Meta(metaText(item, model.platform))
     }
 
     if (viewing) TextViewer(item.text.orEmpty(), onCopy = { model.copy(item) }) { viewing = false }
@@ -252,9 +284,7 @@ private fun Caption(text: String?) {
 }
 
 @Composable
-private fun ImageContent(item: Item, model: Model) {
-    val bmp = model.image(item.id)
-    LaunchedEffect(item.id) { model.loadImage(item) }
+private fun ImageContent(item: Item, bmp: ImageBitmap?) {
     Column(Modifier.widthIn(max = 340.dp).fillMaxWidth()) {
         if (bmp != null) {
             val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.5f, 2.5f)

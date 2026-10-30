@@ -4,6 +4,7 @@ realm is a personal dump for notes and files. Anything you type, paste, drop, or
 
 <p>
   <img src="docs/app.png" alt="The realm app: a feed of notes, a link, a voice note, and a PDF, with the composer at the bottom" width="300">
+  <img src="docs/tabs.png" alt="The tab overview: realms and connected share links as tiles, each a small picture of its feed" width="300">
   <img src="docs/share.png" alt="The Share dialog with a prompt ready to copy for an agent and two active links" width="345">
 </p>
 
@@ -49,7 +50,7 @@ cd app
 ./gradlew :androidApp:installDebug
 ```
 
-On first launch, sign in with the worker URL and owner token, or connect a share link. The app opens on an overview of your realms. Share links you connect show up there as tiles too. To create and copy share links for a realm, open it and click the agent icons in the top bar.
+On first launch, sign in with the worker URL and owner token, or connect a share link. The app opens on your Main realm. The tabs button in the corner zooms out to all your realms, like a browser's tab overview, and share links you connect show up there as tiles too. The agent icons share the realm you have open.
 
 ## Share links
 

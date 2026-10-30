@@ -41,6 +41,7 @@ import realm.ui.Composer
 import realm.ui.RecordingPanel
 import realm.ui.Feed
 import realm.ui.Grid
+import realm.ui.Tabs
 import realm.ui.Main
 import realm.ui.RealmTheme
 import realm.ui.Setup
@@ -168,7 +169,28 @@ private fun home(feed: Model): Home {
         item("s1", "note", "shakshuka: 6 eggs, 2 tins tomatoes, cumin, feta"),
         item("s2", "link", "https://cooking.nytimes.com/recipes/1014721"),
     )
+    h.open(h.spaces.first())
+    h.showTabs()
     return h
+}
+
+/** Frames from the feed zooming out into the tab overview: zoom-0 is before, zoom-N about N×16ms in. */
+private fun zoom(h: Home) {
+    h.open(h.spaces.first())
+    val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
+        RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Tabs(h) } }
+    }
+    var t = 0L
+    fun frame() = scene.render(t).also { t += 16_000_000L }
+    repeat(30) { frame() }
+    File(out, "zoom-0.png").writeBytes(frame().encodeToData(EncodedImageFormat.PNG)!!.bytes)
+    h.showTabs()
+    for (n in 1..40) {
+        val img = frame()
+        if (n in setOf(6, 12, 18, 40)) File(out, "zoom-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+    }
+    scene.close()
+    println("${out.path}/zoom-*.png")
 }
 
 /** Same arrangement as the real screen: the composer floats over the bottom of the feed. */
@@ -192,7 +214,7 @@ fun main(args: Array<String>) {
     // The README screenshot: the whole app, top bar included.
     // No uploads in flight; realtimeMs lets the fetch from the unreachable server fail so the loading bar is gone.
     val clean = model().apply { pending.clear() }
-    shot("app", 400, 760, realtimeMs = 1500) { Main(clean, "Main") {} }
+    shot("app", 400, 760, realtimeMs = 1500) { Main(clean, "Main", tabs = 7) }
     shot("feed-light", 400, 820, dark = false) {
         Screen(m)
     }
@@ -248,5 +270,6 @@ fun main(args: Array<String>) {
         shot("grid-$label", w, h, realtimeMs = 1500) { Grid(home) }
     }
     shot("grid-light", 400, 820, dark = false) { Grid(home) }
+    zoom(home(m).also { it.modelOf(it.spaces.first()).items.addAll(m.items) })
     kotlin.system.exitProcess(0)
 }

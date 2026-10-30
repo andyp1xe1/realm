@@ -136,11 +136,11 @@ private enum class Format(val label: String) { Link("Link"), Prompt("Prompt"), D
  * Connected through a share link, there's nothing to create: that link is handed on as is.
  */
 @Composable
-fun ShareDialog(model: Model, onDismiss: () -> Unit) = Sheet(onDismiss) { ShareSheet(model, onDismiss) }
+fun ShareDialog(model: Model, title: String, onDismiss: () -> Unit) = Sheet(onDismiss) { ShareSheet(model, onDismiss, title = title) }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ShareSheet(model: Model, onClose: () -> Unit, initialUrl: String? = null) {
+fun ShareSheet(model: Model, onClose: () -> Unit, initialUrl: String? = null, title: String? = null) {
     val api = model.api
     val scope = rememberCoroutineScope()
     var access by remember { mutableStateOf("read") }
@@ -175,10 +175,10 @@ fun ShareSheet(model: Model, onClose: () -> Unit, initialUrl: String? = null) {
     }
 
     Column {
-        Text("Share", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(title?.let { "Share “$it”" } ?: "Share", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Anyone with the link gets this access. Agents can curl it for instructions.",
+            "Anyone with the link gets this access to ${title?.let { "“$it”" } ?: "this realm"}, and nothing else. Agents can curl it for instructions.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

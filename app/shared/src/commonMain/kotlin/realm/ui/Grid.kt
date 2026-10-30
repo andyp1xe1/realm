@@ -7,6 +7,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -51,6 +55,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -64,6 +70,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -73,32 +83,45 @@ import realm.Item
 import realm.Model
 import realm.Space
 
-/** The overview: every realm and connected link as a tile, like a browser's tab overview. */
+/**
+ * The overview: every realm and connected link as a tile, like a browser's tab overview. The current one
+ * is outlined; the tabs button, in the same corner as on the feed, goes back to it.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun Grid(home: Home) {
     var adding by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
+    val spaces = home.spaces
+    // Start scrolled to the current tab, so the feed has a tile on screen to zoom into.
+    val grid = rememberLazyGridState(initialFirstVisibleItemIndex = spaces.indexOfFirst { it.key == home.openKey } + 1)
     LaunchedEffect(Unit) { home.refresh() }
+    BackHandler(enabled = home.open != null) { home.hideTabs() }
 
-    Column(Modifier.widthIn(max = 1100.dp).fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Wordmark()
-            Spacer(Modifier.weight(1f))
+    Column(Modifier.widthIn(max = PageWidth).fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).padding(start = PageGutter)) { Wordmark() }
             IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, "Settings") }
+            TabsButton(spaces.size) { home.hideTabs() }
         }
         Box(Modifier.fillMaxWidth().height(2.dp)) {
             if (home.loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent)
         }
         home.incoming?.let { IncomingBanner(it) { home.incoming = null } }
+        // Tiles draw their feed laid out this wide, then shrink it, so it matches the feed they zoom into.
+        val page = LocalWindowInfo.current.containerDpSize.width.coerceAtMost(PageWidth)
         LazyVerticalGrid(
             GridCells.Adaptive(150.dp),
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            state = grid,
+            contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 8.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(PageGutter),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            items(home.spaces, key = { it.key }) { Tile(home, it, dimmed = home.incoming != null && !it.canWrite) }
             item(key = "add") { AddTile(if (home.server != null) "New realm" else "Add a link") { adding = true } }
+            items(spaces, key = { it.key }) {
+                Tile(home, it, page, current = it.key == home.openKey, dimmed = home.incoming != null && !it.canWrite)
+            }
         }
     }
 
@@ -116,7 +139,7 @@ private fun IncomingBanner(incoming: Incoming, onCancel: () -> Unit) {
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 8.dp),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Pick a realm for $what", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -125,12 +148,12 @@ private fun IncomingBanner(incoming: Incoming, onCancel: () -> Unit) {
     }
 }
 
-/** Shape of every tile's card: portrait, like a page. */
-private const val TileRatio = 0.78f
+/** Tiles are square. */
+private const val TileRatio = 1f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Tile(home: Home, space: Space, dimmed: Boolean) {
+private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: Boolean) {
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
@@ -139,10 +162,13 @@ private fun Tile(home: Home, space: Space, dimmed: Boolean) {
         Box {
             Surface(
                 shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceContainer,
+                // The page's own colour: the tile is a picture of the page.
+                color = MaterialTheme.colorScheme.background,
+                border = if (current) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(TileRatio)
+                    .tabBounds(space.key, MaterialTheme.shapes.large)
                     .clip(MaterialTheme.shapes.large)
                     .pointerInput(space.key) {
                         awaitPointerEventScope {
@@ -158,7 +184,7 @@ private fun Tile(home: Home, space: Space, dimmed: Boolean) {
                     .combinedClickable(enabled = !dimmed, onClick = { home.open(space) }, onLongClick = { menu = true }),
             ) {
                 Box {
-                    TilePreview(home, space)
+                    TilePreview(home, space, page)
                     if (space is Space.Shared) SharedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
                 }
             }
@@ -245,9 +271,9 @@ private fun SharedBadge(modifier: Modifier) {
     ) { Icon(Icons.Outlined.Link, "Shared with you", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
-/** What's inside, small: the latest items stacked like the feed, newest at the bottom. */
+/** What's inside: for a realm you can read, a shrunken picture of its feed; otherwise what the link is for. */
 @Composable
-private fun TilePreview(home: Home, space: Space) {
+private fun TilePreview(home: Home, space: Space, page: Dp) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val shared = space as? Space.Shared
     when {
@@ -260,20 +286,48 @@ private fun TilePreview(home: Home, space: Space) {
         }
         else -> {
             val items = home.preview(space)
-            if (items.isEmpty()) {
-                if (space is Space.Own && space.realm.count == 0L) Centered { Text("Empty", style = MaterialTheme.typography.labelSmall, color = muted) }
-                return
-            }
-            // Pinned to the bottom like the feed, so what doesn't fit is the oldest, cut off at the top.
-            Box(Modifier.fillMaxSize().clipToBounds()) {
-                Column(
-                    Modifier.align(Alignment.BottomStart).fillMaxWidth().wrapContentHeight(Alignment.Bottom, unbounded = true).padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    items.reversed().forEach { MiniItem(home, space, it) }
+            LaunchedEffect(items) { items.filter { it.kind == "image" }.forEach { home.loadThumb(space, it) } }
+            Miniature(page) {
+                Column(Modifier.fillMaxSize()) {
+                    // Pinned to the bottom like the feed, so what doesn't fit is the oldest, cut off at the top.
+                    Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                        if (items.isEmpty()) {
+                            if (space is Space.Own && space.realm.count == 0L) Text("Empty", Modifier.align(Alignment.Center), color = muted)
+                        } else {
+                            FeedPicture(
+                                items, home.platform, { home.image(space, it) },
+                                Modifier.align(Alignment.BottomStart).fillMaxWidth().wrapContentHeight(Alignment.Bottom, unbounded = true),
+                            )
+                        }
+                    }
+                    // Where the composer sits on the real page.
+                    if (space.canWrite) {
+                        Box(
+                            Modifier.fillMaxWidth().padding(8.dp).height(56.dp)
+                                .clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceContainer),
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+/** Lays [content] out [width] wide, as on the real page, then shrinks it to the space it's given. */
+@Composable
+private fun Miniature(width: Dp, content: @Composable () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
+        val scale = maxWidth / width
+        Box(
+            Modifier
+                .wrapContentSize(Alignment.TopStart, unbounded = true)
+                .requiredSize(width, maxHeight / scale)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    transformOrigin = TransformOrigin(0f, 0f)
+                },
+        ) { content() }
     }
 }
 
@@ -298,33 +352,6 @@ private fun SoleItem(home: Home, space: Space, item: Item) {
             Spacer(Modifier.height(8.dp))
             Text(it.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    }
-}
-
-/** A feed row at tile scale: images as thumbnails, files as icon + name, notes as a line or two. */
-@Composable
-private fun MiniItem(home: Home, space: Space, item: Item) {
-    val bubble = Modifier.clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainerHighest)
-    if (item.kind == "image" && (item.size ?: 0) <= Model.MAX_INLINE_IMAGE) {
-        val bmp = home.thumb(item.id)
-        LaunchedEffect(item.id) { home.loadThumb(space, item) }
-        Box(bubble.fillMaxWidth().height(64.dp)) {
-            bmp?.let { Image(it, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-        }
-        return
-    }
-    val style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp)
-    if (item.name != null) {
-        Row(bubble.padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(18.dp).clip(MaterialTheme.shapes.extraSmall).background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) { KindIcon(item.kind, item.mime, Modifier.size(12.dp)) }
-            Spacer(Modifier.width(5.dp))
-            Text(item.name, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    } else {
-        Text(item.text.orEmpty(), bubble.padding(horizontal = 7.dp, vertical = 5.dp), style = style, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
