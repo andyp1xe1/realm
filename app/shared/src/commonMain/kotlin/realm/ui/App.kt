@@ -77,7 +77,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import realm.Home
 import realm.Model
 import realm.Platform
@@ -235,26 +238,30 @@ fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
 /** Height of both screens' top bars; their text starts where the content's gutter does, plus a little. */
 val TopBarHeight = 56.dp
 
-/** The top bar's title, lined up with the page content below it. */
+/** The top bar's title, lined up with the page content below it: realm/<name>, or just realm. */
 @Composable
-fun PageTitle(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier.padding(start = PageGutter),
-    )
+fun PageTitle(realm: String?, modifier: Modifier = Modifier) {
+    Wordmark(realm = realm, modifier = modifier.padding(start = PageGutter))
 }
 
+/** "realm", or "realm/Main" inside a realm, with the "realm/" part muted. */
 @Composable
-fun Wordmark(size: Int = 20) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size((size * 0.45).dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-        Spacer(Modifier.width((size * 0.4).dp))
-        Text("realm", fontSize = size.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
-    }
+fun Wordmark(size: Int = 20, realm: String? = null, modifier: Modifier = Modifier) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        buildAnnotatedString {
+            if (realm == null) append("realm") else {
+                withStyle(SpanStyle(color = muted)) { append("realm/") }
+                append(realm)
+            }
+        },
+        modifier,
+        fontSize = size.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.5.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 /** Outlined fields are 56dp; buttons in the same form match them. */

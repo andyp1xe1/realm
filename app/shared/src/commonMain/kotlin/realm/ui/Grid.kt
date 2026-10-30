@@ -100,7 +100,7 @@ fun Grid(home: Home) {
 
     Column(Modifier.widthIn(max = PageWidth).fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f).padding(start = PageGutter)) { Wordmark() }
+            PageTitle(null, Modifier.weight(1f))
             IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, "Settings") }
             TabsButton(spaces.size) { home.hideTabs() }
         }

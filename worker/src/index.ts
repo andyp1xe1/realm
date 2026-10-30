@@ -1068,18 +1068,18 @@ async function htmlPage(ctx: Ctx): Promise<Response> {
     : "";
   const sub = ctx.scope === "drop" ? "Drop notes and files here" : ctx.link?.selection ? "Shared with you"
     : ctx.scope === "read" ? "Read-only" : "Shared dump";
-  const title = esc(ctx.realm?.name || "realm");
+  const name = ctx.realm ? esc(ctx.realm.name) : "";
   const exp = ctx.link?.expires ? ` · link expires <time data-t="${ctx.link.expires}"></time>` : "";
 
   const body = `<!doctype html><html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>${title}</title><style>
+<title>realm${name ? "/" + name : ""}</title><style>
 :root{color-scheme:dark;--bg:#0e0e11;--card:#18181d;--card2:#1f1f26;--line:#2a2a33;--text:#e7e7ea;--mute:#8a8a96;--a:#9d8cff;--on-a:#0e0e11;--tile:#2a2547;--on-tile:#e4deff;--err:#ff7a85}
 @media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#fafafb;--card:#f1f1f4;--card2:#eaeaee;--line:#dadae0;--text:#1b1b1f;--mute:#6b6b76;--a:#5b48e8;--on-a:#fff;--tile:#e8e4ff;--on-tile:#1e1650;--err:#d93a4a}}
 *{box-sizing:border-box}html{background:var(--bg)}
 body{font:15px/22px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--text);max-width:680px;margin:0 auto;padding:40px 16px 64px}
 svg{width:22px;height:22px;fill:currentColor;flex:none}
-header{margin:0 4px 20px}h1{display:flex;align-items:center;gap:9px;margin:0;font-size:20px;font-weight:600;letter-spacing:.02em}
-h1:before{content:"";width:9px;height:9px;border-radius:50%;background:var(--a)}header p{margin:4px 0 0;color:var(--mute);font-size:13px}
+header{margin:0 4px 20px}h1{margin:0;font-size:20px;font-weight:600;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+h1 span{color:var(--mute)}header p{margin:4px 0 0;color:var(--mute);font-size:13px}
 .composer{background:var(--card);border-radius:22px;padding:6px;outline:2px solid transparent;transition:outline-color .15s}
 body.over .composer{outline-color:var(--a)}
 textarea{display:block;width:100%;min-height:72px;max-height:50vh;resize:none;border:0;outline:0;background:none;color:inherit;font:inherit;padding:12px 14px 4px}
@@ -1109,7 +1109,7 @@ textarea::placeholder,input::placeholder{color:var(--mute)}
 .meta{display:block;margin:4px 0 0 8px;color:var(--mute);font-size:11px;opacity:.85}
 .empty{color:var(--mute);text-align:center;margin:48px 0}
 </style>
-<header><h1>${title}</h1><p>${sub}${exp}</p></header>${composer}${feed}
+<header><h1>${name ? `<span>realm/</span>${name}` : "realm"}</h1><p>${sub}${exp}</p></header>${composer}${feed}
 <script>
 const B=${JSON.stringify(ctx.base)},P=32*1024*1024,R=${canRead},$=id=>document.getElementById(id);
 for(const t of document.querySelectorAll('time[data-t]')){const d=new Date(+t.dataset.t);t.textContent=d.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}

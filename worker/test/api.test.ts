@@ -346,7 +346,7 @@ test("realms: create, list, isolate, rename, delete", async () => {
   assert.equal(rl.realm, trip.id);
   const p = new URL(rl.url).pathname;
   assert.deepEqual((await (await call(`${p}/items`)).json()).items.map((i: { id: string }) => i.id), [f.id, n.id]);
-  assert.match(await (await call(p, { headers: { accept: "text/html" } })).text(), /<h1>Holiday<\/h1>/);
+  assert.match(await (await call(p, { headers: { accept: "text/html" } })).text(), /<h1><span>realm\/<\/span>Holiday<\/h1>/);
   await mkLink(call, { scope: "drop" });
   assert.equal((await (await call("/api/links")).json()).links.length, 2);
   assert.equal((await (await call(`${T}/links`)).json()).links.length, 1);
