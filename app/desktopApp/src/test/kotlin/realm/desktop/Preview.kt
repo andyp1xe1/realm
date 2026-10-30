@@ -20,8 +20,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
 import org.jetbrains.skia.EncodedImageFormat
+import realm.Api
 import realm.ByteReader
+import realm.Home
+import realm.Info
 import realm.Item
+import realm.Realm
+import realm.Space
 import realm.LocalFile
 import realm.Model
 import realm.Pending
@@ -35,6 +40,7 @@ import realm.ui.ShareSheet
 import realm.ui.Composer
 import realm.ui.RecordingPanel
 import realm.ui.Feed
+import realm.ui.Grid
 import realm.ui.Main
 import realm.ui.RealmTheme
 import realm.ui.Setup
@@ -47,9 +53,9 @@ import kotlin.math.sin
 
 private val real by lazy { DesktopPlatform() }
 
-private class FakePlatform(url: String?) : Platform {
+private class FakePlatform(vararg prefs: Pair<String, String>) : Platform {
     override val name = "desktop"
-    private val map = mutableMapOf<String, String?>("url" to url, "token" to "t")
+    private val map = mutableMapOf<String, String?>(*prefs)
     override val prefs = object : Prefs {
         override fun get(key: String) = map[key]
         override fun set(key: String, value: String?) { map[key] = value }
@@ -105,7 +111,7 @@ private fun shot(name: String, wDp: Int, hDp: Int, dark: Boolean = true, realtim
 
 private fun model(): Model {
     // Unreachable server: nothing is fetched, we fill the lists by hand.
-    val m = Model(FakePlatform("http://127.0.0.1:9"), CoroutineScope(Dispatchers.Unconfined))
+    val m = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:9/api", "t", "desktop"))
     val now = System.currentTimeMillis()
     fun item(i: Int, kind: String, text: String? = null, name: String? = null, mime: String? = null, size: Long? = null, src: String? = null) =
         Item("id$i", kind, text, name, mime, size, src, now - i * 600_000L)
@@ -129,6 +135,42 @@ private fun model(): Model {
     return m
 }
 
+/** Signed in to an unreachable server, with realms, connected links, and tile previews filled in by hand. */
+private fun home(feed: Model): Home {
+    val h = Home(FakePlatform("server" to "http://127.0.0.1:9", "token" to "t"), CoroutineScope(Dispatchers.Unconfined))
+    val now = System.currentTimeMillis()
+    fun item(id: String, kind: String, text: String? = null, name: String? = null, mime: String? = null) =
+        Item(id, kind, text, name, mime, 1000, null, now)
+    h.realms += listOf(
+        Realm("main", "Main", now, 214, now),
+        Realm("trip", "Lisbon trip", now, 37, now - 86_400_000),
+        Realm("tax", "Tax 2026", now, 12, now - 9 * 86_400_000),
+        Realm("new", "Ideas", now, 0, null),
+    )
+    h.previews["realm:main"] = feed.items
+    h.previews["realm:trip"] = listOf(
+        item("t1", "note", "flight TP1351 lands 9:40, taxi rank is left of arrivals"),
+        item("t2", "file", name = "boarding-pass.pdf", mime = "application/pdf"),
+        item("t3", "link", "https://www.timeout.com/lisbon/restaurants"),
+    )
+    h.previews["realm:tax"] = listOf(
+        item("x1", "file", name = "invoice-0423.pdf", mime = "application/pdf"),
+        item("x2", "file", name = "receipts.zip", mime = "application/zip"),
+        item("x3", "note", "ask about the home office deduction"),
+    )
+    val sam = "https://realm.sam.dev/s/k2"
+    val file = "https://realm.sam.dev/s/f9"
+    val drop = "https://realm.jo.dev/s/d4"
+    h.shared += Space.Shared(sam, Info(scope = "read", realm = Realm("r", "Sam's recipes")), null, Api(sam, null, "desktop"))
+    h.shared += Space.Shared(file, Info(scope = "read", items = 1, item = item("f", "file", name = "lease-draft.pdf", mime = "application/pdf")), null, Api(file, null, "desktop"))
+    h.shared += Space.Shared(drop, Info(scope = "drop", realm = Realm("d", "Jo's inbox")), null, Api(drop, null, "desktop"))
+    h.previews["link:$sam"] = listOf(
+        item("s1", "note", "shakshuka: 6 eggs, 2 tins tomatoes, cumin, feta"),
+        item("s2", "link", "https://cooking.nytimes.com/recipes/1014721"),
+    )
+    return h
+}
+
 /** Same arrangement as the real screen: the composer floats over the bottom of the feed. */
 @Composable
 private fun Screen(m: Model) {
@@ -150,7 +192,7 @@ fun main(args: Array<String>) {
     // The README screenshot: the whole app, top bar included.
     // No uploads in flight; realtimeMs lets the fetch from the unreachable server fail so the loading bar is gone.
     val clean = model().apply { pending.clear() }
-    shot("app", 400, 760, realtimeMs = 1500) { Main(clean) }
+    shot("app", 400, 760, realtimeMs = 1500) { Main(clean, "Main") {} }
     shot("feed-light", 400, 820, dark = false) {
         Screen(m)
     }
@@ -190,7 +232,7 @@ fun main(args: Array<String>) {
     shot("agents", 200, 80) {
         androidx.compose.foundation.layout.Column(Modifier.padding(8.dp)) { ShareButton {}; ShareButton(expanded = true) {} }
     }
-    val sharing = Model(FakePlatform("https://realm.example.dev"), CoroutineScope(Dispatchers.Unconfined)).apply {
+    val sharing = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("https://realm.example.dev/api", "t", "desktop")).apply {
         val day = System.currentTimeMillis() + 86_400_000
         links += realm.Link("a1", "full", url = "https://realm.example.dev/s/a1", expires = day)
         links += realm.Link("b2", "read", label = "agent", url = "https://realm.example.dev/s/b2", expires = day, uses = 3)
@@ -200,6 +242,11 @@ fun main(args: Array<String>) {
             androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { ShareSheet(sharing, {}, url) }
         }
     }
-    shot("setup", 400, 700) { Setup(Model(FakePlatform(null), CoroutineScope(Dispatchers.Unconfined))) }
+    shot("setup", 400, 700) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
+    val home = home(m)
+    for ((label, w, h) in listOf(Triple("phone", 400, 820), Triple("desktop", 880, 640))) {
+        shot("grid-$label", w, h, realtimeMs = 1500) { Grid(home) }
+    }
+    shot("grid-light", 400, 820, dark = false) { Grid(home) }
     kotlin.system.exitProcess(0)
 }

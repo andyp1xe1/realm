@@ -1,0 +1,336 @@
+package realm
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
+
+/** A tile in the overview: one of your realms, or a share link you connected to. */
+sealed class Space(val key: String, val api: Api) {
+    abstract val name: String
+    abstract val canRead: Boolean
+    abstract val canWrite: Boolean
+    /** Every download spends one of the link's uses, so nothing is fetched just to show it. */
+    open val limited: Boolean get() = false
+
+    class Own(val realm: Realm, api: Api) : Space(ownKey(realm.id), api) {
+        override val name get() = realm.name
+        override val canRead get() = true
+        override val canWrite get() = true
+    }
+
+    /** [info] is null until the link has answered once; [error] is why it last didn't. */
+    class Shared(val url: String, val info: Info?, val error: String?, api: Api) : Space(sharedKey(url), api) {
+        override val name: String
+            get() = info?.item?.let { it.name ?: it.text?.lineSequence()?.firstOrNull() }
+                ?: info?.realm?.name
+                ?: url.substringAfter("://").substringBefore('/')
+        override val canRead get() = error == null && info?.scope in setOf("read", "full")
+        override val canWrite get() = error == null && info?.scope in setOf("drop", "full")
+        override val limited get() = info?.usesLeft != null
+    }
+}
+
+private fun ownKey(id: String) = "realm:$id"
+private fun sharedKey(url: String) = "link:$url"
+
+/**
+ * Everything above one feed: the server you're signed in to, its realms, the share links you've connected
+ * to, and which of them is open. Each space keeps its [Model] while the app runs, like a browser tab, so
+ * leaving a realm mid-upload doesn't stop the upload.
+ */
+class Home(val platform: Platform, private val scope: CoroutineScope) {
+    /** The owner API of the server you're signed in to; null when you only use share links. */
+    var server by mutableStateOf<Api?>(null)
+        private set
+    val realms = mutableStateListOf<Realm>()
+    val shared = mutableStateListOf<Space.Shared>()
+    var openKey by mutableStateOf<String?>(null)
+        private set
+    /** Files or text from outside that arrived with no realm open, waiting for one to be picked. */
+    var incoming by mutableStateOf<Incoming?>(null)
+    var message by mutableStateOf<String?>(null)
+    var loading by mutableStateOf(false)
+        private set
+
+    private val prefs = platform.prefs
+    private val apis = mutableMapOf<String, Api>()
+    private val models = mutableMapOf<String, Model>()
+    /** The latest few items of each space, by key, as last fetched for the tiles. */
+    val previews = mutableStateMapOf<String, List<Item>>()
+    private val thumbs = mutableStateMapOf<String, ImageBitmap>()
+    private val thumbLoading = mutableSetOf<String>()
+    private var lastRefresh: TimeSource.Monotonic.ValueTimeMark? = null
+
+    val spaces: List<Space> get() = realms.map { own(it) } + shared
+    val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
+    val model: Model? get() = open?.let(::model)
+    val isEmpty get() = server == null && shared.isEmpty()
+
+    init {
+        migratePrefs()
+        val origin = prefs.get("server")
+        val token = prefs.get("token")
+        if (origin != null && token != null) {
+            server = Api.server(origin, token, platform.name)
+            // Last known realms, so the overview shows straight away and works offline.
+            realms.addAll(prefs.get("realms")?.let { runCatching { json.decodeFromString<List<Realm>>(it) }.getOrNull() }.orEmpty())
+        }
+        prefs.get("links")?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.forEach { url ->
+            shared += Space.Shared(url, null, null, linkApi(url))
+        }
+        openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } }
+        refresh()
+    }
+
+    /** Before realms, the app kept one url: a server (with a token) or a share link. */
+    private fun migratePrefs() {
+        val url = prefs.get("url") ?: return
+        if ("/s/" in url) {
+            prefs.set("links", json.encodeToString(listOf(url)))
+            prefs.set("token", null)
+        } else {
+            prefs.set("server", url)
+        }
+        prefs.set("url", null)
+    }
+
+    // ---------- the overview ----------
+
+    /** Re-asks the server for its realms and every link for what it is, then refreshes the tile previews. */
+    fun refresh(force: Boolean = false) {
+        if (!force && lastRefresh?.let { it.elapsedNow() < 3.seconds } == true) return // the overview and init both ask
+        lastRefresh = TimeSource.Monotonic.markNow()
+        scope.launch {
+            loading = true
+            try {
+                coroutineScope {
+                    server?.let { s -> launch { loadRealms(s) } }
+                    shared.toList().forEach { sp -> launch { updateShared(sp.url) } }
+                }
+            } finally {
+                loading = false
+            }
+            spaces.filter { it.canRead }.forEach { sp ->
+                launch { runCatching { sp.api.list(limit = PREVIEW).items }.onSuccess { previews[sp.key] = it } }
+            }
+        }
+    }
+
+    private suspend fun loadRealms(s: Api) {
+        try {
+            val list = s.realms()
+            if (server !== s) return // signed out meanwhile
+            realms.clear()
+            realms.addAll(list)
+            prefs.set("realms", json.encodeToString(list))
+            if (openKey?.startsWith("realm:") == true && open == null) close()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            message = explain(e)
+        }
+    }
+
+    private suspend fun updateShared(url: String) {
+        val api = linkApi(url)
+        val next = try {
+            Space.Shared(url, api.info(), null, api)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Space.Shared(url, shared.firstOrNull { it.url == url }?.info, explain(e), api)
+        }
+        val i = shared.indexOfFirst { it.url == url }
+        if (i >= 0) shared[i] = next
+    }
+
+    /** The latest items of a space, for its tile. An open feed knows better than the last fetch. */
+    fun preview(space: Space): List<Item> =
+        models[space.key]?.items?.takeIf { it.isNotEmpty() }?.take(PREVIEW) ?: previews[space.key].orEmpty()
+
+    fun thumb(id: String): ImageBitmap? = thumbs[id]
+
+    suspend fun loadThumb(space: Space, item: Item) {
+        if (space.limited || item.id in thumbs || item.id in thumbLoading || (item.size ?: 0) > Model.MAX_INLINE_IMAGE) return
+        thumbLoading += item.id
+        try {
+            val bytes = space.api.bytes(item.id)
+            withContext(Dispatchers.Default) { platform.decodeImage(bytes, 480) }?.let { thumbs[item.id] = it }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        } finally {
+            thumbLoading -= item.id
+        }
+    }
+
+    // ---------- opening ----------
+
+    fun open(space: Space) {
+        openKey = space.key
+        prefs.set("open", space.key)
+        val waiting = incoming ?: return
+        if (space.canWrite) {
+            model(space).receive(waiting)
+            incoming = null
+        }
+    }
+
+    fun close() {
+        openKey = null
+        prefs.set("open", null)
+    }
+
+    /** Hands files or text from outside to the open realm, or holds them until one is picked. */
+    fun receive(i: Incoming) {
+        val m = model
+        if (m != null && open?.canWrite == true) return m.receive(i)
+        incoming = i
+        spaces.filter { it.canWrite }.singleOrNull()?.let(::open) // only one place it can go
+    }
+
+    private fun model(space: Space): Model = models.getOrPut(space.key) { Model(platform, scope, space.api, loadImages = !space.limited) }
+
+    // ---------- signing in and connecting ----------
+
+    /** Signs in to your own server; returns an error message or null. */
+    suspend fun signIn(origin: String, token: String): String? {
+        val api = Api.server(origin, token, platform.name)
+        try {
+            if (api.info().scope != "owner") error("not an owner token")
+        } catch (e: CancellationException) {
+            api.close()
+            throw e
+        } catch (e: Exception) {
+            api.close()
+            return explain(e)
+        }
+        signOut()
+        server = api
+        prefs.set("server", origin)
+        prefs.set("token", token)
+        refresh(force = true)
+        return null
+    }
+
+    fun signOut() {
+        realms.forEach { forget(ownKey(it.id)) }
+        realms.clear()
+        server?.close()
+        server = null
+        listOf("server", "token", "realms").forEach { prefs.set(it, null) }
+        if (open == null) close()
+    }
+
+    /** Adds a share link as a tile and opens it; returns an error message or null. */
+    suspend fun connect(url: String): String? {
+        val u = url.trim().trimEnd('/')
+        if ("/s/" !in u) return "That's not a share link"
+        shared.firstOrNull { it.url == u }?.let { open(it); return null }
+        val api = Api(u, null, platform.name)
+        val info = try {
+            api.info()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            api.close()
+            return explain(e)
+        }
+        apis[sharedKey(u)] = api
+        val space = Space.Shared(u, info, null, api)
+        shared += space
+        saveLinks()
+        open(space)
+        if (space.canRead) runCatching { api.list(limit = PREVIEW).items }.onSuccess { previews[space.key] = it }
+        return null
+    }
+
+    fun disconnect(space: Space.Shared) {
+        shared.remove(space)
+        forget(space.key)
+        saveLinks()
+        if (openKey == space.key) close()
+    }
+
+    private fun saveLinks() = prefs.set("links", json.encodeToString(shared.map { it.url }))
+
+    // ---------- realms ----------
+
+    fun createRealm(name: String) {
+        val s = server ?: return
+        scope.launch {
+            try {
+                val r = s.createRealm(name)
+                realms += r
+                prefs.set("realms", json.encodeToString(realms.toList()))
+                open(own(r))
+            } catch (e: Exception) {
+                message = explain(e)
+            }
+        }
+    }
+
+    fun renameRealm(realm: Realm, name: String) {
+        val s = server ?: return
+        scope.launch {
+            try {
+                val r = s.renameRealm(realm.id, name)
+                val i = realms.indexOfFirst { it.id == realm.id }
+                if (i >= 0) realms[i] = r
+            } catch (e: Exception) {
+                message = explain(e)
+            }
+        }
+    }
+
+    fun deleteRealm(realm: Realm) {
+        val s = server ?: return
+        scope.launch {
+            try {
+                s.deleteRealm(realm.id)
+                realms.removeAll { it.id == realm.id }
+                forget(ownKey(realm.id))
+                prefs.set("realms", json.encodeToString(realms.toList()))
+                if (openKey == ownKey(realm.id)) close()
+            } catch (e: Exception) {
+                message = explain(e)
+            }
+        }
+    }
+
+    private fun own(r: Realm) = Space.Own(r, apis.getOrPut(ownKey(r.id)) { server!!.realm(r.id) })
+
+    private fun linkApi(url: String) = apis.getOrPut(sharedKey(url)) { Api(url, null, platform.name) }
+
+    private fun forget(key: String) {
+        apis.remove(key)?.close()
+        models.remove(key)
+        previews.remove(key)
+    }
+
+    /** Error messages that say what to do. */
+    private fun explain(e: Exception): String = when (e.message) {
+        // A worker from before realms has no /info.
+        "not found" -> "That server needs updating: redeploy the worker."
+        "bad token" -> "That token doesn't work for this server."
+        else -> e.message ?: "Can't reach the server"
+    }
+
+    private companion object {
+        /** Items fetched per tile: enough to fill a tall one; the oldest clip off the top. */
+        const val PREVIEW = 8
+        val json = Json { ignoreUnknownKeys = true }
+    }
+}

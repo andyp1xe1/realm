@@ -69,7 +69,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import realm.Incoming
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.backhandler.BackHandler
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.text.style.TextOverflow
+import realm.Home
 import realm.Model
 import realm.Platform
 import realm.Filter
@@ -78,39 +82,34 @@ import realm.Filter
 fun App(platform: Platform) {
     RealmTheme {
         val scope = rememberCoroutineScope()
-        val model = remember { Model(platform, scope) }
+        val home = remember { Home(platform, scope) }
+        val model = home.model
         val snackbar = remember { SnackbarHostState() }
 
-        LaunchedEffect(model.message) {
-            model.message?.let {
-                model.message = null
+        LaunchedEffect(home.message, model?.message) {
+            (home.message ?: model?.message)?.let {
+                home.message = null
+                model?.message = null
                 snackbar.showSnackbar(it)
             }
         }
 
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.TopCenter) {
-                if (model.api == null) Setup(model) else Main(model)
+                when {
+                    home.isEmpty -> Setup(home)
+                    model != null -> Main(model, home.open?.name.orEmpty(), onBack = home::close)
+                    else -> Grid(home)
+                }
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp)) {
                     Snackbar(it, shape = MaterialTheme.shapes.small, containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)
                 }
             }
         }
 
-        if (model.api != null) {
-            LaunchedEffect(model.api) {
-                platform.incoming.collect {
-                    when (it) {
-                        // Nothing from outside is sent straight away: it lands in the composer to be captioned/edited.
-                        is Incoming.Files -> {
-                            model.stage(it.files)
-                            it.caption?.let { c -> model.incomingText = c }
-                        }
-                        is Incoming.Text -> model.incomingText = it.text
-                    }
-                }
-            }
-            LaunchedEffect(model.api) {
+        LaunchedEffect(Unit) { platform.incoming.collect(home::receive) }
+        if (model != null) {
+            LaunchedEffect(model) {
                 while (true) {
                     delay(8_000)
                     if (platform.isForeground) model.poll()
@@ -120,10 +119,11 @@ fun App(platform: Platform) {
     }
 }
 
+/** One realm's feed. [onBack] returns to the overview. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun Main(model: Model) {
+fun Main(model: Model, title: String, onBack: () -> Unit) {
     var searching by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
     val searchFocus = remember { FocusRequester() }
 
@@ -138,6 +138,8 @@ fun Main(model: Model) {
         model.filter = Filter.All
     }
 
+    BackHandler(enabled = !searching, onBack = onBack)
+
     Column(
         Modifier.widthIn(max = 820.dp).fillMaxSize().onPreviewKeyEvent { e ->
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -146,10 +148,13 @@ fun Main(model: Model) {
                 e.key == Key.Escape && searching -> { closeSearch(); true }
                 else -> false
             }
+        }.onKeyEvent { e ->
+            // After the composer, which uses Escape itself while editing or expanded.
+            if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) { onBack(); true } else false
         },
     ) {
         // top bar
-        Row(Modifier.fillMaxWidth().height(56.dp).padding(start = if (searching) 4.dp else 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (searching) {
                 IconButton(onClick = ::closeSearch) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close search") }
                 var q by remember { mutableStateOf(TextFieldValue(model.query)) }
@@ -165,11 +170,17 @@ fun Main(model: Model) {
                 if (q.text.isNotEmpty()) IconButton(onClick = { q = TextFieldValue(""); model.query = "" }) { Icon(Icons.Outlined.Close, "Clear") }
                 LaunchedEffect(Unit) { searchFocus.requestFocus() }
             } else {
-                Wordmark()
-                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "All realms") }
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                )
                 ShareButton { showShare = true }
                 IconButton(onClick = { searching = true }) { Icon(Icons.Outlined.Search, "Search") }
-                IconButton(onClick = { showSettings = true }) { Icon(Icons.Outlined.Settings, "Settings") }
             }
         }
         AnimatedVisibility(searching) {
@@ -200,7 +211,6 @@ fun Main(model: Model) {
         }
     }
 
-    if (showSettings) SettingsDialog(model) { showSettings = false }
     if (showShare) ShareDialog(model) { showShare = false }
 }
 
@@ -216,28 +226,9 @@ fun Wordmark(size: Int = 20) {
 /** Outlined fields are 56dp; buttons in the same form match them. */
 val FormHeight = 56.dp
 
+/** First run: nothing signed in, nothing connected. */
 @Composable
-fun Setup(model: Model) {
-    var url by remember { mutableStateOf("") }
-    var token by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val isLink = "/s/" in url
-
-    fun go() {
-        if (url.isBlank() || busy) return
-        busy = true
-        error = null
-        scope.launch {
-            val u = url.trim().let { if (it.startsWith("http")) it else "https://$it" }
-            val t = token.trim().ifBlank { null }
-            error = model.check(u, t)
-            busy = false
-            if (error == null) model.connect(u, t)
-        }
-    }
-
+fun Setup(home: Home) {
     Column(
         Modifier.widthIn(max = 420.dp).fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -246,11 +237,43 @@ fun Setup(model: Model) {
         Spacer(Modifier.height(8.dp))
         Text("Your dump, everywhere.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(32.dp))
+        SignInForm(home)
+    }
+}
+
+/**
+ * One field for either way in: a server URL asks for its owner token and signs in, a share link
+ * (…/s/<token>) connects as one more tile. [onDone] runs after either succeeds.
+ */
+@Composable
+fun SignInForm(home: Home, linksOnly: Boolean = false, onDone: () -> Unit = {}) {
+    var url by remember { mutableStateOf("") }
+    var token by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val isLink = linksOnly || "/s/" in url
+
+    fun go() {
+        if (url.isBlank() || busy || (!isLink && token.isBlank())) return
+        busy = true
+        error = null
+        scope.launch {
+            val u = url.trim().let { if (it.startsWith("http")) it else "https://$it" }
+            error = if (isLink) home.connect(u) else home.signIn(u, token.trim())
+            busy = false
+            if (error == null) onDone()
+        }
+    }
+
+    Column {
         OutlinedTextField(
             url, { url = it },
-            label = { Text("Server or share link") },
-            placeholder = { Text("realm.you.workers.dev") },
+            label = { Text(if (linksOnly) "Share link" else "Server or share link") },
+            placeholder = { Text(if (linksOnly) "realm.someone.dev/s/…" else "realm.you.workers.dev") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = if (isLink) ImeAction.Go else ImeAction.Next),
+            keyboardActions = KeyboardActions(onGo = { go() }),
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.small,
         )
@@ -258,7 +281,7 @@ fun Setup(model: Model) {
         AnimatedVisibility(!isLink) {
             OutlinedTextField(
                 token, { token = it },
-                label = { Text("Token") },
+                label = { Text("Owner token") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
@@ -272,8 +295,20 @@ fun Setup(model: Model) {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
         Spacer(Modifier.height(20.dp))
-        Button(onClick = ::go, enabled = !busy && url.isNotBlank(), modifier = Modifier.fillMaxWidth().height(FormHeight), shape = MaterialTheme.shapes.small) {
-            Text(if (busy) "Connecting…" else "Connect")
+        Button(
+            onClick = ::go,
+            enabled = !busy && url.isNotBlank() && (isLink || token.isNotBlank()),
+            modifier = Modifier.fillMaxWidth().height(FormHeight),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Text(
+                when {
+                    busy && isLink -> "Connecting…"
+                    busy -> "Signing in…"
+                    isLink -> "Connect"
+                    else -> "Sign in"
+                },
+            )
         }
     }
 }

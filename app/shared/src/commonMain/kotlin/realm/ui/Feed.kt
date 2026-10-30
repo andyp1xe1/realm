@@ -292,7 +292,7 @@ private fun FileRow(title: String, details: String, detailsColor: Color = Materi
 }
 
 @Composable
-internal fun KindIcon(kind: String, mime: String?) {
+internal fun KindIcon(kind: String, mime: String?, modifier: Modifier = Modifier) {
     Icon(
         when (kind) {
             "audio" -> Icons.Outlined.Audiotrack
@@ -301,6 +301,7 @@ internal fun KindIcon(kind: String, mime: String?) {
             else -> if (mime?.startsWith("text/") == true) Icons.Outlined.Description else Icons.Outlined.InsertDriveFile
         },
         null,
+        modifier,
         tint = MaterialTheme.colorScheme.onPrimaryContainer,
     )
 }

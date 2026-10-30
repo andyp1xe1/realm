@@ -49,7 +49,7 @@ cd app
 ./gradlew :androidApp:installDebug
 ```
 
-On first launch, enter the worker URL and token, or a share link. To create and copy share links, click the agent icons in the top bar.
+On first launch, sign in with the worker URL and owner token, or connect a share link. The app opens on an overview of your realms. Share links you connect show up there as tiles too. To create and copy share links for a realm, open it and click the agent icons in the top bar.
 
 ## Share links
 

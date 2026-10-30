@@ -141,7 +141,7 @@ fun ShareDialog(model: Model, onDismiss: () -> Unit) = Sheet(onDismiss) { ShareS
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ShareSheet(model: Model, onClose: () -> Unit, initialUrl: String? = null) {
-    val api = model.api ?: return
+    val api = model.api
     val scope = rememberCoroutineScope()
     var access by remember { mutableStateOf("read") }
     var ttl by remember { mutableStateOf<Long?>(86_400L) }
@@ -286,7 +286,7 @@ private fun LinkRow(l: Link, model: Model, selected: Boolean, onSelect: () -> Un
                 buildString {
                     append(l.scope)
                     l.label?.let { append(" · ").append(it) }
-                    l.item?.let { append(" · ").append(it) }
+                    l.items?.let { append(" · ").append(if (it.size == 1) "1 item" else "${it.size} items") }
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,

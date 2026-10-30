@@ -37,16 +37,42 @@ data class Item(
     val size: Long? = null,
     val src: String? = null,
     val created: Long,
+    val realm: String? = null,
 )
 
 @Serializable
 data class Page(val items: List<Item>, val next: String? = null)
 
 @Serializable
+data class Realm(val id: String, val name: String, val created: Long = 0, val count: Long = 0, val updated: Long? = null)
+
+@Serializable
+private data class Realms(val realms: List<Realm>)
+
+@Serializable
+private data class RealmName(val name: String)
+
+/** What a server or link says about itself before anything is fetched. Asking never spends a link's use. */
+@Serializable
+data class Info(
+    val version: Int = 0,
+    val scope: String,
+    val realm: Realm? = null,
+    val label: String? = null,
+    val expires: Long? = null,
+    @SerialName("uses_left") val usesLeft: Long? = null,
+    /** Set for links that share picked items: how many. */
+    val items: Int? = null,
+    /** The item, when exactly one is picked. */
+    val item: Item? = null,
+)
+
+@Serializable
 data class Link(
     val token: String,
     val scope: String,
-    val item: String? = null,
+    /** Set for links that share picked items. */
+    val items: List<String>? = null,
     val label: String? = null,
     val expires: Long? = null,
     @SerialName("max_uses") val maxUses: Long? = null,
@@ -64,7 +90,7 @@ private data class ErrorBody(val error: String? = null)
 private data class TextBody(val text: String?)
 
 @Serializable
-private data class NewLink(val scope: String, val item: String? = null, val ttl: Long? = null, val label: String? = null)
+private data class NewLink(val scope: String, val items: List<String>? = null, val ttl: Long? = null, val label: String? = null)
 
 @Serializable
 private data class NewUpload(val name: String, val type: String?, val text: String?)
@@ -81,11 +107,11 @@ private data class Parts(val parts: List<Part>)
 class ApiException(message: String) : Exception(message)
 
 /**
- * [url] is either the worker origin (used with [token]) or a share link (…/s/<token>), which carries
- * its own permissions and needs no token.
+ * [base] is either the owner API (…/api, or one realm of it, used with [token]) or a share link
+ * (…/s/<token>), which carries its own permissions and needs no token.
  */
-class Api(url: String, private val token: String?, private val source: String) {
-    val base: String = url.trimEnd('/').let { if ("/s/" in it || it.endsWith("/api")) it else "$it/api" }
+class Api(base: String, private val token: String?, private val source: String) {
+    val base: String = base.trimEnd('/')
     val auth: String? = token?.takeIf { it.isNotBlank() }?.let { "Bearer $it" }
 
     private val http = HttpClient {
@@ -104,9 +130,34 @@ class Api(url: String, private val token: String?, private val source: String) {
         throw ApiException(msg)
     }
 
-    suspend fun ping() {
-        http.get("$base/") { common() }.ok()
+    suspend fun info(): Info = http.get("$base/info") { common() }.ok().body()
+
+    // ---------- realms (owner API only) ----------
+
+    /** The same server, scoped to one realm. */
+    fun realm(id: String) = Api("$base/realms/${id.encodeURLPathPart()}", token, source)
+
+    suspend fun realms(): List<Realm> = http.get("$base/realms") { common() }.ok().body<Realms>().realms
+
+    suspend fun createRealm(name: String): Realm =
+        http.post("$base/realms") {
+            common()
+            contentType(ContentType.Application.Json)
+            setBody(RealmName(name))
+        }.ok().body()
+
+    suspend fun renameRealm(id: String, name: String): Realm =
+        http.patch("$base/realms/${id.encodeURLPathPart()}") {
+            common()
+            contentType(ContentType.Application.Json)
+            setBody(RealmName(name))
+        }.ok().body()
+
+    suspend fun deleteRealm(id: String) {
+        http.delete("$base/realms/${id.encodeURLPathPart()}") { common() }.ok()
     }
+
+    // ---------- items ----------
 
     suspend fun list(query: String? = null, kinds: List<String> = emptyList(), before: String? = null, after: String? = null, limit: Int = 60): Page =
         http.get("$base/items") {
@@ -188,11 +239,12 @@ class Api(url: String, private val token: String?, private val source: String) {
 
     suspend fun links(): List<Link> = http.get("$base/links") { common() }.ok().body<Links>().links
 
-    suspend fun createLink(scope: String, item: String? = null, ttlSeconds: Long? = null, label: String? = null): Link =
+    /** With [items], the link shares only those (and can only read). */
+    suspend fun createLink(scope: String, items: List<String>? = null, ttlSeconds: Long? = null, label: String? = null): Link =
         http.post("$base/links") {
             common()
             contentType(ContentType.Application.Json)
-            setBody(NewLink(scope, item, ttlSeconds, label?.takeIf { it.isNotBlank() }))
+            setBody(NewLink(scope, items, ttlSeconds, label?.takeIf { it.isNotBlank() }))
         }.ok().body()
 
     suspend fun revoke(token: String) {
@@ -205,6 +257,10 @@ class Api(url: String, private val token: String?, private val source: String) {
     fun close() = http.close()
 
     companion object {
+        /** The owner API of the server at [origin]. */
+        fun server(origin: String, token: String, source: String) =
+            Api(origin.trimEnd('/').removeSuffix("/api") + "/api", token, source)
+
         /** Part size for multipart uploads; also the largest single-request upload. R2 wants equal parts. */
         const val PART = 16 * 1024 * 1024
     }

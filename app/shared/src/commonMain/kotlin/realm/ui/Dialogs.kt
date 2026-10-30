@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import realm.Model
+import realm.Home
 
 @Composable
 internal fun Sheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
@@ -30,17 +30,27 @@ internal fun Sheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
 }
 
 @Composable
-fun SettingsDialog(model: Model, onDismiss: () -> Unit) {
-    val api = model.api ?: return
+fun SettingsDialog(home: Home, onDismiss: () -> Unit) {
+    val server = home.server
     Sheet(onDismiss) {
         Wordmark()
         Spacer(Modifier.height(16.dp))
-        Text("Connected to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(api.base, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { model.disconnect(); onDismiss() }) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
-            TextButton(onClick = onDismiss) { Text("Close") }
+        if (server != null) {
+            Text("Signed in to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(server.base.removeSuffix("/api"), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = { home.signOut(); onDismiss() }) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        } else {
+            Text(
+                "Sign in to your own server to make realms. Links you've added stay either way.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+            SignInForm(home, onDone = onDismiss)
         }
     }
 }

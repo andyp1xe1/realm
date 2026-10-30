@@ -33,9 +33,11 @@ class Pending(val key: Int, val text: String?, val file: LocalFile?, val caption
     var error by mutableStateOf<String?>(null)
 }
 
-class Model(val platform: Platform, private val scope: CoroutineScope) {
-    var api by mutableStateOf<Api?>(null)
-        private set
+/**
+ * One realm's feed, as one tile of the [Home] overview sees it through [api]. Without [loadImages],
+ * images only download when asked to, for links where every download spends a use.
+ */
+class Model(val platform: Platform, private val scope: CoroutineScope, val api: Api, private val loadImages: Boolean = true) {
     val items = mutableStateListOf<Item>() // newest first
     val pending = mutableStateListOf<Pending>()
     /** Files waiting in the composer for a caption and a tap on send. */
@@ -65,57 +67,16 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     private val imageOrder = ArrayDeque<String>()
     private val imageLoading = mutableSetOf<String>()
 
-    init {
-        platform.prefs.get("url")?.let { connect(it, platform.prefs.get("token")) }
-    }
-
-    // ---------- server ----------
-
-    /** Checks the server answers with these credentials; returns an error message or null. */
-    suspend fun check(url: String, token: String?): String? {
-        val a = Api(url, token, platform.name)
-        return try {
-            a.list(limit = 1)
-            null
-        } catch (e: ApiException) {
-            // Drop-only links can't list, but they're still valid.
-            if ("/s/" in url && "can't read" in (e.message ?: "")) null else e.message
-        } catch (e: Exception) {
-            e.message ?: "can't reach server"
-        } finally {
-            a.close()
-        }
-    }
-
-    fun connect(url: String, token: String?) {
-        api?.close()
-        platform.prefs.set("url", url)
-        platform.prefs.set("token", token)
-        api = Api(url, token, platform.name)
-        canRead = true
-        items.clear() // the feed refreshes itself when it shows up
-    }
-
-    fun disconnect() {
-        api?.close()
-        api = null
-        platform.prefs.set("url", null)
-        platform.prefs.set("token", null)
-        items.clear()
-        links.clear()
-    }
-
-    val isOwner get() = api?.auth != null
+    val isOwner get() = api.auth != null
 
     // ---------- feed ----------
 
     fun refresh() {
-        val a = api ?: return
         listJob?.cancel()
         listJob = scope.launch {
             loading = true
             try {
-                val page = a.list(query, filter.kinds)
+                val page = api.list(query, filter.kinds)
                 items.clear()
                 items.addAll(page.items)
                 next = page.next
@@ -132,13 +93,12 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun loadMore() {
-        val a = api ?: return
         val before = next ?: return
         if (loading) return
         listJob = scope.launch {
             loading = true
             try {
-                val page = a.list(query, filter.kinds, before = before)
+                val page = api.list(query, filter.kinds, before = before)
                 val known = items.mapTo(HashSet()) { it.id }
                 items.addAll(page.items.filter { it.id !in known })
                 next = page.next
@@ -154,12 +114,11 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
 
     /** Pull in anything dumped from other devices since the newest item we have. */
     suspend fun poll() {
-        val a = api ?: return
         if (filtering || loading || !canRead) return
         val newest = items.firstOrNull() ?: return refresh()
         // Ids are time-prefixed; re-ask for the last minute so items that landed slightly out of order aren't missed.
         val cursor = (newest.created - 60_000).coerceAtLeast(0).toString(36).padStart(9, '0')
-        runCatching { a.list(after = cursor, limit = 100) }.onSuccess { page ->
+        runCatching { api.list(after = cursor, limit = 100) }.onSuccess { page ->
             page.items.forEach(::prepend)
         }
     }
@@ -193,6 +152,17 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
         staged.addAll(files)
     }
 
+    /** Nothing from outside is sent straight away: it lands in the composer to be captioned or edited. */
+    fun receive(incoming: Incoming) {
+        when (incoming) {
+            is Incoming.Files -> {
+                stage(incoming.files)
+                incoming.caption?.let { incomingText = it }
+            }
+            is Incoming.Text -> incomingText = incoming.text
+        }
+    }
+
     fun sendFiles(files: List<LocalFile>, caption: String? = null) {
         files.forEachIndexed { i, f -> enqueue(Pending(pendingKeys++, null, f, caption.takeIf { i == 0 })) }
     }
@@ -207,13 +177,12 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     private fun enqueue(p: Pending) {
-        val a = api ?: return
         pending.add(p)
         scope.launch {
             try {
                 // Notes go straight out; files share a couple of upload slots so a big one can't block a note.
-                val item = if (p.file == null) a.note(p.text!!) else uploads.withPermit {
-                    a.upload(p.file, p.caption) { f ->
+                val item = if (p.file == null) api.note(p.text!!) else uploads.withPermit {
+                    api.upload(p.file, p.caption) { f ->
                         val pct = (f * 100).toInt() / 100f // whole percents: one recomposition per step, not per write
                         if (pct != p.progress) p.progress = pct
                     }
@@ -242,10 +211,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     private fun saveEdit(item: Item, text: String) {
-        val a = api ?: return
         scope.launch {
             try {
-                val updated = a.edit(item.id, text.ifBlank { null })
+                val updated = api.edit(item.id, text.ifBlank { null })
                 val i = items.indexOfFirst { it.id == item.id }
                 if (i >= 0) items[i] = updated
             } catch (e: Exception) {
@@ -257,12 +225,11 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     // ---------- item actions ----------
 
     fun delete(item: Item) {
-        val a = api ?: return
         val i = items.indexOf(item)
         items.remove(item)
         scope.launch {
             try {
-                a.delete(item.id)
+                api.delete(item.id)
             } catch (e: Exception) {
                 if (i >= 0) items.add(minOf(i, items.size), item)
                 fail(e)
@@ -278,10 +245,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun shareLink(item: Item, ttlSeconds: Long?) {
-        val a = api ?: return
         scope.launch {
             try {
-                val link = a.createLink("item", item.id, ttlSeconds)
+                val link = api.createLink("read", listOf(item.id), ttlSeconds)
                 platform.copyText(link.url)
                 message = "Link copied" + (ttlSeconds?.let { " · expires in ${ttlLabel(it)}" } ?: "")
             } catch (e: Exception) {
@@ -291,10 +257,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun save(item: Item) {
-        val a = api ?: return
         scope.launch {
             try {
-                message = platform.save(a.rawUrl(item.id, download = true), a.auth, fileName(item))
+                message = platform.save(api.rawUrl(item.id, download = true), api.auth, fileName(item))
             } catch (e: Exception) {
                 fail(e)
             }
@@ -302,10 +267,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun open(item: Item) {
-        val a = api ?: return
         scope.launch {
             try {
-                platform.open(a.rawUrl(item.id), a.auth, fileName(item))
+                platform.open(api.rawUrl(item.id), api.auth, fileName(item))
             } catch (e: Exception) {
                 fail(e)
             }
@@ -317,11 +281,10 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     fun image(id: String): ImageBitmap? = images[id]
 
     suspend fun loadImage(item: Item) {
-        val a = api ?: return
-        if (item.id in images || item.id in imageLoading || (item.size ?: 0) > MAX_INLINE_IMAGE) return
+        if (!loadImages || item.id in images || item.id in imageLoading || (item.size ?: 0) > MAX_INLINE_IMAGE) return
         imageLoading += item.id
         try {
-            val bytes = a.bytes(item.id)
+            val bytes = api.bytes(item.id)
             val bmp = withContext(Dispatchers.Default) { platform.decodeImage(bytes, 1280) } ?: return
             cacheImage(item.id, bmp)
         } catch (e: CancellationException) {
@@ -341,10 +304,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     // ---------- links ----------
 
     fun loadLinks() {
-        val a = api ?: return
         scope.launch {
             try {
-                val l = a.links()
+                val l = api.links()
                 links.clear()
                 links.addAll(l)
             } catch (e: Exception) {
@@ -354,9 +316,8 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     suspend fun createLink(scope: String, ttlSeconds: Long?, label: String?): Link? {
-        val a = api ?: return null
         return try {
-            a.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { links.add(0, it) }
+            api.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { links.add(0, it) }
         } catch (e: Exception) {
             fail(e)
             null
@@ -364,11 +325,10 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun revoke(link: Link) {
-        val a = api ?: return
         links.remove(link)
         scope.launch {
             try {
-                a.revoke(link.token)
+                api.revoke(link.token)
             } catch (e: Exception) {
                 fail(e)
                 loadLinks()
