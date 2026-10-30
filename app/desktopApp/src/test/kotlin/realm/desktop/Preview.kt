@@ -1,0 +1,185 @@
+// Renders app screens offscreen with fake data: `./gradlew :desktopApp:preview` → desktopApp/build/preview/*.png
+package realm.desktop
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.unit.Density
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.emptyFlow
+import org.jetbrains.skia.EncodedImageFormat
+import realm.ByteReader
+import realm.Item
+import realm.LocalFile
+import realm.Model
+import realm.Pending
+import realm.Platform
+import realm.Prefs
+import realm.Recording
+import realm.jvm.Dates
+import realm.jvm.JFile
+import realm.ui.Composer
+import realm.ui.RecordingPanel
+import realm.ui.Feed
+import realm.ui.RealmTheme
+import realm.ui.Setup
+import androidx.compose.foundation.layout.padding
+import java.awt.image.BufferedImage
+import java.io.File
+import javax.imageio.ImageIO
+import kotlin.math.abs
+import kotlin.math.sin
+
+private val real by lazy { DesktopPlatform() }
+
+private class FakePlatform(url: String?) : Platform {
+    override val name = "desktop"
+    private val map = mutableMapOf<String, String?>("url" to url, "token" to "t")
+    override val prefs = object : Prefs {
+        override fun get(key: String) = map[key]
+        override fun set(key: String, value: String?) { map[key] = value }
+    }
+    override val incoming = emptyFlow<realm.Incoming>()
+    override val isForeground = false
+    override val canTakePhoto = true
+    override suspend fun pickFiles() = emptyList<LocalFile>()
+    override suspend fun takePhoto(): LocalFile? = null
+    override suspend fun startRecording(): Recording? = null
+    override fun clipboardFiles() = emptyList<LocalFile>()
+    override fun copyText(text: String) {}
+    override suspend fun save(url: String, auth: String?, name: String) = ""
+    override suspend fun open(url: String, auth: String?, name: String) {}
+    override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = real.decodeImage(bytes, maxSize)
+    override fun formatTime(epochMs: Long) = Dates.time(epochMs)
+    override fun formatDay(epochMs: Long) = Dates.day(epochMs)
+}
+
+private class FakeFile(override val name: String, override val size: Long, override val mime: String?) : LocalFile {
+    override fun reader(): ByteReader = error("preview")
+}
+
+private class FakeRecording : Recording {
+    private val t0 = System.nanoTime()
+    override fun level(): Float {
+        val t = (System.nanoTime() - t0) / 1e9
+        // Speech-ish: syllable bursts with pauses.
+        return (abs(sin(t * 7)) * (0.35 + 0.65 * abs(sin(t * 1.3))) * (0.8 + 0.2 * Math.random())).toFloat()
+    }
+    override suspend fun stop(): LocalFile? = null
+    override fun cancel() {}
+}
+
+private lateinit var out: File
+
+private fun shot(name: String, wDp: Int, hDp: Int, dark: Boolean = true, realtimeMs: Long = 0, content: @Composable () -> Unit) {
+    val scene = ImageComposeScene(wDp * 2, hDp * 2, Density(2f)) {
+        RealmTheme(dark) { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() } }
+    }
+    for (f in 0..30) scene.render(f * 16_000_000L)
+    // Some content (the recording waveform) samples on a real-time clock; let it run.
+    val t0 = System.nanoTime()
+    while (System.nanoTime() - t0 < realtimeMs * 1_000_000) {
+        Thread.sleep(16)
+        scene.render(System.nanoTime() - t0 + 600_000_000L)
+    }
+    val png = scene.render(600_000_000L).encodeToData(EncodedImageFormat.PNG)!!.bytes
+    File(out, "$name.png").writeBytes(png)
+    scene.close()
+    println("${out.path}/$name.png")
+}
+
+private fun model(): Model {
+    // Unreachable server: nothing is fetched, we fill the lists by hand.
+    val m = Model(FakePlatform("http://127.0.0.1:9"), CoroutineScope(Dispatchers.Unconfined))
+    val now = System.currentTimeMillis()
+    fun item(i: Int, kind: String, text: String? = null, name: String? = null, mime: String? = null, size: Long? = null, src: String? = null) =
+        Item("id$i", kind, text, name, mime, size, src, now - i * 600_000L)
+    m.items.addAll(
+        listOf(
+            item(1, "note", "ok"),
+            item(2, "file", "draft for review", "Q3-report-final-v2.pdf", "application/pdf", 2_400_000),
+            item(3, "audio", null, "voice_20261030.m4a", "audio/mp4", 180_000, src = "android"),
+            item(4, "link", "https://developers.cloudflare.com/r2/"),
+            item(5, "note", "buy oat milk, coffee beans\nand call the landlord about the heating", src = "cli"),
+            item(6, "note", "hi"),
+        ),
+    )
+    m.pending.addAll(
+        listOf(
+            Pending(1, null, FakeFile("holiday-video.mp4", 734_000_000, "video/mp4"), "from the trip").apply { progress = 0.42f },
+            Pending(2, null, FakeFile("notes.zip", 12_000_000, "application/zip"), null).apply { error = "link used up" },
+            Pending(3, "short", null, null),
+        ),
+    )
+    return m
+}
+
+/** Same arrangement as the real screen: the composer floats over the bottom of the feed. */
+@Composable
+private fun Screen(m: Model) {
+    var h by remember { mutableStateOf(72.dp) }
+    Box(Modifier.fillMaxSize()) {
+        Feed(m, Modifier.fillMaxSize(), bottomPadding = h)
+        Composer(m, Modifier.align(Alignment.BottomCenter), onCompactHeight = { h = it })
+    }
+}
+
+fun main(args: Array<String>) {
+    out = File(args.firstOrNull() ?: "build/preview").apply { mkdirs() }
+    val m = model()
+    for ((label, w, h) in listOf(Triple("phone", 400, 820), Triple("desktop", 880, 640))) {
+        shot("feed-$label", w, h) {
+            Screen(m)
+        }
+    }
+    shot("feed-light", 400, 820, dark = false) {
+        Screen(m)
+    }
+    val editing = model().apply { editing = items[4] }
+    shot("composer-editing", 400, 300) { Screen(editing) }
+    val long = model().apply {
+        items.add(0, items[4].copy(id = "long", text = (1..9).joinToString("\n") { "line $it of a longer note that needs room to breathe" }))
+        this.editing = items[0]
+    }
+    shot("composer-expanded", 400, 820) { Screen(long) }
+    // Staged attachments: a real image (for the thumbnail) and two plain files.
+    val png = File(out, "staged.png.src").apply {
+        val img = BufferedImage(320, 200, BufferedImage.TYPE_INT_RGB)
+        for (x in 0 until 320) for (y in 0 until 200) img.setRGB(x, y, java.awt.Color(60 + x / 3, 40 + y / 3, 160 + x / 4).rgb)
+        ImageIO.write(img, "png", this)
+    }
+    val withFiles = model().apply {
+        pending.clear()
+        staged.addAll(listOf(JFile(png, "image/png", "sunset.png"), FakeFile("Q3-report.pdf", 2_400_000, "application/pdf"), FakeFile("voice.m4a", 180_000, "audio/mp4")))
+    }
+    shot("composer-staged", 400, 420, realtimeMs = 500) { Screen(withFiles) }
+    val withFilesLong = model().apply {
+        pending.clear()
+        staged.addAll(withFiles.staged)
+        items.add(0, items[4].copy(id = "long", text = (1..9).joinToString("\n") { "line $it of a caption" }))
+        this.editing = null
+        incomingText = items[0].text
+    }
+    shot("composer-staged-expanded", 400, 820) { Screen(withFilesLong) }
+    shot("recording", 400, 220, realtimeMs = 2500) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.padding(8.dp)) {
+                RecordingPanel(FakeRecording(), onCancel = {}, onSend = {})
+            }
+        }
+    }
+    shot("setup", 400, 700) { Setup(Model(FakePlatform(null), CoroutineScope(Dispatchers.Unconfined))) }
+    kotlin.system.exitProcess(0)
+}
