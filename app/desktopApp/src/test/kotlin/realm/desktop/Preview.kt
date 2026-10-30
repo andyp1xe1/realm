@@ -35,6 +35,7 @@ import realm.ui.ShareSheet
 import realm.ui.Composer
 import realm.ui.RecordingPanel
 import realm.ui.Feed
+import realm.ui.Main
 import realm.ui.RealmTheme
 import realm.ui.Setup
 import androidx.compose.foundation.layout.padding
@@ -146,6 +147,10 @@ fun main(args: Array<String>) {
             Screen(m)
         }
     }
+    // The README screenshot: the whole app, top bar included.
+    // No uploads in flight; realtimeMs lets the fetch from the unreachable server fail so the loading bar is gone.
+    val clean = model().apply { pending.clear() }
+    shot("app", 400, 760, realtimeMs = 1500) { Main(clean) }
     shot("feed-light", 400, 820, dark = false) {
         Screen(m)
     }
@@ -190,7 +195,7 @@ fun main(args: Array<String>) {
         links += realm.Link("a1", "full", url = "https://realm.example.dev/s/a1", expires = day)
         links += realm.Link("b2", "read", label = "agent", url = "https://realm.example.dev/s/b2", expires = day, uses = 3)
     }
-    for ((name, url) in listOf("share-form" to null, "share-copy" to "https://realm.example.dev/s/a1")) shot(name, 460, 600) {
+    for ((name, url, h) in listOf(Triple("share-form", null, 510), Triple("share-copy", "https://realm.example.dev/s/a1", 430))) shot(name, 460, h) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
             androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { ShareSheet(sharing, {}, url) }
         }
