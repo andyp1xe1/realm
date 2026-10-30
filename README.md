@@ -71,7 +71,8 @@ First launch asks for the server URL + token (or a share link).
 - 🎙 voice notes with a live waveform (m4a on Android, wav on desktop); these send when you stop.
 - Tap or long-press (or right-click) an item: open, save, copy, edit, share link with expiry, delete.
 - 🔍 search + filter chips (notes, links, images, audio/video, files). Ctrl+F on desktop.
-- 🔗 share-link manager: create drop/read/full links with expiry, see uses, revoke.
+- Share (the agent icons, top right): create drop/read/full links with expiry, see uses, revoke. Copy one as a
+  link, a one-line agent prompt, or a prompt with the API docs.
 - Other devices' dumps show up within ~8s.
 
 ## Links, agents, friends

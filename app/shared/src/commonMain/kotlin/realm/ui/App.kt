@@ -25,7 +25,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
@@ -124,8 +123,8 @@ fun App(platform: Platform) {
 @Composable
 fun Main(model: Model) {
     var searching by remember { mutableStateOf(false) }
-    var showLinks by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showShare by remember { mutableStateOf(false) }
     val searchFocus = remember { FocusRequester() }
 
     LaunchedEffect(model.query, model.filter) {
@@ -168,8 +167,8 @@ fun Main(model: Model) {
             } else {
                 Wordmark()
                 Spacer(Modifier.weight(1f))
+                ShareButton { showShare = true }
                 IconButton(onClick = { searching = true }) { Icon(Icons.Outlined.Search, "Search") }
-                if (model.isOwner) IconButton(onClick = { showLinks = true }) { Icon(Icons.Outlined.Link, "Share links") }
                 IconButton(onClick = { showSettings = true }) { Icon(Icons.Outlined.Settings, "Settings") }
             }
         }
@@ -201,8 +200,8 @@ fun Main(model: Model) {
         }
     }
 
-    if (showLinks) LinksDialog(model) { showLinks = false }
     if (showSettings) SettingsDialog(model) { showSettings = false }
+    if (showShare) ShareDialog(model) { showShare = false }
 }
 
 @Composable

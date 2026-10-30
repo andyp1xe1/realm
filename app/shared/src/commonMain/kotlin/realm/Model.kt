@@ -353,17 +353,13 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
         }
     }
 
-    fun createLink(scope: String, ttlSeconds: Long?, label: String?) {
-        val a = api ?: return
-        this.scope.launch {
-            try {
-                val l = a.createLink(scope, ttlSeconds = ttlSeconds, label = label)
-                links.add(0, l)
-                platform.copyText(l.url)
-                message = "Link copied"
-            } catch (e: Exception) {
-                fail(e)
-            }
+    suspend fun createLink(scope: String, ttlSeconds: Long?, label: String?): Link? {
+        val a = api ?: return null
+        return try {
+            a.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { links.add(0, it) }
+        } catch (e: Exception) {
+            fail(e)
+            null
         }
     }
 

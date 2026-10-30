@@ -30,6 +30,8 @@ import realm.Prefs
 import realm.Recording
 import realm.jvm.Dates
 import realm.jvm.JFile
+import realm.ui.ShareButton
+import realm.ui.ShareSheet
 import realm.ui.Composer
 import realm.ui.RecordingPanel
 import realm.ui.Feed
@@ -178,6 +180,19 @@ fun main(args: Array<String>) {
             Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.padding(8.dp)) {
                 RecordingPanel(FakeRecording(), onCancel = {}, onSend = {})
             }
+        }
+    }
+    shot("agents", 200, 80) {
+        androidx.compose.foundation.layout.Column(Modifier.padding(8.dp)) { ShareButton {}; ShareButton(expanded = true) {} }
+    }
+    val sharing = Model(FakePlatform("https://realm.example.dev"), CoroutineScope(Dispatchers.Unconfined)).apply {
+        val day = System.currentTimeMillis() + 86_400_000
+        links += realm.Link("a1", "full", url = "https://realm.example.dev/s/a1", expires = day)
+        links += realm.Link("b2", "read", label = "agent", url = "https://realm.example.dev/s/b2", expires = day, uses = 3)
+    }
+    for ((name, url) in listOf("share-form" to null, "share-copy" to "https://realm.example.dev/s/a1")) shot(name, 460, 600) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
+            androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { ShareSheet(sharing, {}, url) }
         }
     }
     shot("setup", 400, 700) { Setup(Model(FakePlatform(null), CoroutineScope(Dispatchers.Unconfined))) }
