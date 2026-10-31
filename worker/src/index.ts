@@ -154,6 +154,10 @@ export const MIGRATIONS: string[][] = [
     `UPDATE links SET scope = 'read', selection = 1 WHERE scope = 'item'`,
     `ALTER TABLE links DROP COLUMN item`,
   ],
+  // Answers about Cloudflare logins, by token hash, shared by every isolate and location.
+  [
+    `CREATE TABLE owners (key TEXT PRIMARY KEY, ok INTEGER NOT NULL, until INTEGER NOT NULL)`,
+  ],
 ];
 
 const migrated = new WeakMap<D1Database, Promise<void>>();
@@ -213,6 +217,7 @@ export default {
         "DELETE FROM links WHERE (expires IS NOT NULL AND expires < ?) OR (max_uses IS NOT NULL AND uses >= max_uses)",
       ).bind(Date.now()),
       env.DB.prepare("DELETE FROM link_items WHERE token NOT IN (SELECT token FROM links)"),
+      env.DB.prepare("DELETE FROM owners WHERE until < ?").bind(Date.now()),
     ]);
   },
 };
@@ -256,8 +261,10 @@ async function handle(req: Request, env: Env): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
-// Answers about Cloudflare logins, by token hash: a yes holds 5 minutes, a no 30 seconds.
-const owners = new Map<string, { ok: boolean; until: number }>();
+// Answers about Cloudflare logins, by token hash: a yes holds 5 minutes, a no 30 seconds. This isolate's
+// copy is a free first look; the owners table is shared by every isolate and location, and survives
+// evictions and redeploys. Only on a miss in both is Cloudflare asked. Exported for tests.
+export const owners = new Map<string, { ok: boolean; until: number }>();
 
 /**
  * Whether [token] is a Cloudflare login (OAuth or API token) that can manage this worker: the owner is
@@ -266,8 +273,14 @@ const owners = new Map<string, { ok: boolean; until: number }>();
 async function cloudflareOwner(env: Env, token: string): Promise<boolean> {
   if (!env.REALM_ACCOUNT || !token) return false;
   const key = await sha256(token);
+  const now = Date.now();
   const known = owners.get(key);
-  if (known && known.until > Date.now()) return known.ok;
+  if (known && known.until > now) return known.ok;
+  const shared = await env.DB.prepare("SELECT ok, until FROM owners WHERE key = ?").bind(key).first<{ ok: number; until: number }>();
+  if (shared && shared.until > now) {
+    owners.set(key, { ok: !!shared.ok, until: shared.until });
+    return !!shared.ok;
+  }
 
   let res: Response;
   try {
@@ -281,8 +294,10 @@ async function cloudflareOwner(env: Env, token: string): Promise<boolean> {
   if (res.status >= 500 || res.status === 429) throw new HttpError(503, "can't check your Cloudflare login right now");
   await res.body?.cancel();
   const ok = res.ok;
+  const until = Date.now() + (ok ? 5 * 60_000 : 30_000);
   if (owners.size > 500) owners.clear();
-  owners.set(key, { ok, until: Date.now() + (ok ? 5 * 60_000 : 30_000) });
+  owners.set(key, { ok, until });
+  await env.DB.prepare("INSERT OR REPLACE INTO owners (key, ok, until) VALUES (?, ?, ?)").bind(key, ok ? 1 : 0, until).run();
   return ok;
 }
 

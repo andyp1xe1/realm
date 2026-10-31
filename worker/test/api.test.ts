@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import worker, { MIGRATIONS } from "../src/index.ts";
+import worker, { MIGRATIONS, owners } from "../src/index.ts";
 import { mockD1, mockR2 } from "./mock.ts";
 
 const TOKEN = "secret-token";
@@ -453,9 +453,13 @@ test("a Cloudflare login that can manage the worker is the owner", async () => {
     const env = { DB: mockD1(), BUCKET: mockR2(), REALM_ACCOUNT: "acc1" } as never;
     const call = (token: string) => worker.fetch(new Request(O + "/api/realms", { headers: { authorization: `Bearer ${token}` } }), env);
 
+    const asked = () => seen.filter((u) => u.includes("cloudflare")).length;
     assert.equal((await call("cf-owner")).status, 200);
     assert.equal((await call("cf-owner")).status, 200);
-    assert.equal(seen.filter((u) => u.includes("cloudflare")).length, 1); // remembered
+    assert.equal(asked(), 1); // remembered in this isolate
+    owners.clear(); // as if a fresh isolate, or another location
+    assert.equal((await call("cf-owner")).status, 200);
+    assert.equal(asked(), 1); // remembered in the database too
     assert.equal((await call("cf-stranger")).status, 401);
     assert.equal((await call("cf-down")).status, 503);
     assert.equal((await call("")).status, 401);
