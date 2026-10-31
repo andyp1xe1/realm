@@ -268,6 +268,7 @@ func connect(args []string) error {
 }
 
 func logout() error {
+	cfRevoke(readConfig().Cloudflare)
 	err := os.Remove(configPath())
 	if errors.Is(err, os.ErrNotExist) {
 		return errors.New("not signed in or connected")
@@ -445,6 +446,14 @@ func (c *Client) status() error {
 		fmt.Println("limits ", strings.Join(limits, ", "))
 	}
 	fmt.Println("worker  version", info.Version)
+	if readConfig().Cloudflare != nil {
+		// Renews the login if its hour is up, so this also says whether it still works.
+		if _, err := cfAccess(); err != nil {
+			fmt.Println("cloudflare", err)
+		} else {
+			fmt.Println("cloudflare logged in, renews by itself")
+		}
+	}
 	return nil
 }
 

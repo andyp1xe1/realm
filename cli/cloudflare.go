@@ -27,18 +27,19 @@ const (
 	cfClientID  = "e48e69845742def220449dec54f713b3" // realm's OAuth client; public, not a secret
 	cfAuthorize = "https://dash.cloudflare.com/oauth2/auth"
 	cfTokenURL  = "https://dash.cloudflare.com/oauth2/token"
+	cfRevokeURL = "https://dash.cloudflare.com/oauth2/revoke"
 	cfAPI       = "https://api.cloudflare.com/client/v4"
 	cfPort      = 53134 // registered as http://localhost:53134/oauth/callback
 	workerName  = "realm"
 )
 
 // cfScopes are what the client asks for, by the ids Cloudflare checks them under ("Workers Admin" is
-// workers-scripts.admin). The custom-domain ones are optional on the consent screen. No offline_access:
-// the client isn't registered for refresh tokens, so a login lasts as long as its access token.
+// workers-scripts.admin). The custom-domain ones are optional on the consent screen. offline_access
+// is what gets a refresh token: access tokens last an hour.
 // REALM_CF_SCOPES replaces the list, for trying scope names against the client's registration.
 var cfScopes = []string{
 	"account-settings.read", "workers-scripts.admin", "d1.write", "workers-r2.write",
-	"workers-routes.write", "dns.write", "zone.read",
+	"workers-routes.write", "dns.write", "zone.read", "offline_access",
 }
 
 // cfAuth is a Cloudflare login, kept so the CLI can deploy and update the worker later.
@@ -203,15 +204,24 @@ func cfOAuth() (*cfAuth, error) {
 		return nil, res.err
 	}
 
-	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
-	form.Set("code", res.code)
-	form.Set("redirect_uri", redirect)
-	form.Set("client_id", cfClientID)
-	form.Set("code_verifier", verifier)
-	resp, err := http.PostForm(cfTokenURL, form)
+	return cfExchange(url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {res.code},
+		"redirect_uri":  {redirect},
+		"client_id":     {cfClientID},
+		"code_verifier": {verifier},
+	}, "")
+}
+
+// errCFRejected means Cloudflare turned the login down: the only way on is logging in again.
+var errCFRejected = errors.New("your Cloudflare login has run out: run `realm login` again")
+
+// cfExchange posts to the token endpoint (form-encoded; it doesn't take JSON). A reply without a new
+// refresh token leaves [keep] valid, so it's kept.
+func cfExchange(form url.Values, keep string) (*cfAuth, error) {
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).PostForm(cfTokenURL, form)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't reach Cloudflare: %w", err)
 	}
 	defer resp.Body.Close()
 	var t struct {
@@ -222,12 +232,65 @@ func cfOAuth() (*cfAuth, error) {
 		Description  string `json:"error_description"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
-		return nil, fmt.Errorf("reading Cloudflare's token: %w", err)
+		return nil, fmt.Errorf("reading Cloudflare's token (http %d): %w", resp.StatusCode, err)
 	}
 	if t.AccessToken == "" {
+		if resp.StatusCode == 400 || resp.StatusCode == 401 || t.Error == "invalid_grant" {
+			return nil, errCFRejected
+		}
 		return nil, fmt.Errorf("Cloudflare didn't give a token: %s %s", t.Error, t.Description)
 	}
+	if t.RefreshToken == "" {
+		t.RefreshToken = keep
+	}
 	return &cfAuth{Access: t.AccessToken, Refresh: t.RefreshToken, Expires: time.Now().Unix() + t.ExpiresIn}, nil
+}
+
+// cfAccess is a usable Cloudflare access token from the saved login, refreshed first if it has run out.
+// Refresh tokens are single-use, so the config is read fresh and the new one saved straight away. When
+// Cloudflare can't be reached the login is left as it is: the refresh token may still be good.
+func cfAccess() (string, error) {
+	cfg := readConfig()
+	auth := cfg.Cloudflare
+	if auth == nil {
+		return "", errors.New("not logged in with Cloudflare: run `realm login`")
+	}
+	if time.Now().Unix() < auth.Expires-60 {
+		return auth.Access, nil
+	}
+	if auth.Refresh == "" {
+		return "", errCFRejected
+	}
+	next, err := cfExchange(url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {auth.Refresh},
+		"client_id":     {cfClientID},
+	}, auth.Refresh)
+	if err != nil {
+		if errors.Is(err, errCFRejected) {
+			cfg.Cloudflare = nil
+			_ = saveConfig(cfg)
+		}
+		return "", err
+	}
+	next.Account = auth.Account
+	cfg.Cloudflare = next
+	if err := saveConfig(cfg); err != nil {
+		return "", err
+	}
+	return next.Access, nil
+}
+
+// cfRevoke ends the Cloudflare login on Cloudflare's side too. Best effort: logging out locally goes ahead.
+func cfRevoke(auth *cfAuth) {
+	if auth == nil || auth.Refresh == "" {
+		return
+	}
+	_, _ = (&http.Client{Timeout: 10 * time.Second}).PostForm(cfRevokeURL, url.Values{
+		"client_id":       {cfClientID},
+		"token_type_hint": {"refresh_token"},
+		"token":           {auth.Refresh},
+	})
 }
 
 // cfGet calls the Cloudflare API and decodes its "result".
