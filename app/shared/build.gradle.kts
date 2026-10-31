@@ -5,7 +5,6 @@ plugins {
     alias(libs.plugins.android.kmp.library)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -19,17 +18,14 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            api(project(":core"))
+            implementation(libs.kotlinx.serialization.json)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
             implementation(libs.compose.ui)
             implementation(libs.compose.ui.backhandler)
             implementation(libs.material.icons.extended)
-            api(libs.ktor.client.core)
-            implementation(libs.ktor.client.content.negotiation)
-            implementation(libs.ktor.serialization.json)
-            api(libs.kotlinx.coroutines.core)
-            implementation(libs.kotlinx.serialization.json)
         }
     }
 }

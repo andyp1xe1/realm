@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.flow.Flow
 
 /** Everything the shared UI needs from the device. Implemented by androidApp and desktopApp. */
-interface Platform {
+interface Platform : Browser {
     /** Sent as the item source: "android", "desktop". */
     val name: String
     val prefs: Prefs
@@ -32,12 +32,6 @@ interface Platform {
     /** Download to a temp place and open with the system's default app. */
     suspend fun open(url: String, auth: String?, name: String)
 
-    /**
-     * Opens [url] in the browser and waits for it to come back to http://localhost:[port][path], as an OAuth
-     * login does. Returns the query parameters it came back with.
-     */
-    suspend fun authorize(url: String, port: Int, path: String): Map<String, String>
-
     fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap?
 
     /** Image bytes kept on disk between runs, by key; null if not there. Blocking. */
@@ -54,28 +48,9 @@ sealed interface Incoming {
     data class Text(val text: String) : Incoming
 }
 
-interface LocalFile {
-    val name: String
-    val mime: String?
-    val size: Long
-
-    /** Opens a fresh blocking reader over the content. */
-    fun reader(): ByteReader
-}
-
-interface ByteReader : AutoCloseable {
-    /** Like InputStream.read: number of bytes read, or -1 at the end. */
-    fun read(buf: ByteArray, off: Int, len: Int): Int
-}
-
 interface Recording {
     /** Peak level 0..1 since the last call, for the little level meter. */
     fun level(): Float
     suspend fun stop(): LocalFile?
     fun cancel()
-}
-
-interface Prefs {
-    fun get(key: String): String?
-    fun set(key: String, value: String?)
 }

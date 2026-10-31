@@ -76,7 +76,7 @@ object Cloudflare {
     }
 
     /** The browser login: authorization code with PKCE, caught on localhost. */
-    suspend fun logIn(platform: Platform): CloudflareLogin {
+    suspend fun logIn(browser: Browser): CloudflareLogin {
         val verifier = generateNonce() + generateNonce()
         val challenge = sha256(verifier.encodeToByteArray()).encodeBase64().trimEnd('=').replace('+', '-').replace('/', '_')
         val state = generateNonce()
@@ -89,7 +89,7 @@ object Cloudflare {
             parameters.append("code_challenge", challenge)
             parameters.append("code_challenge_method", "S256")
         }.buildString()
-        val back = platform.authorize(url, PORT, CALLBACK)
+        val back = browser.authorize(url, PORT, CALLBACK)
         when {
             back["state"] != state -> throw ApiException("That login didn't match. Try again.")
             back["error"] != null -> throw ApiException("Cloudflare said ${back["error_description"] ?: back["error"]}")

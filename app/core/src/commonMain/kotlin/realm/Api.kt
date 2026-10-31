@@ -291,7 +291,7 @@ class Api(base: String, private val bearer: Bearer?, private val source: String)
     }
 }
 
-internal fun ByteReader.readAll(size: Int): ByteArray = readUpTo(size)
+fun ByteReader.readAll(size: Int): ByteArray = readUpTo(size)
 
 private fun ByteReader.readUpTo(max: Int): ByteArray {
     var buf = ByteArray(minOf(max, 1 shl 20))

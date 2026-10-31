@@ -147,11 +147,12 @@ private fun metaText(item: Item, platform: Platform) = buildString {
 /** What's in an item's bubble; [image] is the picture, once there is one. */
 @Composable
 private fun ItemBody(item: Item, image: ImageBitmap?) {
+    val name = item.name
     when {
         isInlineImage(item) -> ImageContent(item, image)
 
-        item.name != null -> Column {
-            FileRow(item.name, fileDetails(item.size, item.name)) { KindIcon(item.kind, item.mime) }
+        name != null -> Column {
+            FileRow(name, fileDetails(item.size, name)) { KindIcon(item.kind, item.mime) }
             Caption(item.text)
         }
 
@@ -392,9 +393,10 @@ private fun ItemMenu(item: Item, model: Model, open: Boolean, onDismiss: () -> U
                 DropdownMenuItem(text = { Text("Open") }, onClick = act { model.open(item) })
                 DropdownMenuItem(text = { Text("Save") }, onClick = act { model.save(item) })
             }
-            if (!item.text.isNullOrEmpty()) {
+            val text = item.text
+            if (!text.isNullOrEmpty()) {
                 DropdownMenuItem(text = { Text(if (isFile) "Copy caption" else "Copy") }, onClick = act { model.copy(item) })
-                if (!isFile && (item.text.length > 800 || item.text.count { it == '\n' } > 20)) {
+                if (!isFile && (text.length > 800 || text.count { it == '\n' } > 20)) {
                     DropdownMenuItem(text = { Text("View all") }, onClick = act(onView))
                 }
             }
