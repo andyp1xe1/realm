@@ -177,31 +177,37 @@ private fun ColumnScope.Found(result: UpdateCheck, home: Home, onClose: () -> Un
     }
 }
 
-/** Each address the worker answers on, the one in use marked; then adding one, or what's being done. */
+/**
+ * Each address the worker answers on, the one in use marked, and workers.dev while it's off; then adding
+ * one, or what's being done. The last address it answers on can't be taken away.
+ */
 @Composable
 private fun ColumnScope.Addresses(panel: ServerPanel, managed: Managed, settings: ServerSettings) {
     val task = managed.task
-    managed.addresses.origins.forEach { origin ->
-        val domain = managed.addresses.domains.firstOrNull { "https://${it.hostname}" == origin }
+    val a = managed.addresses
+    // Nothing to do to an address while another change is under way.
+    val busy = task != null && task != AddressTask.Adding && task !is AddressTask.Failed
+    (listOfNotNull(a.workersDev) + a.origins).distinct().forEach { origin ->
+        val on = origin in a.origins
         Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(origin.removePrefix("https://"), Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            // Nothing to do to an address while another change is under way, or to the one in use.
-            val busy = task != null && task != AddressTask.Adding && task !is AddressTask.Failed
-            when {
-                origin == panel.origin -> Text(
-                    "In use",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-
-                busy -> {}
-
-                else -> Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { settings.use(origin) }) { Text("Use") }
-                    if (domain !=
-                        null
-                    ) {
-                        TextButton(onClick = { settings.remove(domain) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+            Text(
+                origin.removePrefix("https://"),
+                Modifier.weight(1f),
+                color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (origin == panel.origin) {
+                Text("In use", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+            if (!busy) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (!on) TextButton(onClick = settings::turnOnWorkersDev) { Text("Turn on") }
+                    if (on && origin != panel.origin) TextButton(onClick = { settings.use(origin) }) { Text("Use") }
+                    if (on && a.origins.size > 1) {
+                        TextButton(onClick = { settings.remove(origin) }) {
+                            Text(if (origin == a.workersDev) "Turn off" else "Remove", color = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
@@ -232,15 +238,7 @@ private fun ColumnScope.Addresses(panel: ServerPanel, managed: Managed, settings
                     Answer("Delete them", onNo = { settings.replace(false) }, onYes = { settings.replace(true) })
                 }
 
-                is AddressTask.Removing -> if (t.confirmed) {
-                    Turning("Taking realm off ${t.domain.hostname}")
-                } else {
-                    Text(
-                        "Take realm off ${t.domain.hostname}? Share links made with that address stop working.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Answer("Remove", onNo = { settings.confirmRemove(false) }, onYes = { settings.confirmRemove(true) })
-                }
+                is AddressTask.Removing -> Removing(t, workersDev = t.origin == a.workersDev, settings)
 
                 is AddressTask.Switching -> Turning("Checking that realm answers on ${t.origin.removePrefix("https://")}")
 
@@ -249,6 +247,26 @@ private fun ColumnScope.Addresses(panel: ServerPanel, managed: Managed, settings
                     Link("OK") { settings.adding(false) }
                 }
             }
+        }
+    }
+}
+
+/** Asking before the worker comes off an address, then saying so while it does. */
+@Composable
+private fun Removing(t: AddressTask.Removing, workersDev: Boolean, settings: ServerSettings) {
+    val host = t.origin.removePrefix("https://")
+    val moveTo = t.moveTo?.removePrefix("https://")
+    when {
+        t.confirmed && moveTo != null -> Turning("Moving to $moveTo, then taking realm off $host")
+
+        t.confirmed -> Turning("Taking realm off $host")
+
+        else -> Column {
+            val ask = if (workersDev) "Turn off $host?" else "Take realm off $host?"
+            val move = moveTo?.let { " The app moves to $it first." }.orEmpty()
+            Text("$ask$move Share links made with that address stop working.", style = MaterialTheme.typography.bodyMedium)
+            val yes = if (workersDev) "Turn off" else "Remove"
+            Answer(yes, onNo = { settings.confirmRemove(false) }, onYes = { settings.confirmRemove(true) })
         }
     }
 }

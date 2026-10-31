@@ -18,13 +18,15 @@ class ManageTest {
      * and GitHub with releases of the given API versions, newest first.
      */
     private fun account(worker: Int = 2, domains: String = "[]", workersDev: Boolean = true, vararg releases: Pair<String, Int>) =
-        FakeClouds { route, _ ->
+        FakeClouds { route, seen ->
             when {
                 route == "GET $CF/accounts/a1/workers/domains" -> cf(domains)
 
                 route == "GET $CF/accounts/a1/workers/scripts/realm/subdomain" -> if (workersDev) null else cf("""{"enabled":false}""")
 
                 route == "DELETE $CF/accounts/a1/workers/domains/d1" -> cf("null")
+
+                route == "POST $CF/accounts/a1/workers/scripts/realm/subdomain" -> cf(seen.text)
 
                 route.endsWith("/api/info") -> json("""{"version":$worker,"scope":"owner"}""")
 
@@ -67,6 +69,48 @@ class ManageTest {
         val e = assertFailsWith<LastAddress> { c.api().removeDomain(ACCOUNT, Domain("d1", "notes.jo.dev", "z1")) }
         assertEquals("notes.jo.dev", e.hostname)
         assertTrue(c.routes.none { it.startsWith("DELETE") }, c.routes.toString())
+    }
+
+    @Test
+    fun workersDevIsKnownWhileItIsOff() = runTest {
+        val a = account(domains = "[$notes]", workersDev = false).api().addresses(ACCOUNT)
+
+        assertEquals("https://realm.jo.workers.dev", a.workersDev)
+        assertEquals(listOf("https://notes.jo.dev"), a.origins)
+    }
+
+    @Test
+    fun workersDevTurnsOffWhileADomainStays() = runTest {
+        val c = account(domains = "[$notes]")
+        val api = c.api()
+        api.takeOff(api.addresses(ACCOUNT), "https://realm.jo.workers.dev")
+
+        val off = c.seen.single { it.route == "POST $CF/accounts/a1/workers/scripts/realm/subdomain" }
+        assertEquals("""{"enabled":false,"previews_enabled":false}""", off.text)
+        assertTrue(c.routes.none { it.startsWith("DELETE") }, c.routes.toString())
+    }
+
+    @Test
+    fun workersDevStaysWhenItIsTheLastAddress() = runTest {
+        val c = account()
+        val e = assertFailsWith<LastAddress> { c.api().setWorkersDev(ACCOUNT, on = false) }
+        assertEquals("realm.jo.workers.dev", e.hostname)
+        assertTrue(c.routes.none { it.startsWith("POST") }, c.routes.toString())
+    }
+
+    @Test
+    fun workersDevTurnsOn() = runTest {
+        val c = account(domains = "[$notes]", workersDev = false)
+        c.api().setWorkersDev(ACCOUNT, on = true)
+        assertEquals("""{"enabled":true,"previews_enabled":false}""", c.seen.single { it.route.startsWith("POST") }.text)
+    }
+
+    @Test
+    fun aDomainIsTakenOffByItsAddress() = runTest {
+        val c = account(domains = "[$notes]")
+        val api = c.api()
+        api.takeOff(api.addresses(ACCOUNT), "https://notes.jo.dev")
+        assertEquals(listOf("DELETE cf/accounts/a1/workers/domains/d1"), c.routes.filter { !it.startsWith("GET") })
     }
 
     @Test

@@ -37,8 +37,11 @@ sealed interface AddressTask {
     /** DNS records stand in the way of [conflict]'s hostname: shown, and deleted only if the user agrees. */
     data class Conflict(val conflict: DomainOutcome.Conflict) : AddressTask
 
-    /** Taking the worker off [domain]: asked first, then [confirmed]. */
-    data class Removing(val domain: Domain, val confirmed: Boolean) : AddressTask
+    /**
+     * Taking the worker off [origin], a custom domain or workers.dev: asked first, then [confirmed]. [moveTo]
+     * is where the app goes first when [origin] is the address it uses.
+     */
+    data class Removing(val origin: String, val confirmed: Boolean, val moveTo: String?) : AddressTask
 
     /** Making [origin] the address the app uses, once it answers there. */
     data class Switching(val origin: String) : AddressTask

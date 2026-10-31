@@ -41,6 +41,7 @@ import java.io.File
  */
 internal class FakeCloud(var worker: String? = null, val r2: Boolean = true, val accounts: Int = 1, var release: Int = 3) {
     private var record = true
+    private var workersDev = true
     private var hostname = ""
     private val domains = mutableListOf<String>()
     private val gh = "github.com/andyp1xe1/realm/releases/download/v1.2.0"
@@ -88,7 +89,12 @@ internal class FakeCloud(var worker: String? = null, val r2: Boolean = true, val
                 cf("null")
             }
 
-            route == "GET cf/accounts/a1/workers/scripts/realm/subdomain" -> cf("""{"enabled":true}""")
+            route == "GET cf/accounts/a1/workers/scripts/realm/subdomain" -> cf("""{"enabled":$workersDev}""")
+
+            route == "POST cf/accounts/a1/workers/scripts/realm/subdomain" -> {
+                workersDev = """"enabled":true""" in (req.body as TextContent).text
+                cf("""{"enabled":$workersDev}""")
+            }
 
             route == "GET cf/accounts/a1/workers/scripts/realm/secrets" -> cf("""[{"name":"REALM_ACCOUNT"}]""")
 
@@ -142,7 +148,7 @@ internal class FakeCloud(var worker: String? = null, val r2: Boolean = true, val
 
             " cf/" in route -> cf("{}")
 
-            // the schedule and workers.dev switch
+            // the schedule
 
             route.endsWith("/api/info") -> worker?.let { json(it) } ?: json("""{"error":"not found"}""", HttpStatusCode.NotFound)
 

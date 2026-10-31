@@ -91,27 +91,56 @@ class ServerSettings internal constructor(
         }
     }
 
-    /** Asks before taking the worker off [domain]: share links made with it stop working. */
-    fun remove(domain: Domain) = edit { it.copy(task = AddressTask.Removing(domain, confirmed = false)) }
+    /**
+     * Asks before taking the worker off [origin]: share links made with it stop working. Off the address in
+     * use, the app moves to another one first.
+     */
+    fun remove(origin: String) {
+        val p = panel ?: return
+        val others = p.managed?.addresses?.origins.orEmpty() - origin
+        val moveTo = if (origin == p.origin) others.firstOrNull() ?: return else null
+        edit { it.copy(task = AddressTask.Removing(origin, confirmed = false, moveTo)) }
+    }
 
-    /** Answers [AddressTask.Removing]: takes the worker off the domain, or not. */
+    /** Answers [AddressTask.Removing]: takes the worker off the address, moving the app first if it's the one in use, or not. */
     fun confirmRemove(agree: Boolean) {
         val asked = panel?.managed?.task as? AddressTask.Removing ?: return
         if (!agree) return edit { it.copy(task = null) }
-        work(asked.copy(confirmed = true)) { cf, m ->
-            cf.removeDomain(m.addresses.account, asked.domain)
+        val moveTo = asked.moveTo
+        if (moveTo == null) {
+            work(asked.copy(confirmed = true)) { cf, m ->
+                cf.takeOff(m.addresses, asked.origin)
+                null
+            }
+        } else {
+            switch(moveTo, asked.copy(confirmed = true)) { cf, m -> cf.takeOff(m.addresses, asked.origin) }
+        }
+    }
+
+    /** Turns the worker's workers.dev address back on. */
+    fun turnOnWorkersDev() {
+        val origin = panel?.managed?.addresses?.workersDev ?: return
+        work(AddressTask.Attaching(origin.removePrefix("https://"))) { cf, m ->
+            cf.setWorkersDev(m.addresses.account, on = true)
             null
         }
     }
 
     /** Makes [origin] the address the app talks to, once the worker answers its owner there; the login stays. */
-    fun use(origin: String) {
+    fun use(origin: String) = switch(origin, AddressTask.Switching(origin)) { _, _ -> }
+
+    /**
+     * Shows [task] while signing in at [origin], the same worker at another address, and doing [then] with the
+     * login; then the app and this section move there in one go. Nothing changes if any of it fails.
+     */
+    private fun switch(origin: String, task: AddressTask, then: suspend (CloudflareApi, Managed) -> Unit) {
         val m = panel?.managed ?: return
-        edit { it.copy(task = AddressTask.Switching(origin)) }
+        edit { it.copy(task = task) }
         scope.launch {
             try {
                 val s = signInWithCloudflare(origin, m.session.login, home.platform.name, home::sessionFor, engine)
                 val next = try {
+                    CloudflareApi(m.session, engine).use { then(it, m) }
                     fetch(s.api, s.session)
                 } catch (e: Exception) {
                     s.api.close() // nothing else will hold it
@@ -125,7 +154,7 @@ class ServerSettings internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                logFailure("Switching to $origin", e)
+                logFailure("Moving the app to $origin", e)
                 edit { it.copy(task = AddressTask.Failed(explain(e))) }
             }
         }

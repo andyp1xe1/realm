@@ -1,26 +1,63 @@
 // Looking after a realm worker that's deployed: where it answers, whether there's a newer release for it, and
-// taking a custom domain off it without leaving it with no address.
+// turning its addresses on and off without leaving it with none.
 package realm
+
+import io.ktor.http.HttpMethod
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** Where the realm worker on [account] answers, and the domains it could answer on too. */
 data class Addresses(
     val account: Account,
-    /** Its workers.dev address, like https://realm.jo.workers.dev, while that's on. */
+    /** Its workers.dev address, like https://realm.jo.workers.dev, on or off; null when the account has no subdomain. */
     val workersDev: String?,
+    /** Whether it answers on [workersDev]. */
+    val workersDevOn: Boolean,
     /** The custom domains it answers on. */
     val domains: List<Domain>,
     /** The account's active domains, to add one from. */
     val zones: List<Zone>,
 ) {
-    /** Every address as an origin, workers.dev first. */
-    val origins: List<String> get() = listOfNotNull(workersDev) + domains.map { "https://${it.hostname}" }
+    /** Every address it answers on, as an origin, workers.dev first. */
+    val origins: List<String> get() = listOfNotNull(workersDev.takeIf { workersDevOn }) + domains.map { "https://${it.hostname}" }
 }
 
 /** Where the realm worker on [account] answers. */
 suspend fun CloudflareApi.addresses(account: Account): Addresses {
     val domains = domains(account)
-    val workersDev = if (workersDevOn(account)) subdomain(account)?.let { CloudflareApi.workersDev(it) } else null
-    return Addresses(account, workersDev, domains, zones(account))
+    val workersDev = subdomain(account)?.let { CloudflareApi.workersDev(it) }
+    return Addresses(account, workersDev, workersDev != null && workersDevOn(account), domains, zones(account))
+}
+
+/** Turns the worker's workers.dev address on or off; never off while it's the only one: then [LastAddress]. */
+suspend fun CloudflareApi.setWorkersDev(account: Account, on: Boolean) {
+    if (!on) {
+        val a = addresses(account)
+        val origin = a.workersDev
+        if (origin != null && (a.origins - origin).isEmpty()) throw LastAddress(origin.removePrefix("https://"))
+    }
+    call<JsonElement?>(
+        HttpMethod.Post,
+        "/accounts/${account.id}/workers/scripts/${Cloudflare.WORKER}/subdomain",
+        buildJsonObject {
+            put("enabled", on)
+            put("previews_enabled", false)
+        },
+    )
+}
+
+/**
+ * Takes the worker off [origin], one of [addresses]: a custom domain comes off, workers.dev is turned off.
+ * Never the last address the worker answers on: then [LastAddress].
+ */
+suspend fun CloudflareApi.takeOff(addresses: Addresses, origin: String) {
+    val domain = addresses.domains.firstOrNull { "https://${it.hostname}" == origin }
+    when {
+        domain != null -> removeDomain(addresses.account, domain)
+        origin == addresses.workersDev -> setWorkersDev(addresses.account, false)
+        else -> throw ApiException("realm doesn't answer on ${origin.removePrefix("https://")}.")
+    }
 }
 
 /** [hostname] is the only address the worker answers on: taking it off would leave nobody able to reach it. */
