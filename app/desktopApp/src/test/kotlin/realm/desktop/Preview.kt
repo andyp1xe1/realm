@@ -300,8 +300,10 @@ private fun create() {
     }
     var t = 0L
     fun frame() = scene.render(t).also { t += 16_000_000L }
-    // Let the realms load and Main open, then go to the grid.
-    repeat(60) { frame(); Thread.sleep(10) }
+    // Let the realms load and Main open, then go to the grid. Waits on the stand-in server, not a frame count.
+    fun until(ok: () -> Boolean) { repeat(400) { if (ok()) return; frame(); Thread.sleep(10) } }
+    until { h.realms.size >= 2 && h.model != null }
+    repeat(20) { frame() }
     h.showTabs()
     repeat(40) { frame(); Thread.sleep(5) }
     h.createRealm("Ideas")
@@ -313,6 +315,7 @@ private fun create() {
     // Then back to the grid and delete Lisbon trip: it fades away and Ideas slides into its place (delete-N).
     h.showTabs()
     repeat(40) { frame(); Thread.sleep(5) }
+    until { h.realms.any { it.id == "ideas" } }
     h.deleteRealm(h.realms.first { it.id == "trip" })
     for (n in 0..40) {
         val img = frame()

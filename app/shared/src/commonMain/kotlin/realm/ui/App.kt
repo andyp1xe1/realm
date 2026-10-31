@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -85,6 +84,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import realm.Home
@@ -286,12 +286,13 @@ fun Setup(home: Home) {
     Column(
         Modifier.widthIn(max = 420.dp).fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        WelcomeArt(Modifier.offset(x = (-6).dp))
+        WelcomeArt()
         Spacer(Modifier.height(28.dp))
         Wordmark(34)
         Spacer(Modifier.height(8.dp))
-        Text("Your dump, everywhere.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Your dump, everywhere.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.height(32.dp))
         CloudflareButton { home.signInWithCloudflare() }
         Spacer(Modifier.height(12.dp))
