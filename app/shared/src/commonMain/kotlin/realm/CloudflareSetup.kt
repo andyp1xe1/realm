@@ -72,7 +72,7 @@ class CloudflareSetup internal constructor(
         val id = session.login.account ?: return
         start {
             login = Login.Planning(updating = true)
-            val account = CloudflareApi(session, engine).use { cf -> cf.accounts().firstOrNull { it.id == id } } ?: Account(id)
+            val account = CloudflareApi(session, engine).use { it.account(id) }
             plan(session, account, updating = true)
         }
     }
@@ -206,11 +206,12 @@ class CloudflareSetup internal constructor(
                 val info = server.info()
                 val seen = home.platform.prefs.get(RELEASE)?.split(' ')
                 val fresh = seen?.takeIf { !force && Cloudflare.now() - it[0].toLong() < 1.days.inWholeSeconds }
-                val latest = fresh?.get(1)?.toInt() ?: latestRelease(engine).manifest.version.also {
-                    home.platform.prefs.set(RELEASE, "${Cloudflare.now()} $it")
+                val latest = fresh?.get(1)?.toInt() ?: latestRelease(engine).let {
+                    home.platform.prefs.set(RELEASE, "${Cloudflare.now()} ${it.manifest.version} ${it.tag}")
+                    it.manifest.version
                 }
                 if (home.server !== server) return@launch // signed out meanwhile
-                update = ServerUpdate(info.version, latest, canDeploy).takeIf { info.fork == Api.FORK && info.version < latest }
+                update = ServerUpdate(info.version, latest, canDeploy).takeIf { offersUpdate(info, latest) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -218,6 +219,9 @@ class CloudflareSetup internal constructor(
             }
         }
     }
+
+    /** The tag of the newest release last seen, like v1.2.0, if one was. */
+    internal fun knownRelease(): String? = home.platform.prefs.get(RELEASE)?.split(' ')?.getOrNull(2)
 
     internal fun signedOut() {
         update = null
@@ -244,7 +248,7 @@ class CloudflareSetup internal constructor(
     }
 
     private companion object {
-        /** When the newest release was last asked for, and its API version: "<unix seconds> <version>". */
+        /** When the newest release was last asked for, its API version and tag: "<unix seconds> <version> <tag>". */
         const val RELEASE = "release"
     }
 }

@@ -55,6 +55,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** Logging in with Cloudflare, and deploying or updating the worker with it. */
     val cloudflare = CloudflareSetup(this, scope, engine)
 
+    /** The server section of settings. */
+    val serverSettings = ServerSettings(this, scope, engine)
+
     private val prefs = platform.prefs
     private val apis = mutableMapOf<String, Api>()
     private val models = mutableMapOf<String, Model>()
@@ -270,6 +273,22 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** Switches to a server just signed in to, as the owner. */
     internal fun signedIn(s: SignedIn) {
         signOut()
+        adoptOwner(s)
+    }
+
+    /** Talks to the same server at another address, with the same login: it isn't ended, as signing out would. */
+    internal fun switchedTo(s: SignedIn) {
+        val was = openKey
+        leave(switching = true)
+        adoptOwner(s)
+        // The same realms: the same one stays current, and the overview stays up if it is.
+        if (spaces.any { it.key == was }) {
+            openKey = was
+            prefs.set("open", was)
+        }
+    }
+
+    private fun adoptOwner(s: SignedIn) {
         session = s.session
         prefs.saveOwner(s.connection)
         checkForUpdate(force = true, s.api) // before adopt's refresh, which would check less eagerly
@@ -310,14 +329,18 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         refresh(force = true)
     }
 
-    fun signOut() {
+    fun signOut() = leave(switching = false)
+
+    /** Signs out; [switching] to another address of the same server keeps the login and settings' view of it. */
+    private fun leave(switching: Boolean) {
         realms.forEach { forget(ownKey(it.id)) }
         realms.clear()
         server?.close()
         server = null
-        session?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
+        if (!switching) session?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
         session = null
         cloudflare.signedOut()
+        if (!switching) serverSettings.signedOut()
         prefs.saveOwner(null)
         prefs.set("realms", null)
         if (open == null) reopen()

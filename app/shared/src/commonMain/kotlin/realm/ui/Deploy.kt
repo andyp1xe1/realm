@@ -166,7 +166,7 @@ private fun List<Resource>.words() = map { it.words() }.let {
 
 /** One line of the plan: what it's about, muted, then what. */
 @Composable
-private fun Fact(label: String, text: String) {
+internal fun Fact(label: String, text: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Text(label, Modifier.width(96.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(text, style = MaterialTheme.typography.bodyMedium)

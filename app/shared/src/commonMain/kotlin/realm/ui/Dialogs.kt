@@ -2,7 +2,6 @@ package realm.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +16,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import realm.Home
@@ -61,17 +59,7 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit, modifier: Modifier = Modif
         Wordmark()
         Spacer(Modifier.height(16.dp))
         if (server != null) {
-            Text("Signed in to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(server.base.removeSuffix("/api"), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            home.cloudflare.update?.let { u ->
-                Spacer(Modifier.height(16.dp))
-                Text("Server update: realm ${u.from} → ${u.to}", style = MaterialTheme.typography.bodyMedium)
-                // Only the account's Cloudflare login can deploy; a fixed token can't.
-                TextButton(onClick = {
-                    onDismiss()
-                    if (u.canDeploy) home.cloudflare.startUpdate() else home.cloudflare.logIn()
-                }, contentPadding = PaddingValues(0.dp)) { Text(if (u.canDeploy) "Update" else "Log in with Cloudflare to update") }
-            }
+            ServerSection(home, onClose = onDismiss)
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = {

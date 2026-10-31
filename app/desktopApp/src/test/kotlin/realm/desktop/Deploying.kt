@@ -39,9 +39,10 @@ import java.io.File
  * owner, null while there's none; deploying makes it version 3. [r2] off answers bucket writes as R2 does
  * when it's not turned on. notes.jo.dev has an A record in the way until it's deleted.
  */
-private class FakeCloud(var worker: String? = null, val r2: Boolean = true, val accounts: Int = 1) {
+internal class FakeCloud(var worker: String? = null, val r2: Boolean = true, val accounts: Int = 1, var release: Int = 3) {
     private var record = true
     private var hostname = ""
+    private val domains = mutableListOf<String>()
     private val gh = "github.com/andyp1xe1/realm/releases/download/v1.2.0"
 
     val engine = MockEngine { req ->
@@ -57,7 +58,7 @@ private class FakeCloud(var worker: String? = null, val r2: Boolean = true, val 
             )
 
             route == "GET $gh/worker.json" -> json(
-                """{"version":3,"name":"realm","main_module":"worker.js","compatibility_date":"2026-10-01",
+                """{"version":$release,"name":"realm","main_module":"worker.js","compatibility_date":"2026-10-01",
                     "sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
                     "r2_buckets":[{"binding":"BUCKET","bucket_name":"realm"}],
                     "d1_databases":[{"binding":"DB","database_name":"realm"}],"crons":["17 4 * * *"]}""",
@@ -80,7 +81,12 @@ private class FakeCloud(var worker: String? = null, val r2: Boolean = true, val 
 
             route == "GET cf/accounts/a1/workers/subdomain" -> cf("""{"subdomain":"jo"}""")
 
-            route == "GET cf/accounts/a1/workers/domains" -> cf("[]")
+            route == "GET cf/accounts/a1/workers/domains" -> cf("[${domains.joinToString(",")}]")
+
+            route.startsWith("DELETE cf/accounts/a1/workers/domains/") -> {
+                domains.removeAll { "\"id\":\"${route.substringAfterLast('/')}\"" in it }
+                cf("null")
+            }
 
             route == "GET cf/accounts/a1/workers/scripts/realm/subdomain" -> cf("""{"enabled":true}""")
 
@@ -120,7 +126,9 @@ private class FakeCloud(var worker: String? = null, val r2: Boolean = true, val 
                 if (record) {
                     cfError(100117, "Hostname already has DNS records")
                 } else {
-                    cf("""{"id":"d1","hostname":"$hostname","zone_id":"z1","service":"realm"}""")
+                    val d = """{"id":"d-$hostname","hostname":"$hostname","zone_id":"z1","service":"realm"}"""
+                    domains += d
+                    cf(d)
                 }
             }
 
@@ -156,7 +164,7 @@ private class FakeCloud(var worker: String? = null, val r2: Boolean = true, val 
 }
 
 /** A scene of the app's first screen with the Cloudflare sheet over it, and frames taken as real time passes. */
-private class Film(val home: Home, settings: Boolean = false) {
+internal class Film(val home: Home, settings: Boolean = false) {
     var settings by mutableStateOf(settings)
     val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
         RealmTheme {
@@ -344,4 +352,5 @@ private fun updating() {
     refused.roll("refused", max = 30)
     refused.close()
     println("${out.path}/update-*.png, refused-*.png")
+    managing()
 }
