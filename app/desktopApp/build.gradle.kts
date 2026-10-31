@@ -24,6 +24,8 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.coroutines.swing)
+    // Ktor logs through SLF4J; this prints warnings to the terminal (src/main/resources/simplelogger.properties).
+    runtimeOnly(libs.slf4j.simple)
     testImplementation(libs.ktor.client.mock)
 }
 
@@ -40,6 +42,11 @@ compose.desktop {
 }
 
 // `./gradlew :desktopApp:dev` runs the app with Compose Hot Reload: save a file and the window updates in place.
+// REALM_LOG=debug ./gradlew :desktopApp:run logs more than the warnings simplelogger.properties allows.
+tasks.withType<JavaExec>().matching { it.name == "run" }.configureEach {
+    System.getenv("REALM_LOG")?.let { systemProperty("org.slf4j.simpleLogger.defaultLogLevel", it) }
+}
+
 tasks.withType<ComposeHotRun>().configureEach {
     mainClass.set("realm.desktop.MainKt")
     isAutoReloadEnabled.set(true)
