@@ -434,3 +434,39 @@ test("an existing database migrates: items land in Main, item links become selec
   assert.deepEqual([links.links[0].scope, links.links[0].items, links.links[0].realm], ["read", ["old1"], "main"]);
   assert.equal(D1.db.prepare("SELECT v FROM meta WHERE k = 'schema'").get()!.v, MIGRATIONS.length);
 });
+
+// ---------- owner by Cloudflare login ----------
+
+test("a Cloudflare login that can manage the worker is the owner", async () => {
+  const seen: string[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = String(input);
+    seen.push(u);
+    const auth = new Headers(init?.headers).get("authorization");
+    if (!u.startsWith("https://api.cloudflare.com/")) return real(input, init);
+    if (auth === "Bearer cf-down") return new Response("oops", { status: 502 });
+    const mine = u.endsWith("/accounts/acc1/workers/scripts/realm/settings") && auth === "Bearer cf-owner";
+    return new Response(JSON.stringify({ success: mine }), { status: mine ? 200 : 403 });
+  }) as typeof fetch;
+  try {
+    const env = { DB: mockD1(), BUCKET: mockR2(), REALM_ACCOUNT: "acc1" } as never;
+    const call = (token: string) => worker.fetch(new Request(O + "/api/realms", { headers: { authorization: `Bearer ${token}` } }), env);
+
+    assert.equal((await call("cf-owner")).status, 200);
+    assert.equal((await call("cf-owner")).status, 200);
+    assert.equal(seen.filter((u) => u.includes("cloudflare")).length, 1); // remembered
+    assert.equal((await call("cf-stranger")).status, 401);
+    assert.equal((await call("cf-down")).status, 503);
+    assert.equal((await call("")).status, 401);
+
+    // without REALM_ACCOUNT, Cloudflare isn't asked; REALM_TOKEN still works when set
+    const fixed = { DB: mockD1(), BUCKET: mockR2(), REALM_TOKEN: TOKEN } as never;
+    const n = seen.length;
+    assert.equal((await worker.fetch(new Request(O + "/api/realms", { headers: { authorization: "Bearer cf-owner" } }), fixed)).status, 401);
+    assert.equal(seen.length, n);
+    assert.equal((await worker.fetch(new Request(O + "/api/realms", { headers: { authorization: `Bearer ${TOKEN}` } }), fixed)).status, 200);
+  } finally {
+    globalThis.fetch = real;
+  }
+});

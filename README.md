@@ -23,16 +23,17 @@ cd worker
 npm install
 npx wrangler login
 npm run deploy      # creates the R2 bucket and D1 database
-openssl rand -base64 32 | tee /dev/stderr | npx wrangler secret put REALM_TOKEN
 ```
 
-The last command prints your owner token. The worker sets up and upgrades its own tables on the first request, so redeploying is the whole upgrade. To run the worker locally with in-memory storage and the token `dev`, run `npm run serve`.
+Then run `realm login` from the CLI. It logs in with Cloudflare, finds the worker, and tells it which account it runs on. From then on, any Cloudflare login that can manage the worker is its owner, so there's no token to keep. The worker sets up and upgrades its own tables on the first request, so redeploying is the whole upgrade.
+
+For scripts or agents that can't log in through a browser, you can also give the worker a fixed owner token: `openssl rand -base64 32 | tee /dev/stderr | npx wrangler secret put REALM_TOKEN`. To run the worker locally with in-memory storage and the token `dev`, run `npm run serve`.
 
 ## Use the CLI
 
 ```sh
 cd cli && make
-realm login https://realm.you.workers.dev <token>
+realm login
 realm add buy oat milk
 realm realms add Tax 2026
 realm use tax

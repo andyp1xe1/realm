@@ -21,7 +21,7 @@ import (
 
 const usage = `realm — dump notes and files from anywhere
 
-  realm login                     log in with Cloudflare and find your realm
+  realm login                     log in with Cloudflare; finds your realm, no token needed
   realm login <url> <token>       sign in to your own server with its owner token
   realm connect <link>            use a share link someone sent you
   realm logout                    forget the saved server or link
@@ -97,12 +97,13 @@ type Link struct {
 type Client struct {
 	base   string // where item routes go: https://x/api/realms/<id>, https://x/api, or https://…/s/<token>
 	server string // the owner API, https://x/api; empty for share links
-	token  string // bearer, empty for share links
+	token  string // a fixed owner token; empty for share links and Cloudflare logins
+	viaCF  bool   // the owner is the saved Cloudflare login, renewed as it runs out
 	http   *http.Client
 }
 
 // workerVersion is the worker this CLI is written against; an older one lacks things it uses.
-const workerVersion = 2
+const workerVersion = 3
 
 const partSize = 32 << 20
 const singleMax = 90 << 20
@@ -311,7 +312,7 @@ func loadClient(realm string) (*Client, error) {
 }
 
 func newClient(cfg config) *Client {
-	c := &Client{token: cfg.Token}
+	c := &Client{token: cfg.Token, viaCF: cfg.Token == "" && cfg.Cloudflare != nil && !isLink(cfg.URL)}
 	if isLink(cfg.URL) {
 		c.base = strings.TrimRight(cfg.URL, "/")
 	} else {
@@ -345,6 +346,12 @@ func (c *Client) req(method, path string, body io.Reader, size int64, ctype stri
 	}
 	if c.token != "" {
 		r.Header.Set("Authorization", "Bearer "+c.token)
+	} else if c.viaCF {
+		t, err := cfAccess()
+		if err != nil {
+			return nil, err
+		}
+		r.Header.Set("Authorization", "Bearer "+t)
 	}
 	r.Header.Set("X-Realm-Source", "cli")
 	res, err := c.http.Do(r)

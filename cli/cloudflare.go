@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -102,18 +104,40 @@ func loginCloudflare() error {
 	origin := fmt.Sprintf("https://%s.%s.workers.dev", workerName, sub.Subdomain)
 	fmt.Println("found your realm at", origin)
 
-	// Cloudflare won't hand back a secret's value, so the owner token comes from you, once.
-	token := os.Getenv("REALM_TOKEN")
-	if token == "" {
-		token = ask("its owner token (the REALM_TOKEN you set when you deployed it): ")
+	// The worker takes a Cloudflare login as its owner's once it knows which account it's on.
+	script := "/accounts/" + acc.ID + "/workers/scripts/" + workerName
+	var secrets []struct{ Name string }
+	if err := cfGet(tok.Access, script+"/secrets", &secrets); err != nil {
+		return fmt.Errorf("reading the worker's settings: %w", err)
 	}
-	cfg := config{URL: origin, Token: token, Cloudflare: tok}
+	has := false
+	for _, s := range secrets {
+		has = has || s.Name == "REALM_ACCOUNT"
+	}
+	if !has {
+		body := map[string]string{"name": "REALM_ACCOUNT", "text": acc.ID, "type": "secret_text"}
+		if err := cfSend(tok.Access, "PUT", script+"/secrets", body, nil); err != nil {
+			return fmt.Errorf("telling the worker its account: %w", err)
+		}
+	}
+
+	// No owner token: the Cloudflare login is the key. Saved first, since the client reads it from there.
+	cfg := config{URL: origin, Cloudflare: tok}
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
 	c := newClient(cfg)
 	var info Info
-	if err := c.do("GET", "/info", nil, &info); err != nil {
-		return fmt.Errorf("that token doesn't open %s: %w", origin, err)
+	for try := 0; try < 5; try++ { // a new secret takes a few seconds to reach the worker
+		if err = c.do("GET", "/info", nil, &info); err == nil || !strings.Contains(err.Error(), "(401)") {
+			break
+		}
+		time.Sleep(2 * time.Second)
 	}
-	if err := saveConfig(cfg); err != nil {
+	if err != nil {
+		if strings.Contains(err.Error(), "(401)") {
+			return errors.New("your worker doesn't take Cloudflare logins yet: redeploy it once (cd worker && npm run deploy) and run `realm login` again")
+		}
 		return err
 	}
 	warnOld(info)
@@ -295,8 +319,21 @@ func cfRevoke(auth *cfAuth) {
 
 // cfGet calls the Cloudflare API and decodes its "result".
 func cfGet(token, path string, out any) error {
-	req, _ := http.NewRequest("GET", cfAPI+path, nil)
+	return cfSend(token, "GET", path, nil, out)
+}
+
+// cfSend calls the Cloudflare API with an optional JSON body and decodes its "result" into out.
+func cfSend(token, method, path string, in, out any) error {
+	var body io.Reader
+	if in != nil {
+		b, _ := json.Marshal(in)
+		body = bytes.NewReader(b)
+	}
+	req, _ := http.NewRequest(method, cfAPI+path, body)
 	req.Header.Set("Authorization", "Bearer "+token)
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
@@ -319,6 +356,9 @@ func cfGet(token, path string, out any) error {
 			msgs = append(msgs, fmt.Sprintf("%s (%d)", e.Message, e.Code))
 		}
 		return errors.New(strings.Join(msgs, "; "))
+	}
+	if out == nil {
+		return nil
 	}
 	return json.Unmarshal(env.Result, out)
 }

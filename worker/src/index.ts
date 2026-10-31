@@ -1,6 +1,7 @@
 // realm — a personal dump. One Worker, one R2 bucket, one D1 database, any number of realms.
 //
-//   /api/realms/<id>/...  owner access to one realm, `Authorization: Bearer $REALM_TOKEN`
+//   /api/realms/<id>/...  owner access to one realm, `Authorization: Bearer <owner>`, where <owner> is a
+//                         Cloudflare login that can manage this worker, or the optional $REALM_TOKEN
 //   /api/...              the same routes on the first realm, plus /api/realms and /api/links
 //   /s/<token>/...        the same routes on the link's realm, limited by the link's scope
 //
@@ -11,11 +12,16 @@
 export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
-  REALM_TOKEN: string;
+  /** Optional fixed owner token, for scripts and agents that can't log in with Cloudflare. */
+  REALM_TOKEN?: string;
+  /** The Cloudflare account this worker runs on. Set by `realm login`; enables owner access by Cloudflare login. */
+  REALM_ACCOUNT?: string;
+  /** This worker's script name on Cloudflare, if not "realm". */
+  REALM_WORKER?: string;
 }
 
 /** Bump with every release, so clients can tell a deployment needs updating. */
-const VERSION = 2;
+const VERSION = 3;
 
 type Scope = "owner" | "full" | "read" | "drop";
 
@@ -224,7 +230,8 @@ async function handle(req: Request, env: Env): Promise<Response> {
   if (parts[0] === "api") {
     const auth = req.headers.get("authorization") || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!env.REALM_TOKEN || !safeEqual(token, env.REALM_TOKEN)) throw new HttpError(401, "bad token");
+    const fixed = !!env.REALM_TOKEN && safeEqual(token, env.REALM_TOKEN);
+    if (!fixed && !(await cloudflareOwner(env, token))) throw new HttpError(401, "bad token");
     const ctx: Ctx = { req, env, url, scope: "owner", link: null, realm: null, base: `${url.origin}/api`, src: src || "api" };
     return owner(ctx, parts.slice(1));
   }
@@ -247,6 +254,41 @@ async function handle(req: Request, env: Env): Promise<Response> {
 
   if (parts.length === 0) return text("realm\n");
   throw new HttpError(404, "not found");
+}
+
+// Answers about Cloudflare logins, by token hash: a yes holds 5 minutes, a no 30 seconds.
+const owners = new Map<string, { ok: boolean; until: number }>();
+
+/**
+ * Whether [token] is a Cloudflare login (OAuth or API token) that can manage this worker: the owner is
+ * whoever can see its settings on its own account. Cloudflare being unreachable is a 503, not a "no".
+ */
+async function cloudflareOwner(env: Env, token: string): Promise<boolean> {
+  if (!env.REALM_ACCOUNT || !token) return false;
+  const key = await sha256(token);
+  const known = owners.get(key);
+  if (known && known.until > Date.now()) return known.ok;
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(env.REALM_ACCOUNT)}/workers/scripts/${encodeURIComponent(env.REALM_WORKER || "realm")}/settings`,
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+  } catch {
+    throw new HttpError(503, "can't check your Cloudflare login right now");
+  }
+  if (res.status >= 500 || res.status === 429) throw new HttpError(503, "can't check your Cloudflare login right now");
+  await res.body?.cancel();
+  const ok = res.ok;
+  if (owners.size > 500) owners.clear();
+  owners.set(key, { ok, until: Date.now() + (ok ? 5 * 60_000 : 30_000) });
+  return ok;
+}
+
+async function sha256(s: string): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return btoa(String.fromCharCode(...new Uint8Array(d)));
 }
 
 /** Owner routes that sit above any one realm; the rest go to a realm. */
