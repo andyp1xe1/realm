@@ -1,6 +1,8 @@
 package realm.ui
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -42,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -74,7 +77,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -99,7 +104,7 @@ private enum class Mode { Compact, Auto, Manual }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) -> Unit = {}) {
+fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) -> Unit = {}, onOpen: (Float) -> Unit = {}) {
     val platform = model.platform
     val scope = rememberCoroutineScope()
     val focus = remember { FocusRequester() }
@@ -199,17 +204,39 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
         }
     }
 
+    // 0 = compact, 1 = the editor filling the screen.
+    val grow by animateFloatAsState(if (expanded) 1f else 0f, tween(260, easing = FastOutSlowInEasing))
+    var compactPx by remember { mutableIntStateOf(0) }
+    SideEffect { onOpen(grow) }
+    // The editor's layout stays up until it has finished shrinking, so closing plays opening backwards.
+    val editorShown = expanded || grow > 0f
+
     Column(
         modifier
+            // The height as drawn, mid-animation included, so the feed rides up and down with the composer's
+            // compact changes. Not while the editor is open, opening or closing: it covers the feed, which
+            // stays exactly where it was.
+            .onSizeChanged { if (!expanded && grow == 0f) onCompactHeight(with(density) { it.height.toDp() }) }
             .background(MaterialTheme.colorScheme.background)
-            .animateContentSize()
             .then(
-                if (expanded) Modifier.fillMaxSize()
-                else Modifier.fillMaxWidth().onSizeChanged { onCompactHeight(with(density) { it.height.toDp() }) },
+                if (editorShown) {
+                    // Opening or closing the editor: laid out afresh at each height in between, so the card's
+                    // top and the text stay in view as it grows, and the buttons stay on the bottom row.
+                    Modifier.layout { measurable, constraints ->
+                        val h = (compactPx + (constraints.maxHeight - compactPx) * grow).roundToInt()
+                        val p = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                        layout(p.width, h) { p.place(0, 0) }
+                    }
+                } else {
+                    // Compact changes (recording, attachments, the editing label) grow upward from the bottom edge.
+                    Modifier.animateContentSize(alignment = Alignment.BottomCenter).onSizeChanged { compactPx = it.height }
+                },
             )
+            .fillMaxWidth()
             .padding(start = 8.dp, end = 8.dp, bottom = 8.dp, top = 4.dp),
+        verticalArrangement = Arrangement.Bottom,
     ) {
-        if (editing != null && !expanded) {
+        if (editing != null && !editorShown) {
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Edit, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
@@ -223,7 +250,7 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
         Surface(
             shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surfaceContainer,
-            modifier = if (expanded) Modifier.weight(1f).fillMaxWidth() else Modifier,
+            modifier = if (editorShown) Modifier.weight(1f).fillMaxWidth() else Modifier,
         ) {
             val rec = recording
             if (rec != null) {
@@ -237,27 +264,27 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                 )
             } else Column(Modifier.padding(4.dp)) {
                 // Compact: attachments sit above the text, like a message being composed.
-                if (!expanded && staged.isNotEmpty()) Tray(model)
+                if (!editorShown && staged.isNotEmpty()) Tray(model)
                 // One Row and one Field in both modes, so focus, cursor and the soft keyboard survive the switch.
                 Row(
-                    if (expanded) Modifier.weight(1f) else Modifier,
+                    if (editorShown) Modifier.weight(1f) else Modifier,
                     verticalAlignment = Alignment.Bottom,
                 ) {
-                    if (!expanded) AttachButtons()
+                    if (!editorShown) AttachButtons()
                     Field(
                         value = value,
                         onValueChange = { value = it },
                         placeholder = when {
                             staged.isNotEmpty() -> "Add a caption…"
-                            expanded -> "Write something…"
+                            editorShown -> "Write something…"
                             else -> "Dump something…"
                         },
-                        maxLines = if (expanded) Int.MAX_VALUE else 10,
-                        alignTop = expanded,
+                        maxLines = if (editorShown) Int.MAX_VALUE else 10,
+                        alignTop = editorShown,
                         onLines = { lines = it },
                         modifier = Modifier
                             .weight(1f)
-                            .then(if (expanded) Modifier.fillMaxHeight().padding(horizontal = 8.dp) else Modifier)
+                            .then(if (editorShown) Modifier.fillMaxHeight().padding(horizontal = 8.dp) else Modifier)
                             .focusRequester(focus)
                             .onPreviewKeyEvent { e ->
                                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -276,7 +303,7 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                                 }
                             },
                     )
-                    if (expanded) {
+                    if (editorShown) {
                         // Top-right corner, level with the first line of text: no header row eating space.
                         IconButton(onClick = ::collapse, Modifier.align(Alignment.Top)) {
                             Icon(Icons.Outlined.FullscreenExit, "Shrink composer")
@@ -289,8 +316,8 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                     }
                 }
                 // Expanded: attachments sit with the actions, under the writing area.
-                if (expanded && staged.isNotEmpty()) Tray(model)
-                if (expanded) {
+                if (editorShown && staged.isNotEmpty()) Tray(model)
+                if (editorShown) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         AttachButtons()
                         // Editing can't attach, so its label and cancel take the attach buttons' spot.

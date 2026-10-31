@@ -66,7 +66,7 @@ private class FakePlatform(vararg prefs: Pair<String, String>) : Platform {
     override val canTakePhoto = true
     override suspend fun pickFiles() = emptyList<LocalFile>()
     override suspend fun takePhoto(): LocalFile? = null
-    override suspend fun startRecording(): Recording? = null
+    override suspend fun startRecording(): Recording? = FakeRecording()
     override fun clipboardFiles() = emptyList<LocalFile>()
     override fun copyText(text: String) {}
     override suspend fun save(url: String, auth: String?, name: String) = ""
@@ -193,6 +193,52 @@ private fun zoom(h: Home) {
     println("${out.path}/zoom-*.png")
 }
 
+/**
+ * Frames of the composer switching modes inside a feed: mode-mic-N after tapping the mic, mode-expand-N after
+ * tapping expand, mode-collapse-N after shrinking it again. N is frames of about 16ms; 0 is just before.
+ */
+private fun modes() {
+    for (which in listOf("mic", "expand")) {
+        val m = model().apply { pending.clear() }
+        val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
+            RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Main(m, "Main", tabs = 7) } }
+        }
+        var t = 0L
+        fun frame() = scene.render(t).also { t += 16_000_000L }
+        repeat(30) { frame() }
+        File(out, "mode-$which-0.png").writeBytes(frame().encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        if (which == "mic") {
+            // The mic sits at the composer's right end.
+            val at = androidx.compose.ui.geometry.Offset(364f * 2, 790f * 2)
+            scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press, at)
+            scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release, at)
+        } else {
+            // The expand button, next to the mic. Short text, so closing it again sticks.
+            m.incomingText = "a short note"
+            repeat(5) { frame() }
+            val at = androidx.compose.ui.geometry.Offset(315f * 2, 783f * 2)
+            scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press, at)
+            scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release, at)
+        }
+        for (n in 1..30) {
+            val img = frame()
+            if (n in setOf(3, 5, 8, 12, 30)) File(out, "mode-$which-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        }
+        if (which == "expand") {
+            // And closed again with the shrink button in the editor's top-right corner.
+            val at = androidx.compose.ui.geometry.Offset(362f * 2, 90f * 2)
+            scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press, at)
+            scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release, at)
+            for (n in 1..30) {
+                val img = frame()
+                if (n in setOf(3, 8, 12, 30)) File(out, "mode-collapse-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            }
+        }
+        scene.close()
+    }
+    println("${out.path}/mode-*.png")
+}
+
 /** Same arrangement as the real screen: the composer floats over the bottom of the feed. */
 @Composable
 private fun Screen(m: Model) {
@@ -271,5 +317,6 @@ fun main(args: Array<String>) {
     }
     shot("grid-light", 400, 820, dark = false) { Grid(home) }
     zoom(home(m).also { it.modelOf(it.spaces.first()).items.addAll(m.items) })
+    modes()
     kotlin.system.exitProcess(0)
 }

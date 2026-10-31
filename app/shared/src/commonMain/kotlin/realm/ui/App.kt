@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -228,8 +230,10 @@ fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
 
         var composerHeight by remember { mutableStateOf(72.dp) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            Feed(model, Modifier.fillMaxSize(), bottomPadding = composerHeight)
-            Composer(model, Modifier.align(Alignment.BottomCenter), onCompactHeight = { composerHeight = it })
+            // The feed fades out as the editor opens over it, and back in as it closes.
+            var editorOpen by remember { mutableFloatStateOf(0f) }
+            Feed(model, Modifier.fillMaxSize().graphicsLayer { alpha = 1f - editorOpen }, bottomPadding = composerHeight)
+            Composer(model, Modifier.align(Alignment.BottomCenter), onCompactHeight = { composerHeight = it }, onOpen = { editorOpen = it })
         }
     }
 
