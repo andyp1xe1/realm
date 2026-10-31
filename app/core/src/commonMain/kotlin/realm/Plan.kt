@@ -117,7 +117,10 @@ fun decide(release: Release, found: Found): Plan = when (val script = found.scri
     }
 }
 
-/** Looks at [account] and works out what deploying [release] there would do. Changes nothing. */
+/**
+ * Looks at [account] and works out what deploying [release] there would do. Changes nothing, except that a
+ * worker that doesn't know its account yet is told it, as logging in does, so it can say what it runs.
+ */
 suspend fun CloudflareApi.plan(account: Account, release: Release): Plan {
     val a = "/accounts/${account.id}"
     val subdomain = subdomain(account)
@@ -151,7 +154,7 @@ private suspend fun CloudflareApi.existing(account: Account, domains: List<Domai
         ?: return Existing.Silent(null, "That worker has no address to ask what it runs: turn on its workers.dev address.")
     val api = Api.server(origin, bearer, "deploy", engine)
     return try {
-        Existing.Answered(origin, api.info())
+        Existing.Answered(origin, ownerInfo(account, api))
     } catch (e: CancellationException) {
         throw e
     } catch (e: CloudflareRejected) {
@@ -160,7 +163,7 @@ private suspend fun CloudflareApi.existing(account: Account, domains: List<Domai
         Existing.Silent(
             origin,
             when {
-                e.status == 401 -> "That worker doesn't take Cloudflare logins yet. Log in to it first, so it can say what it runs."
+                e.status == 401 -> "That worker doesn't take Cloudflare logins. Redeploy it with wrangler, then try again."
                 e.status == 404 -> "That worker is too old to say what it runs."
                 else -> "That worker didn't say what it runs: ${e.message}"
             },
@@ -169,6 +172,22 @@ private suspend fun CloudflareApi.existing(account: Account, domains: List<Domai
         Existing.Silent(origin, "Can't reach that worker at $origin to ask what it runs.")
     } finally {
         api.close()
+    }
+}
+
+/**
+ * What the worker behind [api] runs, asked as its owner. A worker deployed with wrangler and never logged in
+ * to turns this login away until it knows its account, so it's told and asked again, as logging in does.
+ */
+private suspend fun CloudflareApi.ownerInfo(account: Account, api: Api): Info = try {
+    api.info()
+} catch (e: ApiException) {
+    if (e.status != 401) throw e
+    claim(account.id)
+    try {
+        Cloudflare.checkOwner(api)
+    } catch (still: ApiException) {
+        throw ApiException(still.message ?: "", 401) // it never took the login: from before Cloudflare logins
     }
 }
 

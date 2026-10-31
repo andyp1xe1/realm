@@ -24,6 +24,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 
 /**
  * Cloudflare said no. [codes] are its error codes, like 10004 for an R2 bucket that already exists, for
@@ -149,6 +150,17 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
         }
         return env.result
     }
+
+    /** Tells the realm worker on [account] which account it runs on, if it doesn't know yet: then Cloudflare logins are its owner. */
+    suspend fun claim(account: String) {
+        val script = "/accounts/$account/workers/scripts/${Cloudflare.WORKER}/secrets"
+        if (call<List<Secret>>(HttpMethod.Get, script).none { it.name == "REALM_ACCOUNT" }) {
+            call<JsonElement?>(HttpMethod.Put, script, cloudflareJson.encodeToJsonElement(Secret("REALM_ACCOUNT", account)))
+        }
+    }
+
+    @Serializable
+    private data class Secret(val name: String, val text: String? = null, val type: String = "secret_text")
 
     override fun close() = http.close()
 

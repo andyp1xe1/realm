@@ -5,7 +5,6 @@ package realm
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.request.forms.submitForm
-import io.ktor.http.HttpMethod
 import io.ktor.http.URLBuilder
 import io.ktor.http.parameters
 import io.ktor.util.encodeBase64
@@ -16,8 +15,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.encodeToJsonElement
 import kotlin.time.Clock
 
 /** The browser, for logins that come back to localhost. Implemented by each app's Platform. */
@@ -156,17 +153,9 @@ object Cloudflare {
     suspend fun workers(token: String, engine: HttpClientEngine? = null): List<Worker> =
         CloudflareApi(Bearer { token }, engine).use { it.workers() }
 
-    @Serializable
-    private data class Secret(val name: String, val text: String? = null, val type: String = "secret_text")
-
     /** Tells the worker which account it runs on, if it doesn't know yet: then Cloudflare logins are its owner. */
     suspend fun claim(token: String, worker: Worker, engine: HttpClientEngine? = null) {
-        CloudflareApi(Bearer { token }, engine).use { cf ->
-            val script = "/accounts/${worker.account}/workers/scripts/$WORKER/secrets"
-            if (cf.call<List<Secret>>(HttpMethod.Get, script).none { it.name == "REALM_ACCOUNT" }) {
-                cf.call<JsonElement?>(HttpMethod.Put, script, cloudflareJson.encodeToJsonElement(Secret("REALM_ACCOUNT", worker.account)))
-            }
-        }
+        CloudflareApi(Bearer { token }, engine).use { it.claim(worker.account) }
     }
 
     /**
