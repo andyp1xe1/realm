@@ -2,7 +2,6 @@ package realm.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import kotlinx.coroutines.delay
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -10,8 +9,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,10 +18,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -58,24 +57,25 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import realm.Home
 import realm.Incoming
@@ -89,7 +89,7 @@ import realm.Space
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun Grid(home: Home) {
+fun Grid(home: Home, modifier: Modifier = Modifier) {
     var adding by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
     val spaces = home.spaces
@@ -101,19 +101,28 @@ fun Grid(home: Home) {
         val key = home.fresh ?: return@LaunchedEffect
         val i = home.spaces.indexOfFirst { it.key == key }
         if (i >= 0) grid.animateScrollToItem(i + 1)
-        delay(TileArriveMillis.toLong() + 80)
+        delay(TILE_ARRIVE_MILLIS.toLong() + 80)
         home.spaces.firstOrNull { it.key == key }?.let(home::open)
     }
     BackHandler(enabled = home.open != null) { home.hideTabs() }
 
-    Column(Modifier.widthIn(max = PageWidth).fillMaxSize()) {
-        Row(Modifier.topBarBounds().fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier.widthIn(max = PageWidth).fillMaxSize()) {
+        Row(
+            Modifier.topBarBounds().fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             PageTitle(null, Modifier.weight(1f))
             IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, "Settings") }
-            TabsButton(spaces.size) { home.hideTabs() }
+            TabsButton(spaces.size, onClick = { home.hideTabs() })
         }
         Box(Modifier.fillMaxWidth().height(2.dp)) {
-            if (home.loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent)
+            if (home.loading) {
+                LinearProgressIndicator(
+                    Modifier.fillMaxWidth().height(2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = Color.Transparent,
+                )
+            }
         }
         home.incoming?.let { IncomingBanner(it) { home.incoming = null } }
         // Tiles draw their feed laid out this wide, then shrink it, so it matches the feed they zoom into.
@@ -130,7 +139,9 @@ fun Grid(home: Home) {
             items(spaces, key = { it.key }) {
                 // When a tile goes, the ones after it slide over rather than jump.
                 Tile(
-                    home, it, page,
+                    home,
+                    it,
+                    page,
                     current = it.key == home.openKey,
                     dimmed = home.incoming != null && !it.canWrite,
                     modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
@@ -140,7 +151,7 @@ fun Grid(home: Home) {
     }
 
     if (adding) Sheet({ adding = false }) { AddSheet(home) { adding = false } }
-    if (settings) SettingsDialog(home) { settings = false }
+    if (settings) SettingsDialog(home, onDismiss = { settings = false })
 }
 
 @Composable
@@ -163,10 +174,10 @@ private fun IncomingBanner(incoming: Incoming, onCancel: () -> Unit) {
 }
 
 /** How long a new tile takes to fade and grow into place before it opens. */
-private const val TileArriveMillis = 300
+private const val TILE_ARRIVE_MILLIS = 300
 
 /** Tiles are square. */
-private const val TileRatio = 1f
+private const val TILE_RATIO = 1f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -175,7 +186,7 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
     val leaving = space.key in home.leaving
     val arrive = remember(space.key) { Animatable(if (space.key == home.fresh) 0f else 1f) }
     LaunchedEffect(space.key, leaving) {
-        arrive.animateTo(if (leaving) 0f else 1f, tween(if (leaving) Home.TileLeaveMillis.toInt() else TileArriveMillis))
+        arrive.animateTo(if (leaving) 0f else 1f, tween(if (leaving) Home.TILE_LEAVE_MILLIS.toInt() else TILE_ARRIVE_MILLIS))
     }
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -194,10 +205,17 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
                 shape = MaterialTheme.shapes.large,
                 // The page's own colour: the tile is a picture of the page.
                 color = MaterialTheme.colorScheme.background,
-                border = if (current) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                border = if (current) {
+                    BorderStroke(
+                        2.dp,
+                        MaterialTheme.colorScheme.primary,
+                    )
+                } else {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(TileRatio)
+                    .aspectRatio(TILE_RATIO)
                     .tabBounds(space.key, MaterialTheme.shapes.large)
                     .clip(MaterialTheme.shapes.large)
                     .pointerInput(space.key) {
@@ -219,16 +237,31 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
                 }
             }
             DropdownMenu(menu, onDismissRequest = { menu = false }, shape = MaterialTheme.shapes.small) {
-                fun act(f: () -> Unit) = { menu = false; f() }
+                fun act(f: () -> Unit) = {
+                    menu = false
+                    f()
+                }
                 DropdownMenuItem(text = { Text("Open") }, onClick = act { home.open(space) })
                 when (space) {
                     is Space.Own -> {
                         DropdownMenuItem(text = { Text("Rename") }, onClick = act { renaming = true })
-                        DropdownMenuItem(text = { Text("Delete", color = MaterialTheme.colorScheme.error) }, onClick = act { deleting = true })
+                        DropdownMenuItem(text = {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }, onClick = act { deleting = true })
                     }
+
                     is Space.Shared -> {
-                        DropdownMenuItem(text = { Text("Copy link") }, onClick = act { home.platform.copyText(space.url); home.message = "Link copied" })
-                        DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, onClick = act { removing = true })
+                        DropdownMenuItem(
+                            text = { Text("Copy link") },
+                            onClick = act {
+                                home.platform.copyText(space.url)
+                                home.message =
+                                    "Link copied"
+                            },
+                        )
+                        DropdownMenuItem(text = {
+                            Text("Remove", color = MaterialTheme.colorScheme.error)
+                        }, onClick = act { removing = true })
                     }
                 }
             }
@@ -246,15 +279,23 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
             details(home, space),
             Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = if (space is Space.Shared && space.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (space is Space.Shared &&
+                space.error != null
+            ) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
 
     if (space is Space.Own) {
-        if (renaming) Sheet({ renaming = false }) {
-            NameSheet("Rename realm", space.realm.name, "Rename", onClose = { renaming = false }) { home.renameRealm(space.realm, it) }
+        if (renaming) {
+            Sheet({ renaming = false }) {
+                NameSheet("Rename realm", space.realm.name, "Rename", onClose = { renaming = false }) { home.renameRealm(space.realm, it) }
+            }
         }
         if (deleting) {
             Confirm(
@@ -262,7 +303,8 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
                 "Everything in it goes, and every link to it stops working. This can't be undone.",
                 "Delete",
                 onDismiss = { deleting = false },
-            ) { home.deleteRealm(space.realm) }
+                onConfirm = { home.deleteRealm(space.realm) },
+            )
         }
     }
     if (space is Space.Shared && removing) {
@@ -271,7 +313,8 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
             "It leaves your tabs. The link itself keeps working, so you can add it again.",
             "Remove",
             onDismiss = { removing = false },
-        ) { home.disconnect(space) }
+            onConfirm = { home.disconnect(space) },
+        )
     }
 }
 
@@ -283,6 +326,7 @@ private fun details(home: Home, space: Space): String = when (space) {
             space.realm.updated?.let { home.platform.formatDay(it) },
         ).joinToString(" · ")
     }
+
     is Space.Shared -> space.error ?: space.info.let { info ->
         when {
             info == null -> "Shared"
@@ -296,7 +340,7 @@ private fun details(home: Home, space: Space): String = when (space) {
 }
 
 @Composable
-private fun SharedBadge(modifier: Modifier) {
+private fun SharedBadge(modifier: Modifier = Modifier) {
     Box(
         modifier.size(24.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
@@ -310,11 +354,13 @@ private fun TilePreview(home: Home, space: Space, page: Dp) {
     val shared = space as? Space.Shared
     when {
         shared?.error != null -> Centered { Icon(Icons.Outlined.ErrorOutline, null, tint = MaterialTheme.colorScheme.error) }
+
         space.canWrite && !space.canRead -> Centered {
             Icon(Icons.Outlined.FileUpload, null, Modifier.size(28.dp), tint = muted)
             Spacer(Modifier.height(6.dp))
             Text("Drop things here", style = MaterialTheme.typography.labelSmall, color = muted)
         }
+
         else -> {
             val items = home.preview(space)
             LaunchedEffect(items) { items.filter { it.kind == "image" }.forEach { home.loadThumb(space, it) } }
@@ -326,7 +372,9 @@ private fun TilePreview(home: Home, space: Space, page: Dp) {
                         if (home.isEmpty(space)) EmptyRealm(Modifier.align(Alignment.Center), still = true)
                         if (items.isNotEmpty()) {
                             FeedPicture(
-                                items, home.platform, { home.image(space, it) },
+                                items,
+                                home.platform,
+                                { home.image(space, it) },
                                 Modifier.align(Alignment.BottomStart).fillMaxWidth().wrapContentHeight(Alignment.Bottom, unbounded = true),
                             )
                         }
@@ -364,7 +412,13 @@ private fun Miniature(width: Dp, content: @Composable () -> Unit) {
 
 @Composable
 private fun Centered(content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { content() }
+    Column(
+        Modifier.fillMaxSize().padding(12.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        content()
+    }
 }
 
 @Composable
@@ -375,98 +429,16 @@ private fun AddTile(label: String, onClick: () -> Unit) {
             shape = MaterialTheme.shapes.large,
             color = Color.Transparent,
             border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
-            modifier = Modifier.fillMaxWidth().aspectRatio(TileRatio),
+            modifier = Modifier.fillMaxWidth().aspectRatio(TILE_RATIO),
         ) {
             Centered { Icon(Icons.Outlined.Add, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         Spacer(Modifier.height(8.dp))
-        Text(label, Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-/** Signed in: a name makes a realm, a share link connects. Otherwise only links. */
-@Composable
-private fun AddSheet(home: Home, onClose: () -> Unit) {
-    if (home.server == null) {
-        Text("Add a share link", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(4.dp))
-        Text("It shows up here next to your other realms.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(16.dp))
-        SignInForm(home, linksOnly = true, onDone = onClose)
-        return
-    }
-    var text by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val isLink = "/s/" in text
-
-    fun go() {
-        val t = text.trim()
-        if (t.isEmpty() || busy) return
-        if (!isLink) {
-            home.createRealm(t)
-            return onClose()
-        }
-        busy = true
-        scope.launch {
-            error = home.connect(if (t.startsWith("http")) t else "https://$t")
-            busy = false
-            if (error == null) onClose()
-        }
-    }
-
-    Text("New realm", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    Text(
-        "Name it, or paste a share link someone sent you to keep it here.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(16.dp))
-    OutlinedTextField(
-        text, { text = it; error = null },
-        placeholder = { Text("Name or share link") },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-        keyboardActions = KeyboardActions(onGo = { go() }),
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.small,
-    )
-    error?.let {
-        Spacer(Modifier.height(8.dp))
-        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-    }
-    Spacer(Modifier.height(16.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-        TextButton(onClick = onClose) { Text("Cancel") }
-        Button(onClick = ::go, enabled = text.isNotBlank() && !busy, shape = MaterialTheme.shapes.small) {
-            Text(if (isLink) (if (busy) "Connecting…" else "Connect") else "Create")
-        }
-    }
-}
-
-@Composable
-private fun NameSheet(title: String, initial: String, confirm: String, onClose: () -> Unit, onName: (String) -> Unit) {
-    var text by remember { mutableStateOf(initial) }
-    fun go() {
-        if (text.isBlank()) return
-        onName(text.trim())
-        onClose()
-    }
-    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(16.dp))
-    OutlinedTextField(
-        text, { text = it },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { go() }),
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.small,
-    )
-    Spacer(Modifier.height(16.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-        TextButton(onClick = onClose) { Text("Cancel") }
-        Button(onClick = ::go, enabled = text.isNotBlank(), shape = MaterialTheme.shapes.small) { Text(confirm) }
+        Text(
+            label,
+            Modifier.padding(horizontal = 4.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

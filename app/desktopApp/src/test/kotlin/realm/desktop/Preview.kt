@@ -3,6 +3,7 @@ package realm.desktop
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -11,113 +12,60 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
 import org.jetbrains.skia.EncodedImageFormat
 import realm.Api
+import realm.Bearer
 import realm.ByteReader
 import realm.Home
 import realm.Info
 import realm.Item
-import realm.Realm
-import realm.Space
 import realm.LocalFile
 import realm.Model
 import realm.Pending
 import realm.Platform
 import realm.Prefs
+import realm.Realm
 import realm.Recording
+import realm.Space
 import realm.jvm.Dates
 import realm.jvm.JFile
-import realm.ui.ShareButton
-import realm.ui.ShareSheet
 import realm.ui.Composer
-import realm.ui.RecordingPanel
 import realm.ui.Feed
 import realm.ui.Grid
-import realm.ui.Tabs
 import realm.ui.Main
 import realm.ui.RealmTheme
+import realm.ui.RecordingPanel
 import realm.ui.Setup
-import androidx.compose.foundation.layout.padding
+import realm.ui.ShareButton
+import realm.ui.ShareSheet
+import realm.ui.Tabs
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.math.abs
 import kotlin.math.sin
 
-private val real by lazy { DesktopPlatform() }
-
-private class FakePlatform(vararg prefs: Pair<String, String>) : Platform {
-    override val name = "desktop"
-    private val map = mutableMapOf<String, String?>(*prefs)
-    override val prefs = object : Prefs {
-        override fun get(key: String) = map[key]
-        override fun set(key: String, value: String?) { map[key] = value }
-    }
-    override val incoming = emptyFlow<realm.Incoming>()
-    override val isForeground = false
-    override val canTakePhoto = true
-    override suspend fun pickFiles() = emptyList<LocalFile>()
-    override suspend fun takePhoto(): LocalFile? = null
-    override suspend fun startRecording(): Recording? = FakeRecording()
-    override fun clipboardFiles() = emptyList<LocalFile>()
-    override fun copyText(text: String) {}
-    override suspend fun save(url: String, auth: String?, name: String) = ""
-    override suspend fun open(url: String, auth: String?, name: String) {}
-    override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = real.decodeImage(bytes, maxSize)
-    override fun cachedImage(key: String): ByteArray? = null
-    override fun cacheImage(key: String, bytes: ByteArray) {}
-    override fun formatTime(epochMs: Long) = Dates.time(epochMs)
-    override fun formatDay(epochMs: Long) = Dates.day(epochMs)
-}
-
-private class FakeFile(override val name: String, override val size: Long, override val mime: String?) : LocalFile {
-    override fun reader(): ByteReader = error("preview")
-}
-
-private class FakeRecording : Recording {
-    private val t0 = System.nanoTime()
-    override fun level(): Float {
-        val t = (System.nanoTime() - t0) / 1e9
-        // Speech-ish: syllable bursts with pauses.
-        return (abs(sin(t * 7)) * (0.35 + 0.65 * abs(sin(t * 1.3))) * (0.8 + 0.2 * Math.random())).toFloat()
-    }
-    override suspend fun stop(): LocalFile? = null
-    override fun cancel() {}
-}
-
-private lateinit var out: File
-
-private fun shot(name: String, wDp: Int, hDp: Int, dark: Boolean = true, realtimeMs: Long = 0, content: @Composable () -> Unit) {
-    val scene = ImageComposeScene(wDp * 2, hDp * 2, Density(2f)) {
-        RealmTheme(dark) { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() } }
-    }
-    for (f in 0..30) scene.render(f * 16_000_000L)
-    // Some content (the recording waveform) samples on a real-time clock; let it run.
-    val t0 = System.nanoTime()
-    while (System.nanoTime() - t0 < realtimeMs * 1_000_000) {
-        Thread.sleep(16)
-        scene.render(System.nanoTime() - t0 + 600_000_000L)
-    }
-    val png = scene.render(600_000_000L).encodeToData(EncodedImageFormat.PNG)!!.bytes
-    File(out, "$name.png").writeBytes(png)
-    scene.close()
-    println("${out.path}/$name.png")
-}
-
 private fun model(): Model {
     // Unreachable server: nothing is fetched, we fill the lists by hand.
-    val m = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:9/api", "t", "desktop"))
+    val m = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
     val now = System.currentTimeMillis()
-    fun item(i: Int, kind: String, text: String? = null, name: String? = null, mime: String? = null, size: Long? = null, src: String? = null) =
-        Item("id$i", kind, text, name, mime, size, src, now - i * 600_000L)
+    fun item(
+        i: Int,
+        kind: String,
+        text: String? = null,
+        name: String? = null,
+        mime: String? = null,
+        size: Long? = null,
+        src: String? = null,
+    ) = Item("id$i", kind, text, name, mime, size, src, now - i * 600_000L)
     m.items.addAll(
         listOf(
             item(1, "note", "ok"),
@@ -165,7 +113,18 @@ private fun home(feed: Model): Home {
     val file = "https://realm.sam.dev/s/f9"
     val drop = "https://realm.jo.dev/s/d4"
     h.shared += Space.Shared(sam, Info(scope = "read", realm = Realm("r", "Sam's recipes")), null, Api(sam, null, "desktop"))
-    h.shared += Space.Shared(file, Info(scope = "read", realm = Realm("f", "Flat hunt"), items = 1, item = item("f", "file", name = "lease-draft.pdf", mime = "application/pdf")), null, Api(file, null, "desktop"))
+    h.shared +=
+        Space.Shared(
+            file,
+            Info(
+                scope = "read",
+                realm = Realm("f", "Flat hunt"),
+                items = 1,
+                item = item("f", "file", name = "lease-draft.pdf", mime = "application/pdf"),
+            ),
+            null,
+            Api(file, null, "desktop"),
+        )
     h.shared += Space.Shared(drop, Info(scope = "drop", realm = Realm("d", "Jo's inbox")), null, Api(drop, null, "desktop"))
     h.previews["link:$file"] = listOf(item("f", "file", name = "lease-draft.pdf", mime = "application/pdf"))
     h.previews["link:$sam"] = listOf(
@@ -246,7 +205,10 @@ private fun modes() {
 /** Frames of a feed getting its first page (arrive-page-N), then one new item (arrive-one-N). */
 private fun arrive() {
     val full = model().apply { pending.clear() }
-    val m = model().apply { pending.clear(); items.clear() }
+    val m = model().apply {
+        pending.clear()
+        items.clear()
+    }
     val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
         RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Screen(m) } }
     }
@@ -282,11 +244,19 @@ private fun create() {
             val path = x.requestURI.path
             val body = when {
                 path == "/api/info" -> """{"version":2,"scope":"owner","realm":null}"""
+
                 path == "/api/realms" && x.requestMethod == "POST" ->
                     """{"id":"ideas","name":"Ideas","created":3,"count":0}""".also { realms += it }
+
                 path == "/api/realms" -> """{"realms":[${realms.joinToString(",")}]}"""
-                x.requestMethod == "DELETE" -> { realms.removeAll { "\"${path.substringAfterLast('/')}\"" in it }; """{"ok":true}""" }
+
+                x.requestMethod == "DELETE" -> {
+                    realms.removeAll { "\"${path.substringAfterLast('/')}\"" in it }
+                    """{"ok":true}"""
+                }
+
                 path.endsWith("/links") -> """{"links":[]}"""
+
                 else -> """{"items":[],"next":null}"""
             }.toByteArray()
             x.responseHeaders.add("content-type", "application/json")
@@ -301,12 +271,22 @@ private fun create() {
     }
     var t = 0L
     fun frame() = scene.render(t).also { t += 16_000_000L }
+
     // Let the realms load and Main open, then go to the grid. Waits on the stand-in server, not a frame count.
-    fun until(ok: () -> Boolean) { repeat(400) { if (ok()) return; frame(); Thread.sleep(10) } }
+    fun until(ok: () -> Boolean) {
+        repeat(400) {
+            if (ok()) return
+            frame()
+            Thread.sleep(10)
+        }
+    }
     until { h.realms.size >= 2 && h.model != null }
     repeat(20) { frame() }
     h.showTabs()
-    repeat(40) { frame(); Thread.sleep(5) }
+    repeat(40) {
+        frame()
+        Thread.sleep(5)
+    }
     h.createRealm("Ideas")
     for (n in 0..80) {
         val img = frame()
@@ -315,7 +295,10 @@ private fun create() {
     }
     // Then back to the grid and delete Lisbon trip: it fades away and Ideas slides into its place (delete-N).
     h.showTabs()
-    repeat(40) { frame(); Thread.sleep(5) }
+    repeat(40) {
+        frame()
+        Thread.sleep(5)
+    }
     until { h.realms.any { it.id == "ideas" } }
     h.deleteRealm(h.realms.first { it.id == "trip" })
     for (n in 0..40) {
@@ -356,7 +339,15 @@ fun main(args: Array<String>) {
     val editing = model().apply { editing = items[4] }
     shot("composer-editing", 400, 300) { Screen(editing) }
     val long = model().apply {
-        items.add(0, items[4].copy(id = "long", text = (1..9).joinToString("\n") { "line $it of a longer note that needs room to breathe" }))
+        items.add(
+            0,
+            items[4].copy(
+                id = "long",
+                text = (1..9).joinToString("\n") {
+                    "line $it of a longer note that needs room to breathe"
+                },
+            ),
+        )
         this.editing = items[0]
     }
     shot("composer-expanded", 400, 820) { Screen(long) }
@@ -368,7 +359,13 @@ fun main(args: Array<String>) {
     }
     val withFiles = model().apply {
         pending.clear()
-        staged.addAll(listOf(JFile(png, "image/png", "sunset.png"), FakeFile("Q3-report.pdf", 2_400_000, "application/pdf"), FakeFile("voice.m4a", 180_000, "audio/mp4")))
+        staged.addAll(
+            listOf(
+                JFile(png, "image/png", "sunset.png"),
+                FakeFile("Q3-report.pdf", 2_400_000, "application/pdf"),
+                FakeFile("voice.m4a", 180_000, "audio/mp4"),
+            ),
+        )
     }
     shot("composer-staged", 400, 420, realtimeMs = 500) { Screen(withFiles) }
     val withFilesLong = model().apply {
@@ -381,7 +378,11 @@ fun main(args: Array<String>) {
     shot("composer-staged-expanded", 400, 820) { Screen(withFilesLong) }
     shot("recording", 400, 220, realtimeMs = 2500) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.padding(8.dp)) {
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.padding(8.dp),
+            ) {
                 RecordingPanel(FakeRecording(), onCancel = {}, onSend = {})
             }
         }
@@ -389,7 +390,11 @@ fun main(args: Array<String>) {
     // Hovered: the pointer over the stacked pill, and over the already fanned-out one.
     for ((name, expanded) in listOf("agents-hover" to false, "agents-hover-expanded" to true)) {
         val scene = ImageComposeScene(200 * 2, 50 * 2, Density(2f)) {
-            RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Box(Modifier.padding(8.dp)) { ShareButton(expanded) {} } } }
+            RealmTheme {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    Box(Modifier.padding(8.dp)) { ShareButton(onClick = {}, expanded = expanded) }
+                }
+            }
         }
         scene.render(0)
         scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Enter, androidx.compose.ui.geometry.Offset(60f, 40f))
@@ -399,16 +404,31 @@ fun main(args: Array<String>) {
         scene.close()
     }
     shot("agents", 200, 80) {
-        androidx.compose.foundation.layout.Column(Modifier.padding(8.dp)) { ShareButton {}; ShareButton(expanded = true) {} }
+        androidx.compose.foundation.layout.Column(Modifier.padding(8.dp)) {
+            ShareButton(onClick = {})
+            ShareButton(onClick = {}, expanded = true)
+        }
     }
-    val sharing = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("https://realm.example.dev/api", "t", "desktop")).apply {
+    val sharing = Model(
+        FakePlatform(),
+        CoroutineScope(Dispatchers.Unconfined),
+        Api(
+            "https://realm.example.dev/api",
+            Bearer {
+                "t"
+            },
+            "desktop",
+        ),
+    ).apply {
         val day = System.currentTimeMillis() + 86_400_000
         links += realm.Link("a1", "full", url = "https://realm.example.dev/s/a1", expires = day)
         links += realm.Link("b2", "read", label = "agent", url = "https://realm.example.dev/s/b2", expires = day, uses = 3)
     }
-    for ((name, url, h) in listOf(Triple("share-form", null, 510), Triple("share-copy", "https://realm.example.dev/s/a1", 430))) shot(name, 460, h) {
-        Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
-            androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { ShareSheet(sharing, {}, url) }
+    for ((name, url, h) in listOf(Triple("share-form", null, 510), Triple("share-copy", "https://realm.example.dev/s/a1", 430))) {
+        shot(name, 460, h) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
+                androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { ShareSheet(sharing, {}, initialUrl = url) }
+            }
         }
     }
     // A realm the server says has nothing in it, from a stand-in server that answers every list with no items.
@@ -421,14 +441,27 @@ fun main(args: Array<String>) {
         }
         start()
     }
-    val empty = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:${none.address.port}/api", "t", "desktop"))
+    val empty =
+        Model(
+            FakePlatform(),
+            CoroutineScope(Dispatchers.Unconfined),
+            Api(
+                "http://127.0.0.1:${none.address.port}/api",
+                Bearer {
+                    "t"
+                },
+                "desktop",
+            ),
+        )
     shot("empty", 400, 760, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
     shot("empty-light", 400, 760, dark = false, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
     shot("setup", 400, 760) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
     shot("setup-light", 400, 760, dark = false) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
     shot("setup-token", 460, 440) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
-            androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { realm.ui.TokenSheetPreview(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
+            androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) {
+                realm.ui.TokenSheetPreview(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined)))
+            }
         }
     }
     val home = home(m)

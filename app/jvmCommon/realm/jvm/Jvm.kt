@@ -15,11 +15,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
-class JFile(
-    val file: File,
-    override val mime: String? = guessMime(file.name),
-    override val name: String = file.name,
-) : LocalFile {
+class JFile(val file: File, override val mime: String? = guessMime(file.name), override val name: String = file.name) : LocalFile {
     override val size: Long get() = file.length()
     override fun reader(): ByteReader = StreamReader(file.inputStream())
 }

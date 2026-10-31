@@ -7,8 +7,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -16,34 +19,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
-
-/** A tile in the overview: one of your realms, or a share link you connected to. */
-sealed class Space(val key: String, val api: Api) {
-    abstract val name: String
-    abstract val canRead: Boolean
-    abstract val canWrite: Boolean
-    /** Every download spends one of the link's uses, so nothing is fetched just to show it. */
-    open val limited: Boolean get() = false
-
-    class Own(val realm: Realm, api: Api) : Space(ownKey(realm.id), api) {
-        override val name get() = realm.name
-        override val canRead get() = true
-        override val canWrite get() = true
-    }
-
-    /** [info] is null until the link has answered once; [error] is why it last didn't. */
-    class Shared(val url: String, val info: Info?, val error: String?, api: Api) : Space(sharedKey(url), api) {
-        // A link to picked items is still a realm, only filtered to them: it's named like one.
-        override val name: String
-            get() = info?.realm?.name ?: url.substringAfter("://").substringBefore('/')
-        override val canRead get() = error == null && info?.scope in setOf("read", "full")
-        override val canWrite get() = error == null && info?.scope in setOf("drop", "full")
-        override val limited get() = info?.usesLeft != null
-    }
-}
-
-private fun ownKey(id: String) = "realm:$id"
-private fun sharedKey(url: String) = "link:$url"
 
 /**
  * Everything above one feed: the server you're signed in to, its realms, the share links you've connected
@@ -56,32 +31,51 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         private set
     val realms = mutableStateListOf<Realm>()
     val shared = mutableStateListOf<Space.Shared>()
+
     /** The current realm, like the current tab; the first one unless another was open last time. */
     var openKey by mutableStateOf<String?>(null)
         private set
+
     /** The tab overview is up instead of the current realm's feed. */
     var showingTabs by mutableStateOf(false)
         private set
+
     /** Tiles on their way out: they fade away in the overview while the server deletes them. */
     val leaving = mutableStateListOf<String>()
+
     /** A tile just added in the overview: it's shown arriving there first, then opened from where it landed. */
     var fresh by mutableStateOf<String?>(null)
         private set
+
     /** Files or text from outside that arrived with no realm open, waiting for one to be picked. */
     var incoming by mutableStateOf<Incoming?>(null)
     var message by mutableStateOf<String?>(null)
     var loading by mutableStateOf(false)
         private set
 
+    /** Logging in with Cloudflare is under way: the browser is open, or the worker is being looked for. */
+    var loggingIn by mutableStateOf(false)
+        private set
+
+    /** Logging in found a realm worker on more than one Cloudflare account: one is to be [pick]ed. */
+    var workerChoice by mutableStateOf<List<Worker>?>(null)
+        private set
+
     private val prefs = platform.prefs
     private val apis = mutableMapOf<String, Api>()
     private val models = mutableMapOf<String, Model>()
+
     /** The latest few items of each space, by key, as last fetched for the tiles. */
     val previews = mutableStateMapOf<String, List<Item>>()
     private val thumbs = mutableStateMapOf<String, ImageBitmap>()
     private val thumbLoading = mutableSetOf<String>()
     private val thumbOrder = ArrayDeque<String>()
     private var lastRefresh: TimeSource.Monotonic.ValueTimeMark? = null
+
+    /** The Cloudflare login the server is signed in with, if it is. */
+    private var session: CloudflareSession? = null
+    private var loginJob: Job? = null
+    private var picked: CompletableDeferred<Worker?>? = null
 
     val spaces: List<Space> get() = realms.map { own(it) } + shared
     val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
@@ -92,12 +86,18 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         migratePrefs()
         val origin = prefs.get("server")
         val token = prefs.get("token")
-        if (origin != null && token != null) {
-            server = Api.server(origin, token, platform.name)
-            // Last known realms, so the overview shows straight away and works offline.
-            realms.addAll(prefs.get("realms")?.let { runCatching { json.decodeFromString<List<Realm>>(it) }.getOrNull() }.orEmpty())
+        val login = prefs.get("cloudflare")?.let { runCatching { JSON.decodeFromString<CloudflareLogin>(it) }.getOrNull() }
+        val bearer = when {
+            token != null -> Bearer { token }
+            login != null -> cloudflare(login).also { session = it }
+            else -> null
         }
-        prefs.get("links")?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.forEach { url ->
+        if (origin != null && bearer != null) {
+            server = Api.server(origin, bearer, platform.name)
+            // Last known realms, so the overview shows straight away and works offline.
+            realms.addAll(prefs.get("realms")?.let { runCatching { JSON.decodeFromString<List<Realm>>(it) }.getOrNull() }.orEmpty())
+        }
+        prefs.get("links")?.let { runCatching { JSON.decodeFromString<List<String>>(it) }.getOrNull() }?.forEach { url ->
             shared += Space.Shared(url, null, null, linkApi(url))
         }
         openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
@@ -108,7 +108,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     private fun migratePrefs() {
         val url = prefs.get("url") ?: return
         if ("/s/" in url) {
-            prefs.set("links", json.encodeToString(listOf(url)))
+            prefs.set("links", JSON.encodeToString(listOf(url)))
             prefs.set("token", null)
         } else {
             prefs.set("server", url)
@@ -144,7 +144,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
             if (server !== s) return // signed out meanwhile
             realms.clear()
             realms.addAll(list)
-            prefs.set("realms", json.encodeToString(list))
+            prefs.set("realms", JSON.encodeToString(list))
             if (open == null) reopen()
         } catch (e: CancellationException) {
             throw e
@@ -240,16 +240,85 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     // ---------- signing in and connecting ----------
 
     /**
-     * Signs in with a Cloudflare account, which finds or deploys the worker and keeps its token: no URL or
-     * token to copy. Waits on the OAuth client; until then, connecting with a token is the way in.
+     * Logs in with Cloudflare in the browser and signs in to the realm worker on that account, as `realm login`
+     * does: no URL or token to copy, the login is the owner's token. Tapping again starts over.
      */
     fun signInWithCloudflare() {
-        message = "Logging in with Cloudflare isn't ready yet. Connect with a token for now."
+        val previous = loginJob
+        loginJob = scope.launch {
+            previous?.cancelAndJoin()
+            loggingIn = true
+            try {
+                val login = Cloudflare.logIn(platform)
+                val found = Cloudflare.workers(login.access)
+                val worker = when (found.size) {
+                    0 -> throw ApiException("There's no realm worker on that Cloudflare account. Deploy it first, then log in.")
+                    1 -> found[0]
+                    else -> askWhich(found) ?: return@launch
+                }
+                // The worker takes a Cloudflare login as its owner's once it knows which account it's on.
+                Cloudflare.claim(login.access, worker)
+                val s = cloudflare(login.copy(account = worker.account))
+                val api = Api.server(worker.origin, s, platform.name)
+                try {
+                    Cloudflare.checkOwner(api)
+                } catch (e: Exception) {
+                    api.close()
+                    throw e
+                }
+                signOut()
+                session = s
+                server = api
+                prefs.set("server", worker.origin)
+                prefs.set("cloudflare", JSON.encodeToString(s.login))
+                refresh(force = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = explain(e)
+            } finally {
+                if (loginJob === coroutineContext[Job]) loggingIn = false
+            }
+        }
+    }
+
+    /** Answers [workerChoice]; null gives up on logging in. */
+    fun pick(worker: Worker?) {
+        picked?.complete(worker)
+    }
+
+    private suspend fun askWhich(found: List<Worker>): Worker? {
+        val d = CompletableDeferred<Worker?>().also { picked = it }
+        workerChoice = found
+        return try {
+            d.await()
+        } finally {
+            workerChoice = null
+            picked = null
+        }
+    }
+
+    /** [login] as the owner's token, keeping each renewal while it's the one signed in, and signing out once it's turned down. */
+    private fun cloudflare(login: CloudflareLogin): CloudflareSession {
+        lateinit var s: CloudflareSession
+        s = CloudflareSession(login) { next ->
+            if (session !== s) return@CloudflareSession
+            if (next != null) {
+                prefs.set("cloudflare", JSON.encodeToString(next))
+            } else {
+                scope.launch {
+                    if (session !== s) return@launch
+                    signOut()
+                    message = CloudflareRejected().message
+                }
+            }
+        }
+        return s
     }
 
     /** Signs in to your own server; returns an error message or null. */
     suspend fun signIn(origin: String, token: String): String? {
-        val api = Api.server(origin, token, platform.name)
+        val api = Api.server(origin, Bearer { token }, platform.name)
         try {
             if (api.info().scope != "owner") error("not an owner token")
         } catch (e: CancellationException) {
@@ -272,7 +341,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         realms.clear()
         server?.close()
         server = null
-        listOf("server", "token", "realms").forEach { prefs.set(it, null) }
+        session?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
+        session = null
+        listOf("server", "token", "cloudflare", "realms").forEach { prefs.set(it, null) }
         if (open == null) reopen()
     }
 
@@ -280,7 +351,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     suspend fun connect(url: String): String? {
         val u = url.trim().trimEnd('/')
         if ("/s/" !in u) return "That's not a share link"
-        shared.firstOrNull { it.url == u }?.let { open(it); return null }
+        shared.firstOrNull { it.url == u }?.let {
+            open(it)
+            return null
+        }
         val api = Api(u, null, platform.name)
         val info = try {
             api.info()
@@ -302,7 +376,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     fun disconnect(space: Space.Shared) {
         leaving += space.key
         scope.launch {
-            delay(TileLeaveMillis) // let the tile fade out first
+            delay(TILE_LEAVE_MILLIS) // let the tile fade out first
             shared.removeAll { it.key == space.key }
             leaving -= space.key
             forget(space.key)
@@ -311,7 +385,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         }
     }
 
-    private fun saveLinks() = prefs.set("links", json.encodeToString(shared.map { it.url }))
+    private fun saveLinks() = prefs.set("links", JSON.encodeToString(shared.map { it.url }))
 
     // ---------- realms ----------
 
@@ -321,7 +395,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
             try {
                 val r = s.createRealm(name)
                 realms += r
-                prefs.set("realms", json.encodeToString(realms.toList()))
+                prefs.set("realms", JSON.encodeToString(realms.toList()))
                 val space = own(r)
                 modelOf(space).startEmpty() // brand new: nothing to ask the server for
                 arrive(space)
@@ -352,12 +426,12 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
             try {
                 // The tile fades out meanwhile; it's only removed (and the rest slide over) once both are done.
                 coroutineScope {
-                    launch { delay(TileLeaveMillis) }
+                    launch { delay(TILE_LEAVE_MILLIS) }
                     s.deleteRealm(realm.id)
                 }
                 realms.removeAll { it.id == realm.id }
                 forget(key)
-                prefs.set("realms", json.encodeToString(realms.toList()))
+                prefs.set("realms", JSON.encodeToString(realms.toList()))
                 if (open == null) reopen()
             } catch (e: Exception) {
                 message = explain(e) // the tile comes back
@@ -389,16 +463,18 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     private fun explain(e: Exception): String = when (e.message) {
         // A worker from before realms has no /info.
         "not found" -> "That server needs updating: redeploy the worker."
+
         "bad token" -> "That token doesn't work for this server."
+
         else -> e.message ?: "Can't reach the server"
     }
 
     companion object {
         /** How long a tile takes to fade away when deleted or removed. */
-        const val TileLeaveMillis = 220L
+        const val TILE_LEAVE_MILLIS = 220L
 
         /** Items fetched per tile: enough to fill a tall one; the oldest clip off the top. */
         private const val PREVIEW = 8
-        private val json = Json { ignoreUnknownKeys = true }
+        private val JSON = Json { ignoreUnknownKeys = true }
     }
 }

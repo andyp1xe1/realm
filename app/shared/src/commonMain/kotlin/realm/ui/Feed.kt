@@ -1,5 +1,9 @@
 package realm.ui
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -7,8 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -22,25 +26,25 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -53,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -70,15 +75,10 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.TextButton
 import realm.Item
 import realm.Model
 import realm.Pending
 import realm.Platform
-import androidx.compose.ui.graphics.ImageBitmap
 import realm.humanSize
 
 @Composable
@@ -149,10 +149,12 @@ private fun metaText(item: Item, platform: Platform) = buildString {
 private fun ItemBody(item: Item, image: ImageBitmap?) {
     when {
         isInlineImage(item) -> ImageContent(item, image)
+
         item.name != null -> Column {
             FileRow(item.name, fileDetails(item.size, item.name)) { KindIcon(item.kind, item.mime) }
             Caption(item.text)
         }
+
         else -> NoteContent(item.text.orEmpty())
     }
 }
@@ -196,7 +198,9 @@ private fun DayHeader(day: String) {
             day,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 10.dp, vertical = 3.dp),
+            modifier = Modifier.clip(
+                CircleShape,
+            ).background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 10.dp, vertical = 3.dp),
         )
     }
 }
@@ -214,7 +218,11 @@ private fun Bubble(modifier: Modifier = Modifier, content: @Composable () -> Uni
 
 /** The small line under a bubble: time · source, or the sending state. */
 @Composable
-private fun Meta(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), actions: @Composable () -> Unit = {}) {
+private fun Meta(
+    text: String,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+    actions: @Composable () -> Unit = {},
+) {
     Row(Modifier.padding(start = 8.dp, top = 2.dp, bottom = 4.dp).heightIn(min = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, style = MaterialTheme.typography.labelSmall, color = color)
         actions()
@@ -307,7 +315,8 @@ private fun ImageContent(item: Item, image: ImageBitmap?) {
             if (bmp != null) {
                 val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.5f, 2.5f)
                 Image(
-                    bmp, item.name,
+                    bmp,
+                    item.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).aspectRatio(ratio),
                 )
@@ -326,7 +335,12 @@ private fun ImageContent(item: Item, image: ImageBitmap?) {
 
 /** Icon tile + name + details. The tile holds the type icon, or the progress ring while uploading. */
 @Composable
-private fun FileRow(title: String, details: String, detailsColor: Color = MaterialTheme.colorScheme.onSurfaceVariant, tile: @Composable () -> Unit) {
+private fun FileRow(
+    title: String,
+    details: String,
+    detailsColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    tile: @Composable () -> Unit,
+) {
     Row(Modifier.padding(10.dp).widthIn(min = 220.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(42.dp).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.primaryContainer),
@@ -364,7 +378,10 @@ private fun ItemMenu(item: Item, model: Model, open: Boolean, onDismiss: () -> U
     var linkStep by remember(open) { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     DropdownMenu(open, onDismiss, shape = MaterialTheme.shapes.small, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-        fun act(f: () -> Unit) = { f(); onDismiss() }
+        fun act(f: () -> Unit) = {
+            f()
+            onDismiss()
+        }
         val isFile = item.name != null
         if (linkStep) {
             TTLS.forEach { (label, ttl) ->
@@ -395,7 +412,8 @@ private fun ItemMenu(item: Item, model: Model, open: Boolean, onDismiss: () -> U
             "It's gone for good, and links that share only it stop working.",
             "Delete",
             onDismiss = { deleting = false },
-        ) { model.delete(item) }
+            onConfirm = { model.delete(item) },
+        )
     }
 }
 
@@ -410,32 +428,34 @@ private fun PendingRow(p: Pending, model: Model) {
             val file = p.file
             if (file == null) {
                 NoteContent(p.text.orEmpty())
-            } else Column {
-                val size = file.size.takeIf { it > 0 }
-                FileRow(
-                    file.name,
-                    when {
-                        failed -> p.error!!
-                        size == null -> "uploading…"
-                        else -> "${humanSize((size * p.progress).toLong())} of ${humanSize(size)}"
-                    },
-                    detailsColor = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                ) {
-                    if (failed) {
-                        Icon(Icons.Outlined.ErrorOutline, null, tint = MaterialTheme.colorScheme.error)
-                    } else {
-                        val progress by animateFloatAsState(p.progress)
-                        CircularProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.size(26.dp),
-                            strokeWidth = 2.5.dp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
-                            gapSize = 0.dp,
-                        )
+            } else {
+                Column {
+                    val size = file.size.takeIf { it > 0 }
+                    FileRow(
+                        file.name,
+                        when {
+                            failed -> p.error!!
+                            size == null -> "uploading…"
+                            else -> "${humanSize((size * p.progress).toLong())} of ${humanSize(size)}"
+                        },
+                        detailsColor = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    ) {
+                        if (failed) {
+                            Icon(Icons.Outlined.ErrorOutline, null, tint = MaterialTheme.colorScheme.error)
+                        } else {
+                            val progress by animateFloatAsState(p.progress)
+                            CircularProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.size(26.dp),
+                                strokeWidth = 2.5.dp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                                gapSize = 0.dp,
+                            )
+                        }
                     }
+                    Caption(p.caption)
                 }
-                Caption(p.caption)
             }
         }
         if (failed) {

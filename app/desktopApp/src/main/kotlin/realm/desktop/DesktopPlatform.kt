@@ -17,9 +17,10 @@ import realm.LocalFile
 import realm.Platform
 import realm.Prefs
 import realm.Recording
-import realm.jvm.DiskCache
 import realm.jvm.Dates
+import realm.jvm.DiskCache
 import realm.jvm.JFile
+import realm.jvm.awaitRedirect
 import realm.jvm.download
 import realm.jvm.uniqueFile
 import java.awt.Desktop
@@ -33,16 +34,17 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.URI
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.prefs.Preferences
 import javax.imageio.ImageIO
-import javax.swing.JFileChooser
 import javax.sound.sampled.AudioFileFormat
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioInputStream
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.TargetDataLine
+import javax.swing.JFileChooser
 import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.max
@@ -80,15 +82,22 @@ class DesktopPlatform : Platform {
     private fun filesFrom(t: Transferable): List<LocalFile> = runCatching {
         when {
             t.isDataFlavorSupported(DataFlavor.javaFileListFlavor) ->
-                (t.getTransferData(DataFlavor.javaFileListFlavor) as List<*>).filterIsInstance<File>().filter { it.isFile }.map { JFile(it) }
+                (t.getTransferData(DataFlavor.javaFileListFlavor) as List<*>).filterIsInstance<File>().filter {
+                    it.isFile
+                }.map { JFile(it) }
+
             t.isDataFlavorSupported(DataFlavor.imageFlavor) -> {
                 val img = t.getTransferData(DataFlavor.imageFlavor) as java.awt.Image
                 val buf = BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB)
-                buf.createGraphics().apply { drawImage(img, 0, 0, null); dispose() }
+                buf.createGraphics().apply {
+                    drawImage(img, 0, 0, null)
+                    dispose()
+                }
                 val f = File(tmp(), "pasted-${stamp()}.png")
                 ImageIO.write(buf, "png", f)
                 listOf(JFile(f, "image/png"))
             }
+
             else -> emptyList()
         }
     }.getOrDefault(emptyList())
@@ -146,6 +155,15 @@ class DesktopPlatform : Platform {
         val dest = uniqueFile(dir, name)
         download(url, auth, dest)
         "Saved to ${dest.path.replaceFirst(home.path, "~")}"
+    }
+
+    override suspend fun authorize(url: String, port: Int, path: String): Map<String, String> {
+        val back = awaitRedirect(port, path) {
+            val canBrowse = Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)
+            if (!canBrowse || runCatching { Desktop.getDesktop().browse(URI(url)) }.isFailure) ProcessBuilder("xdg-open", url).start()
+        }
+        withContext(Dispatchers.Main) { window?.toFront() }
+        return back
     }
 
     override suspend fun open(url: String, auth: String?, name: String) = withContext(Dispatchers.IO) {
@@ -213,9 +231,14 @@ class DesktopPlatform : Platform {
 /** 16 kHz mono WAV straight from the default microphone. */
 private class DesktopRecording(private val file: File) : Recording {
     private val format = AudioFormat(16_000f, 16, 1, true, false)
-    private val line: TargetDataLine = AudioSystem.getTargetDataLine(format).apply { open(format); start() }
+    private val line: TargetDataLine = AudioSystem.getTargetDataLine(format).apply {
+        open(format)
+        start()
+    }
     private val out = ByteArrayOutputStream()
+
     @Volatile private var running = true
+
     @Volatile private var peak = 0f
 
     private val reader = thread(isDaemon = true, name = "realm-mic") {

@@ -2,9 +2,9 @@ package realm
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.onUpload
-import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -106,22 +106,40 @@ private data class Parts(val parts: List<Part>)
 
 class ApiException(message: String) : Exception(message)
 
+/** Where an owner's token comes from: a fixed owner token, or a Cloudflare login that renews itself. */
+fun interface Bearer {
+    suspend fun token(): String
+}
+
 /**
- * [base] is either the owner API (…/api, or one realm of it, used with [token]) or a share link
+ * [base] is either the owner API (…/api, or one realm of it, used with [bearer]) or a share link
  * (…/s/<token>), which carries its own permissions and needs no token.
  */
-class Api(base: String, private val token: String?, private val source: String) {
+class Api(base: String, private val bearer: Bearer?, private val source: String) {
     val base: String = base.trimEnd('/')
-    val auth: String? = token?.takeIf { it.isNotBlank() }?.let { "Bearer $it" }
+    val isOwner get() = bearer != null
+
+    /** The Authorization header for this API; asking may renew a login first. */
+    suspend fun auth(): String? = bearer?.let { "Bearer ${it.token()}" }
 
     private val http = HttpClient {
         expectSuccess = false
-        install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; explicitNulls = false }) }
-    }
-
-    private fun HttpRequestBuilder.common() {
-        auth?.let { header("Authorization", it) }
-        header("X-Realm-Source", source)
+        install(ContentNegotiation) {
+            json(
+                Json {
+                    ignoreUnknownKeys = true
+                    explicitNulls = false
+                },
+            )
+        }
+        install(
+            createClientPlugin("realm") {
+                onRequest { req, _ ->
+                    auth()?.let { req.header("Authorization", it) }
+                    req.header("X-Realm-Source", source)
+                }
+            },
+        )
     }
 
     private suspend fun HttpResponse.ok(): HttpResponse {
@@ -130,61 +148,57 @@ class Api(base: String, private val token: String?, private val source: String) 
         throw ApiException(msg)
     }
 
-    suspend fun info(): Info = http.get("$base/info") { common() }.ok().body()
+    suspend fun info(): Info = http.get("$base/info").ok().body()
 
     // ---------- realms (owner API only) ----------
 
     /** The same server, scoped to one realm. */
-    fun realm(id: String) = Api("$base/realms/${id.encodeURLPathPart()}", token, source)
+    fun realm(id: String) = Api("$base/realms/${id.encodeURLPathPart()}", bearer, source)
 
-    suspend fun realms(): List<Realm> = http.get("$base/realms") { common() }.ok().body<Realms>().realms
+    suspend fun realms(): List<Realm> = http.get("$base/realms").ok().body<Realms>().realms
 
-    suspend fun createRealm(name: String): Realm =
-        http.post("$base/realms") {
-            common()
-            contentType(ContentType.Application.Json)
-            setBody(RealmName(name))
-        }.ok().body()
+    suspend fun createRealm(name: String): Realm = http.post("$base/realms") {
+        contentType(ContentType.Application.Json)
+        setBody(RealmName(name))
+    }.ok().body()
 
-    suspend fun renameRealm(id: String, name: String): Realm =
-        http.patch("$base/realms/${id.encodeURLPathPart()}") {
-            common()
-            contentType(ContentType.Application.Json)
-            setBody(RealmName(name))
-        }.ok().body()
+    suspend fun renameRealm(id: String, name: String): Realm = http.patch("$base/realms/${id.encodeURLPathPart()}") {
+        contentType(ContentType.Application.Json)
+        setBody(RealmName(name))
+    }.ok().body()
 
     suspend fun deleteRealm(id: String) {
-        http.delete("$base/realms/${id.encodeURLPathPart()}") { common() }.ok()
+        http.delete("$base/realms/${id.encodeURLPathPart()}").ok()
     }
 
     // ---------- items ----------
 
-    suspend fun list(query: String? = null, kinds: List<String> = emptyList(), before: String? = null, after: String? = null, limit: Int = 60): Page =
-        http.get("$base/items") {
-            common()
-            if (!query.isNullOrBlank()) parameter("q", query)
-            if (kinds.isNotEmpty()) parameter("kind", kinds.joinToString(","))
-            before?.let { parameter("before", it) }
-            after?.let { parameter("after", it) }
-            parameter("limit", limit)
-        }.ok().body()
+    suspend fun list(
+        query: String? = null,
+        kinds: List<String> = emptyList(),
+        before: String? = null,
+        after: String? = null,
+        limit: Int = 60,
+    ): Page = http.get("$base/items") {
+        if (!query.isNullOrBlank()) parameter("q", query)
+        if (kinds.isNotEmpty()) parameter("kind", kinds.joinToString(","))
+        before?.let { parameter("before", it) }
+        after?.let { parameter("after", it) }
+        parameter("limit", limit)
+    }.ok().body()
 
-    suspend fun note(text: String): Item =
-        http.post("$base/items") {
-            common()
-            contentType(ContentType.Application.Json)
-            setBody(TextBody(text))
-        }.ok().body()
+    suspend fun note(text: String): Item = http.post("$base/items") {
+        contentType(ContentType.Application.Json)
+        setBody(TextBody(text))
+    }.ok().body()
 
-    suspend fun edit(id: String, text: String?): Item =
-        http.patch("$base/items/$id") {
-            common()
-            contentType(ContentType.Application.Json)
-            setBody(TextBody(text))
-        }.ok().body()
+    suspend fun edit(id: String, text: String?): Item = http.patch("$base/items/$id") {
+        contentType(ContentType.Application.Json)
+        setBody(TextBody(text))
+    }.ok().body()
 
     suspend fun delete(id: String) {
-        http.delete("$base/items/$id") { common() }.ok()
+        http.delete("$base/items/$id").ok()
     }
 
     /** Names an item's bytes in the image cache: its server and id, which never change. */
@@ -192,7 +206,7 @@ class Api(base: String, private val token: String?, private val source: String) 
 
     fun rawUrl(id: String, download: Boolean = false) = "$base/items/$id/raw" + if (download) "?dl=1" else ""
 
-    suspend fun bytes(id: String): ByteArray = http.get(rawUrl(id)) { common() }.ok().body()
+    suspend fun bytes(id: String): ByteArray = http.get(rawUrl(id)).ok().body()
 
     /** Uploads a file; small ones in one request, big ones as an R2 multipart upload. */
     suspend fun upload(file: LocalFile, caption: String?, progress: (Float) -> Unit): Item = withContext(Dispatchers.IO) {
@@ -201,7 +215,6 @@ class Api(base: String, private val token: String?, private val source: String) 
             if (file.size in 0..PART) {
                 val bytes = r.readUpTo(PART + 1)
                 http.put("$base/files/${file.name.encodeURLPathPart()}") {
-                    common()
                     caption?.takeIf { it.isNotBlank() }?.let { parameter("text", it) }
                     contentType(runCatching { ContentType.parse(type) }.getOrElse { ContentType.Application.OctetStream })
                     setBody(bytes)
@@ -209,7 +222,6 @@ class Api(base: String, private val token: String?, private val source: String) 
                 }.ok().body<Item>()
             } else {
                 val up = http.post("$base/uploads") {
-                    common()
                     contentType(ContentType.Application.Json)
                     setBody(NewUpload(file.name, type, caption?.takeIf { it.isNotBlank() }))
                 }.ok().body<UploadId>().upload
@@ -221,48 +233,44 @@ class Api(base: String, private val token: String?, private val source: String) 
                         if (chunk.isEmpty()) break
                         val n = parts.size + 1
                         parts += http.put("$base/uploads/$up/$n") {
-                            common()
                             setBody(chunk)
                             onUpload { sent, _ -> if (file.size > 0) progress((done + sent).toFloat() / file.size) }
                         }.ok().body<Part>()
                         done += chunk.size
                     }
                     http.post("$base/uploads/$up/complete") {
-                        common()
                         contentType(ContentType.Application.Json)
                         setBody(Parts(parts))
                     }.ok().body<Item>()
                 } catch (e: Throwable) {
-                    runCatching { http.delete("$base/uploads/$up") { common() } }
+                    runCatching { http.delete("$base/uploads/$up") }
                     throw e
                 }
             }
         }
     }
 
-    suspend fun links(): List<Link> = http.get("$base/links") { common() }.ok().body<Links>().links
+    suspend fun links(): List<Link> = http.get("$base/links").ok().body<Links>().links
 
     /** With [items], the link shares only those (and can only read). */
     suspend fun createLink(scope: String, items: List<String>? = null, ttlSeconds: Long? = null, label: String? = null): Link =
         http.post("$base/links") {
-            common()
             contentType(ContentType.Application.Json)
             setBody(NewLink(scope, items, ttlSeconds, label?.takeIf { it.isNotBlank() }))
         }.ok().body()
 
     suspend fun revoke(token: String) {
-        http.delete("$base/links/$token") { common() }.ok()
+        http.delete("$base/links/$token").ok()
     }
 
     /** The cheat-sheet the server hands to agents. */
-    suspend fun help(): String = http.get("$base/") { common() }.ok().bodyAsText()
+    suspend fun help(): String = http.get("$base/").ok().bodyAsText()
 
     fun close() = http.close()
 
     companion object {
         /** The owner API of the server at [origin]. */
-        fun server(origin: String, token: String, source: String) =
-            Api(origin.trimEnd('/').removeSuffix("/api") + "/api", token, source)
+        fun server(origin: String, bearer: Bearer, source: String) = Api(origin.trimEnd('/').removeSuffix("/api") + "/api", bearer, source)
 
         /** Part size for multipart uploads; also the largest single-request upload. R2 wants equal parts. */
         const val PART = 16 * 1024 * 1024

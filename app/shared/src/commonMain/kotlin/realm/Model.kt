@@ -11,10 +11,10 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -40,11 +40,14 @@ class Pending(val key: Int, val text: String?, val file: LocalFile?, val caption
  */
 class Model(val platform: Platform, private val scope: CoroutineScope, val api: Api, private val loadImages: Boolean = true) {
     val items = mutableStateListOf<Item>() // newest first
+
     /** The feed's scroll position, kept here so it survives a trip through the tab overview. */
     val listState = LazyListState()
     val pending = mutableStateListOf<Pending>()
+
     /** Files waiting in the composer for a caption and a tap on send. */
     val staged = mutableStateListOf<LocalFile>()
+
     /** Text from outside (share sheet, drag & drop) for the composer to pick up. */
     var incomingText by mutableStateOf<String?>(null)
     val links = mutableStateListOf<Link>()
@@ -53,11 +56,13 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     var filter by mutableStateOf(Filter.All)
     var loading by mutableStateOf(false)
         private set
+
     /** The server has answered for the first page; until then (or if it can't be reached) an empty feed isn't known to be empty. */
     var loaded by mutableStateOf(false)
         private set
     var message by mutableStateOf<String?>(null)
     var editing by mutableStateOf<Item?>(null)
+
     /** False when connected through a drop-only share link. */
     var canRead by mutableStateOf(true)
         private set
@@ -87,7 +92,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     private val imageOrder = ArrayDeque<String>()
     private val imageLoading = mutableSetOf<String>()
 
-    val isOwner get() = api.auth != null
+    val isOwner get() = api.isOwner
 
     // ---------- feed ----------
 
@@ -196,6 +201,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
                 stage(incoming.files)
                 incoming.caption?.let { incomingText = it }
             }
+
             is Incoming.Text -> incomingText = incoming.text
         }
     }
@@ -218,10 +224,14 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
         scope.launch {
             try {
                 // Notes go straight out; files share a couple of upload slots so a big one can't block a note.
-                val item = if (p.file == null) api.note(p.text!!) else uploads.withPermit {
-                    api.upload(p.file, p.caption) { f ->
-                        val pct = (f * 100).toInt() / 100f // whole percents: one recomposition per step, not per write
-                        if (pct != p.progress) p.progress = pct
+                val item = if (p.file == null) {
+                    api.note(p.text!!)
+                } else {
+                    uploads.withPermit {
+                        api.upload(p.file, p.caption) { f ->
+                            val pct = (f * 100).toInt() / 100f // whole percents: one recomposition per step, not per write
+                            if (pct != p.progress) p.progress = pct
+                        }
                     }
                 }
                 if (p.file != null && item.kind == "image") seedImage(item, p.file)
@@ -300,7 +310,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     fun save(item: Item) {
         scope.launch {
             try {
-                message = platform.save(api.rawUrl(item.id, download = true), api.auth, fileName(item))
+                message = platform.save(api.rawUrl(item.id, download = true), api.auth(), fileName(item))
             } catch (e: Exception) {
                 fail(e)
             }
@@ -310,7 +320,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     fun open(item: Item) {
         scope.launch {
             try {
-                platform.open(api.rawUrl(item.id), api.auth, fileName(item))
+                platform.open(api.rawUrl(item.id), api.auth(), fileName(item))
             } catch (e: Exception) {
                 fail(e)
             }
@@ -360,13 +370,11 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
         }
     }
 
-    suspend fun createLink(scope: String, ttlSeconds: Long?, label: String?): Link? {
-        return try {
-            api.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { links.add(0, it) }
-        } catch (e: Exception) {
-            fail(e)
-            null
-        }
+    suspend fun createLink(scope: String, ttlSeconds: Long?, label: String?): Link? = try {
+        api.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { links.add(0, it) }
+    } catch (e: Exception) {
+        fail(e)
+        null
     }
 
     fun revoke(link: Link) {

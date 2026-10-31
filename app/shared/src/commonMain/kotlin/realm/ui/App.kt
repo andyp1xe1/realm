@@ -1,8 +1,15 @@
 package realm.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,7 +36,6 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -38,13 +44,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -66,34 +75,26 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
+import realm.Filter
 import realm.Home
 import realm.Model
 import realm.Platform
-import realm.Filter
 
 @Composable
-fun App(platform: Platform) {
+fun App(platform: Platform, modifier: Modifier = Modifier) {
     RealmTheme {
         val scope = rememberCoroutineScope()
         val home = remember { Home(platform, scope) }
@@ -108,11 +109,17 @@ fun App(platform: Platform) {
             }
         }
 
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.TopCenter) {
                 if (home.isEmpty) Setup(home) else Tabs(home)
+                WorkerChoice(home)
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp)) {
-                    Snackbar(it, shape = MaterialTheme.shapes.small, containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)
+                    Snackbar(
+                        it,
+                        shape = MaterialTheme.shapes.small,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
             }
         }
@@ -132,14 +139,14 @@ fun App(platform: Platform) {
 /** The current realm's feed, or the tab overview zoomed out from it. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun Tabs(home: Home) {
+fun Tabs(home: Home, modifier: Modifier = Modifier) {
     // Keyed by the realm, not the Space: a fresh Space each recomposition would restart the animation.
     val current = home.openKey.takeUnless { home.showingTabs || home.model == null }
-    SharedTransitionLayout {
+    SharedTransitionLayout(modifier) {
         AnimatedContent(
             current,
             // The overview fades in as the tab shrinks into it, and out as a tab grows from it.
-            transitionSpec = { fadeIn(tween(TabZoomMillis)) togetherWith fadeOut(tween(TabZoomMillis)) },
+            transitionSpec = { fadeIn(tween(TAB_ZOOM_MILLIS)) togetherWith fadeOut(tween(TAB_ZOOM_MILLIS)) },
             contentAlignment = Alignment.TopCenter,
         ) { key ->
             CompositionLocalProvider(LocalSharedTransition provides this@SharedTransitionLayout, LocalTabTransition provides this) {
@@ -148,7 +155,10 @@ fun Tabs(home: Home) {
                     Grid(home)
                 } else {
                     Box(
-                        Modifier.fillMaxSize().tabBounds(space.key, MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.background),
+                        Modifier.fillMaxSize().tabBounds(
+                            space.key,
+                            MaterialTheme.shapes.large,
+                        ).background(MaterialTheme.colorScheme.background),
                         contentAlignment = Alignment.TopCenter,
                     ) {
                         Main(home.modelOf(space), space.name, tabs = home.spaces.size, onTabs = home::showTabs)
@@ -161,7 +171,7 @@ fun Tabs(home: Home) {
 
 /** One realm's feed. [onTabs] zooms out to the tab overview. */
 @Composable
-fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
+fun Main(model: Model, title: String, modifier: Modifier = Modifier, tabs: Int = 1, onTabs: () -> Unit = {}) {
     var searching by remember { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
     val searchFocus = remember { FocusRequester() }
@@ -179,43 +189,64 @@ fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
         model.filter = Filter.All
     }
 
-
     Column(
-        Modifier.widthIn(max = PageWidth).fillMaxSize().onPreviewKeyEvent { e ->
+        modifier.widthIn(max = PageWidth).fillMaxSize().onPreviewKeyEvent { e ->
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when {
-                e.key == Key.F && (e.isCtrlPressed || e.isMetaPressed) -> { searching = true; true }
-                e.key == Key.Escape && searching -> { closeSearch(); true }
+                e.key == Key.F && (e.isCtrlPressed || e.isMetaPressed) -> {
+                    searching = true
+                    true
+                }
+
+                e.key == Key.Escape && searching -> {
+                    closeSearch()
+                    true
+                }
+
                 else -> false
             }
         },
     ) {
         // top bar
-        Row(Modifier.topBarBounds().fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.topBarBounds().fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             if (searching) {
                 IconButton(onClick = ::closeSearch) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close search") }
                 var q by remember { mutableStateOf(TextFieldValue(model.query)) }
                 Field(
                     value = q,
-                    onValueChange = { q = it; model.query = it.text },
+                    onValueChange = {
+                        q = it
+                        model.query = it.text
+                    },
                     placeholder = "Search the dump",
                     singleLine = true,
                     modifier = Modifier.weight(1f).focusRequester(searchFocus),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { model.refresh() }),
                 )
-                if (q.text.isNotEmpty()) IconButton(onClick = { q = TextFieldValue(""); model.query = "" }) { Icon(Icons.Outlined.Close, "Clear") }
+                if (q.text.isNotEmpty()) {
+                    IconButton(onClick = {
+                        q = TextFieldValue("")
+                        model.query = ""
+                    }) { Icon(Icons.Outlined.Close, "Clear") }
+                }
                 LaunchedEffect(Unit) { searchFocus.requestFocus() }
             } else {
                 PageTitle(title, Modifier.weight(1f))
                 // An empty realm offers the agents in its middle instead; they move up here once it has things in it.
-                AnimatedVisibility(!model.isEmpty, enter = fadeIn(), exit = fadeOut()) { ShareButton { showShare = true } }
+                AnimatedVisibility(!model.isEmpty, enter = fadeIn(), exit = fadeOut()) { ShareButton(onClick = { showShare = true }) }
                 IconButton(onClick = { searching = true }) { Icon(Icons.Outlined.Search, "Search") }
                 TabsButton(tabs, onTabs)
             }
         }
         AnimatedVisibility(searching) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Filter.entries.forEach { f ->
                     FilterChip(
                         selected = model.filter == f,
@@ -232,14 +263,23 @@ fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
             }
         }
         Box(Modifier.fillMaxWidth().height(2.dp)) {
-            if (model.loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent)
+            if (model.loading) {
+                LinearProgressIndicator(
+                    Modifier.fillMaxWidth().height(2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = Color.Transparent,
+                )
+            }
         }
 
         var composerHeight by remember { mutableStateOf(72.dp) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // The feed fades out as the editor opens over it, and back in as it closes.
             var editorOpen by remember { mutableFloatStateOf(0f) }
-            Feed(model, Modifier.fillMaxSize().graphicsLayer { alpha = 1f - editorOpen }, bottomPadding = composerHeight, onShare = { showShare = true })
+            Feed(model, Modifier.fillMaxSize().graphicsLayer { alpha = 1f - editorOpen }, bottomPadding = composerHeight, onShare = {
+                showShare =
+                    true
+            })
             Composer(model, Modifier.align(Alignment.BottomCenter), onCompactHeight = { composerHeight = it }, onOpen = { editorOpen = it })
         }
     }
@@ -258,11 +298,13 @@ fun PageTitle(realm: String?, modifier: Modifier = Modifier) {
 
 /** "realm", or "realm/Main" inside a realm, with the "realm/" part muted. */
 @Composable
-fun Wordmark(size: Int = 20, realm: String? = null, modifier: Modifier = Modifier) {
+fun Wordmark(modifier: Modifier = Modifier, size: Int = 20, realm: String? = null) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Text(
         buildAnnotatedString {
-            if (realm == null) append("realm") else {
+            if (realm == null) {
+                append("realm")
+            } else {
                 withStyle(SpanStyle(color = muted)) { append("realm/") }
                 append(realm)
             }
@@ -281,51 +323,79 @@ val FormHeight = 56.dp
 
 /** First run: nothing signed in, nothing connected. Log in with Cloudflare, or connect with a token. */
 @Composable
-fun Setup(home: Home) {
+fun Setup(home: Home, modifier: Modifier = Modifier) {
     var withToken by remember { mutableStateOf(false) }
     Column(
-        Modifier.widthIn(max = 420.dp).fillMaxSize().padding(24.dp),
+        modifier.widthIn(max = 420.dp).fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         WelcomeArt()
         Spacer(Modifier.height(28.dp))
-        Wordmark(34)
+        Wordmark(size = 34)
         Spacer(Modifier.height(8.dp))
         Text("Your dump, everywhere.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.height(32.dp))
-        CloudflareButton { home.signInWithCloudflare() }
+        CloudflareButton(onClick = home::signInWithCloudflare, busy = home.loggingIn)
         Spacer(Modifier.height(12.dp))
-        TokenButton { withToken = true }
+        TokenButton(onClick = { withToken = true })
     }
 
     if (withToken) Sheet({ withToken = false }) { TokenSheet(home) { withToken = false } }
 }
 
+/** Logging in found a realm worker on more than one Cloudflare account: which one to sign in to. */
+@Composable
+fun WorkerChoice(home: Home, modifier: Modifier = Modifier) {
+    val workers = home.workerChoice ?: return
+    Sheet({ home.pick(null) }, modifier) {
+        Text("Which realm?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "There's a realm worker on more than one of your Cloudflare accounts.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        workers.forEach { w ->
+            TextButton(onClick = { home.pick(w) }, Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(w.accountName, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        w.origin.removePrefix("https://"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Cloudflare's orange, for the button that logs in with it. */
 private val CloudflareOrange = Color(0xFFF38020)
 
-/** The main way in: log in with a Cloudflare account. */
+/** The main way in: log in with a Cloudflare account. [busy] while the browser is out; tapping again starts over. */
 @Composable
-fun CloudflareButton(onClick: () -> Unit) {
+fun CloudflareButton(onClick: () -> Unit, modifier: Modifier = Modifier, busy: Boolean = false) {
     Button(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(FormHeight),
+        modifier = modifier.fillMaxWidth().height(FormHeight),
         shape = CircleShape,
         colors = ButtonDefaults.buttonColors(containerColor = CloudflareOrange, contentColor = Color.White),
     ) {
         Icon(Cloudflare, null, Modifier.size(26.dp), tint = Color.White)
         Spacer(Modifier.width(10.dp))
-        Text("Log in with Cloudflare", fontWeight = FontWeight.SemiBold)
+        Text(if (busy) "Logging in…" else "Log in with Cloudflare", fontWeight = FontWeight.SemiBold)
     }
 }
 
 /** The other way in: a server URL and owner token, or a share link. Opens [TokenSheet]. */
 @Composable
-fun TokenButton(onClick: () -> Unit) {
+fun TokenButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     OutlinedButton(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(FormHeight),
+        modifier = modifier.fillMaxWidth().height(FormHeight),
         shape = CircleShape,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
@@ -339,15 +409,17 @@ fun TokenSheetPreview(home: Home) = TokenSheet(home) {}
 
 @Composable
 private fun TokenSheet(home: Home, onDone: () -> Unit) {
-    Text("Connect with a token", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    Text(
-        "Your server's address and owner token, or a share link someone sent you.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(16.dp))
-    SignInForm(home, onDone = onDone)
+    Column {
+        Text("Connect with a token", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Your server's address and owner token, or a share link someone sent you.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(16.dp))
+        SignInForm(home, onDone = onDone)
+    }
 }
 
 /**
@@ -355,7 +427,7 @@ private fun TokenSheet(home: Home, onDone: () -> Unit) {
  * (…/s/<token>) connects as one more tile. [onDone] runs after either succeeds.
  */
 @Composable
-fun SignInForm(home: Home, linksOnly: Boolean = false, onDone: () -> Unit = {}) {
+fun SignInForm(home: Home, modifier: Modifier = Modifier, linksOnly: Boolean = false, onDone: () -> Unit = {}) {
     var url by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -375,7 +447,7 @@ fun SignInForm(home: Home, linksOnly: Boolean = false, onDone: () -> Unit = {}) 
         }
     }
 
-    Column {
+    Column(modifier) {
         OutlinedTextField(
             url, { url = it },
             label = { Text(if (linksOnly) "Share link" else "Server or share link") },
@@ -423,4 +495,4 @@ fun SignInForm(home: Home, linksOnly: Boolean = false, onDone: () -> Unit = {}) 
 }
 
 @Composable
-fun SectionDivider() = HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+fun SectionDivider(modifier: Modifier = Modifier) = HorizontalDivider(modifier, color = MaterialTheme.colorScheme.outlineVariant)

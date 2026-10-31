@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** How long a tab takes to zoom in or out; the overview fades over the same time. */
-const val TabZoomMillis = 380
+const val TAB_ZOOM_MILLIS = 380
 
 /** Widest a page gets; the feed and the tab overview share it. */
 val PageWidth = 820.dp
@@ -50,7 +50,7 @@ fun Modifier.tabBounds(key: String, shape: Shape): Modifier {
         this@tabBounds.sharedBounds(
             rememberSharedContentState("tab:$key"),
             visibility,
-            boundsTransform = { _, _ -> tween(TabZoomMillis) },
+            boundsTransform = { _, _ -> tween(TAB_ZOOM_MILLIS) },
             // By width, from the bottom: a tile is the bottom of its page (newest items, composer), shrunk.
             resizeMode = scaleToBounds(ContentScale.FillWidth, Alignment.BottomCenter),
             clipInOverlayDuringTransition = OverlayClip(shape),
@@ -71,17 +71,17 @@ fun Modifier.topBarBounds(): Modifier {
         this@topBarBounds.sharedBounds(
             rememberSharedContentState("top-bar"),
             visibility,
-            enter = fadeIn(tween(TabZoomMillis)),
-            exit = fadeOut(tween(TabZoomMillis)),
-            boundsTransform = { _, _ -> tween(TabZoomMillis) },
+            enter = fadeIn(tween(TAB_ZOOM_MILLIS)),
+            exit = fadeOut(tween(TAB_ZOOM_MILLIS)),
+            boundsTransform = { _, _ -> tween(TAB_ZOOM_MILLIS) },
         )
     }
 }
 
 /** A rounded square with the number of tabs in it, in the same corner on both screens. */
 @Composable
-fun TabsButton(count: Int, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
+fun TabsButton(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, modifier = modifier) {
         Box(
             Modifier.size(20.dp).border(1.8.dp, MaterialTheme.colorScheme.onSurface, MaterialTheme.shapes.extraSmall),
             contentAlignment = Alignment.Center,

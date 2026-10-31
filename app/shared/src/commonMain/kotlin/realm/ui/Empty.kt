@@ -46,9 +46,15 @@ import kotlin.math.sin
 fun EmptyRealm(modifier: Modifier = Modifier, still: Boolean = false, onShare: () -> Unit = {}) {
     val appear = remember { Animatable(if (still) 1f else 0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, tween(400)) }
-    val drift = if (still) 0f else {
+    val drift = if (still) {
+        0f
+    } else {
         // Linear: with easing, each cycle would slow to a stop before the next, reading as an end.
-        val t by rememberInfiniteTransition().animateFloat(0f, 1f, infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Restart))
+        val t by rememberInfiniteTransition().animateFloat(
+            0f,
+            1f,
+            infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Restart),
+        )
         t
     }
     Column(modifier.graphicsLayer { alpha = appear.value }, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -73,6 +79,7 @@ private fun GhostFeed(drift: Float) {
     val accent = MaterialTheme.colorScheme.primary
     Canvas(Modifier.size(240.dp, 200.dp)) {
         val u = size.width / 240f // design units: the art is drawn on a 240×200 grid
+
         // Each card bobs a few units, a quarter turn apart from the next.
         fun bob(phase: Float) = sin((drift + phase) * 2 * PI).toFloat() * 3f * u
 
@@ -86,7 +93,13 @@ private fun GhostFeed(drift: Float) {
         translate(0f, bob(0.25f)) {
             card(16f, 58f, 168f, 46f, u, card)
             drawRoundRect(tile, Offset(24f * u, 64f * u), Size(34f * u, 34f * u), CornerRadius(8f * u))
-            drawRoundRect(accent.copy(alpha = 0.7f), Offset(35f * u, 73f * u), Size(12f * u, 16f * u), CornerRadius(2f * u), style = Stroke(2f * u))
+            drawRoundRect(
+                accent.copy(alpha = 0.7f),
+                Offset(35f * u, 73f * u),
+                Size(12f * u, 16f * u),
+                CornerRadius(2f * u),
+                style = Stroke(2f * u),
+            )
             bar(68f, 72f, 84f, u, line)
             bar(68f, 84f, 44f, u, line)
         }
@@ -133,7 +146,11 @@ private fun GhostFeed(drift: Float) {
 fun WelcomeArt(modifier: Modifier = Modifier) {
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, tween(500)) }
-    val drift by rememberInfiniteTransition().animateFloat(0f, 1f, infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart))
+    val drift by rememberInfiniteTransition().animateFloat(
+        0f,
+        1f,
+        infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart),
+    )
     val card = MaterialTheme.colorScheme.surfaceContainer
     val back = MaterialTheme.colorScheme.surfaceContainerHigh
     val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
@@ -142,7 +159,6 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
     Canvas(modifier.size(260.dp, 180.dp).graphicsLayer { alpha = appear.value }) {
         val u = size.width / 260f // design units: drawn on a 260×180 grid
         fun bob(phase: Float, amp: Float = 3f) = sin((drift + phase) * 2 * PI).toFloat() * amp * u
-
 
         // Two realms behind, tilted out like tabs in an overview.
         for ((x, turn, phase) in listOf(Triple(28f, -9f, 0.1f), Triple(122f, 9f, 0.6f))) {
@@ -161,7 +177,13 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
             bar(89f, 38f, 64f, u, line)
             bar(89f, 50f, 44f, u, line)
             drawRoundRect(tile, Offset(89f * u, 66f * u), Size(26f * u, 26f * u), CornerRadius(7f * u))
-            drawRoundRect(accent.copy(alpha = 0.7f), Offset(97f * u, 73f * u), Size(10f * u, 12f * u), CornerRadius(2f * u), style = Stroke(1.6f * u))
+            drawRoundRect(
+                accent.copy(alpha = 0.7f),
+                Offset(97f * u, 73f * u),
+                Size(10f * u, 12f * u),
+                CornerRadius(2f * u),
+                style = Stroke(1.6f * u),
+            )
             bar(122f, 72f, 48f, u, line)
             bar(122f, 82f, 30f, u, line)
             val hills = Path().apply {
@@ -173,7 +195,11 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
                 close()
             }
             drawRoundRect(back, Offset(89f * u, 102f * u), Size(82f * u, 44f * u), CornerRadius(8f * u))
-            clipPath(Path().apply { addRoundRect(RoundRect(89f * u, 102f * u, 171f * u, 146f * u, CornerRadius(8f * u))) }) { drawPath(hills, line) }
+            clipPath(
+                Path().apply {
+                    addRoundRect(RoundRect(89f * u, 102f * u, 171f * u, 146f * u, CornerRadius(8f * u)))
+                },
+            ) { drawPath(hills, line) }
             drawCircle(accent.copy(alpha = 0.55f), 5f * u, Offset(158f * u, 113f * u))
         }
         // Things on their way in.

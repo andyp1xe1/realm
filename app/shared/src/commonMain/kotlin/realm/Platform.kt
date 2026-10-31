@@ -28,13 +28,21 @@ interface Platform {
 
     /** Download into the user's downloads folder. Returns a short human message. */
     suspend fun save(url: String, auth: String?, name: String): String
+
     /** Download to a temp place and open with the system's default app. */
     suspend fun open(url: String, auth: String?, name: String)
+
+    /**
+     * Opens [url] in the browser and waits for it to come back to http://localhost:[port][path], as an OAuth
+     * login does. Returns the query parameters it came back with.
+     */
+    suspend fun authorize(url: String, port: Int, path: String): Map<String, String>
 
     fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap?
 
     /** Image bytes kept on disk between runs, by key; null if not there. Blocking. */
     fun cachedImage(key: String): ByteArray?
+
     /** Keeps image bytes on disk for next time, dropping the least recently used past a size limit. Blocking. */
     fun cacheImage(key: String, bytes: ByteArray)
     fun formatTime(epochMs: Long): String
@@ -50,6 +58,7 @@ interface LocalFile {
     val name: String
     val mime: String?
     val size: Long
+
     /** Opens a fresh blocking reader over the content. */
     fun reader(): ByteReader
 }

@@ -22,9 +22,14 @@ import androidx.compose.ui.window.Dialog
 import realm.Home
 
 @Composable
-internal fun Sheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+internal fun Sheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface, modifier = Modifier.widthIn(max = 520.dp)) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            modifier = modifier.widthIn(max = 520.dp),
+        ) {
             Column(Modifier.padding(20.dp)) { content() }
         }
     }
@@ -32,21 +37,25 @@ internal fun Sheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
 
 /** Asks before something that can't be taken back. [action] names the button: "Delete", "Revoke", "Remove". */
 @Composable
-fun Confirm(title: String, body: String, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit) = Sheet(onDismiss) {
-    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(8.dp))
-    Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Spacer(Modifier.height(16.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        TextButton(onClick = onDismiss) { Text("Cancel") }
-        TextButton(onClick = { onDismiss(); onConfirm() }) { Text(action, color = MaterialTheme.colorScheme.error) }
+fun Confirm(title: String, body: String, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit, modifier: Modifier = Modifier) =
+    Sheet(onDismiss, modifier) {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = {
+                onDismiss()
+                onConfirm()
+            }) { Text(action, color = MaterialTheme.colorScheme.error) }
+        }
     }
-}
 
 @Composable
-fun SettingsDialog(home: Home, onDismiss: () -> Unit) {
+fun SettingsDialog(home: Home, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     val server = home.server
-    Sheet(onDismiss) {
+    Sheet(onDismiss, modifier) {
         Wordmark()
         Spacer(Modifier.height(16.dp))
         if (server != null) {
@@ -54,7 +63,10 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit) {
             Text(server.base.removeSuffix("/api"), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = { home.signOut(); onDismiss() }) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = {
+                    home.signOut()
+                    onDismiss()
+                }) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
         } else {
@@ -64,7 +76,7 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
-            CloudflareButton { home.signInWithCloudflare() }
+            CloudflareButton(onClick = home::signInWithCloudflare, busy = home.loggingIn)
             Spacer(Modifier.height(20.dp))
             SignInForm(home, onDone = onDismiss)
         }

@@ -2,9 +2,9 @@ package realm.ui
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -44,8 +44,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -79,7 +79,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
-import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -97,6 +96,7 @@ import realm.Platform
 import realm.Recording
 import realm.humanSize
 import realm.readAll
+import kotlin.math.roundToInt
 import kotlin.time.TimeSource
 
 /** Compact: one row under the feed. Expanded: covers the feed for writing; opened by hand or by long text. */
@@ -170,7 +170,12 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
 
     fun record() {
         collapse()
-        scope.launch { recording = platform.startRecording() ?: run { model.message = "Can't use the microphone"; null } }
+        scope.launch {
+            recording = platform.startRecording() ?: run {
+                model.message = "Can't use the microphone"
+                null
+            }
+        }
     }
 
     // Long text would only open the editor again, so the shrink is off until it's short enough (≤2 lines here,
@@ -188,12 +193,14 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
     @Composable
     fun AttachButtons() {
         if (!canAttach) return
-        IconButton(onClick = { scope.launch { stage(platform.pickFiles()) } }) {
-            Icon(Icons.Outlined.AttachFile, "Attach files")
-        }
-        if (platform.canTakePhoto) {
-            IconButton(onClick = { scope.launch { stage(listOfNotNull(platform.takePhoto())) } }) {
-                Icon(Icons.Outlined.PhotoCamera, "Take photo")
+        Row {
+            IconButton(onClick = { scope.launch { stage(platform.pickFiles()) } }) {
+                Icon(Icons.Outlined.AttachFile, "Attach files")
+            }
+            if (platform.canTakePhoto) {
+                IconButton(onClick = { scope.launch { stage(listOfNotNull(platform.takePhoto())) } }) {
+                    Icon(Icons.Outlined.PhotoCamera, "Take photo")
+                }
             }
         }
     }
@@ -263,85 +270,111 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
             if (rec != null) {
                 RecordingPanel(
                     rec,
-                    onCancel = { rec.cancel(); recording = null },
+                    onCancel = {
+                        rec.cancel()
+                        recording = null
+                    },
                     onSend = {
                         recording = null
                         scope.launch { rec.stop()?.let { model.sendFiles(listOf(it)) } }
                     },
                 )
-            } else Column(Modifier.padding(4.dp)) {
-                // Compact: attachments sit above the text, like a message being composed.
-                if (!editorShown && staged.isNotEmpty()) Tray(model)
-                // One Row and one Field in both modes, so focus, cursor and the soft keyboard survive the switch.
-                Row(
-                    if (editorShown) Modifier.weight(1f) else Modifier,
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    if (!editorShown) AttachButtons()
-                    Field(
-                        value = value,
-                        onValueChange = { value = it },
-                        placeholder = when {
-                            staged.isNotEmpty() -> "Add a caption…"
-                            editorShown -> "Write something…"
-                            else -> "Dump something…"
-                        },
-                        maxLines = if (editorShown) Int.MAX_VALUE else 10,
-                        alignTop = editorShown,
-                        onLines = { lines = it },
-                        modifier = Modifier
-                            .weight(1f)
-                            .then(if (editorShown) Modifier.fillMaxHeight().padding(horizontal = 8.dp) else Modifier)
-                            .focusRequester(focus)
-                            .onPreviewKeyEvent { e ->
-                                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                                val mod = e.isCtrlPressed || e.isMetaPressed
-                                when {
-                                    // Ctrl+Enter always sends. Plain Enter sends from the compact desktop composer;
-                                    // in the expanded editor it's a newline.
-                                    e.key == Key.Enter && (mod || (desktop && !expanded && !e.isShiftPressed)) -> { send(); true }
-                                    e.key == Key.Escape && expanded -> { shrink(); true }
-                                    e.key == Key.Escape && editing != null -> { cancelEdit(); true }
-                                    e.key == Key.V && mod && canAttach -> {
-                                        val files = platform.clipboardFiles()
-                                        if (files.isNotEmpty()) { stage(files); true } else false
-                                    }
-                                    else -> false
-                                }
+            } else {
+                Column(Modifier.padding(4.dp)) {
+                    // Compact: attachments sit above the text, like a message being composed.
+                    if (!editorShown && staged.isNotEmpty()) Tray(model)
+                    // One Row and one Field in both modes, so focus, cursor and the soft keyboard survive the switch.
+                    Row(
+                        if (editorShown) Modifier.weight(1f) else Modifier,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        if (!editorShown) AttachButtons()
+                        Field(
+                            value = value,
+                            onValueChange = { value = it },
+                            placeholder = when {
+                                staged.isNotEmpty() -> "Add a caption…"
+                                editorShown -> "Write something…"
+                                else -> "Dump something…"
                             },
-                    )
-                    if (editorShown) {
-                        // Top-right corner, level with the first line of text: no header row eating space.
-                        IconButton(onClick = ::shrink, Modifier.align(Alignment.Top), enabled = canShrink) {
-                            Icon(Icons.Outlined.FullscreenExit, "Shrink composer")
+                            maxLines = if (editorShown) Int.MAX_VALUE else 10,
+                            alignTop = editorShown,
+                            onLines = { lines = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .then(if (editorShown) Modifier.fillMaxHeight().padding(horizontal = 8.dp) else Modifier)
+                                .focusRequester(focus)
+                                .onPreviewKeyEvent { e ->
+                                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    val mod = e.isCtrlPressed || e.isMetaPressed
+                                    when {
+                                        // Ctrl+Enter always sends. Plain Enter sends from the compact desktop composer;
+                                        // in the expanded editor it's a newline.
+                                        e.key == Key.Enter && (mod || (desktop && !expanded && !e.isShiftPressed)) -> {
+                                            send()
+                                            true
+                                        }
+
+                                        e.key == Key.Escape && expanded -> {
+                                            shrink()
+                                            true
+                                        }
+
+                                        e.key == Key.Escape && editing != null -> {
+                                            cancelEdit()
+                                            true
+                                        }
+
+                                        e.key == Key.V && mod && canAttach -> {
+                                            val files = platform.clipboardFiles()
+                                            if (files.isNotEmpty()) {
+                                                stage(files)
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
+
+                                        else -> false
+                                    }
+                                },
+                        )
+                        if (editorShown) {
+                            // Top-right corner, level with the first line of text: no header row eating space.
+                            IconButton(onClick = ::shrink, Modifier.align(Alignment.Top), enabled = canShrink) {
+                                Icon(Icons.Outlined.FullscreenExit, "Shrink composer")
+                            }
+                        } else {
+                            IconButton(onClick = {
+                                mode = Mode.Manual
+                                focus.requestFocus()
+                            }) {
+                                Icon(Icons.Outlined.Fullscreen, "Expand composer")
+                            }
+                            SendOrMic()
                         }
-                    } else {
-                        IconButton(onClick = { mode = Mode.Manual; focus.requestFocus() }) {
-                            Icon(Icons.Outlined.Fullscreen, "Expand composer")
-                        }
-                        SendOrMic()
                     }
-                }
-                // Expanded: attachments sit with the actions, under the writing area.
-                if (editorShown && staged.isNotEmpty()) Tray(model)
-                if (editorShown) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AttachButtons()
-                        // Editing can't attach, so its label and cancel take the attach buttons' spot.
-                        if (editing != null) {
-                            IconButton(onClick = ::cancelEdit) { Icon(Icons.Outlined.Close, "Cancel edit") }
-                            EditingLabel(editing.name, Modifier.weight(1f, fill = false))
+                    // Expanded: attachments sit with the actions, under the writing area.
+                    if (editorShown && staged.isNotEmpty()) Tray(model)
+                    if (editorShown) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AttachButtons()
+                            // Editing can't attach, so its label and cancel take the attach buttons' spot.
+                            if (editing != null) {
+                                IconButton(onClick = ::cancelEdit) { Icon(Icons.Outlined.Close, "Cancel edit") }
+                                EditingLabel(editing.name, Modifier.weight(1f, fill = false))
+                            }
+                            Spacer(Modifier.weight(1f))
+                            if (desktop) {
+                                Text(
+                                    "Ctrl+Enter to send",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(end = 8.dp),
+                                )
+                            }
+                            SendOrMic()
                         }
-                        Spacer(Modifier.weight(1f))
-                        if (desktop) {
-                            Text(
-                                "Ctrl+Enter to send",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(end = 8.dp),
-                            )
-                        }
-                        SendOrMic()
                     }
                 }
             }
@@ -422,66 +455,5 @@ private fun StagedTile(file: LocalFile, platform: Platform, onRemove: () -> Unit
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
         )
-    }
-}
-
-// ---------- voice ----------
-
-private val BarWidth = 3.dp
-private val BarGap = 2.dp
-
-/** Semi-tall recording card: a rolling waveform of mic levels, the timer, cancel and send. */
-@Composable
-fun RecordingPanel(rec: Recording, onCancel: () -> Unit, onSend: () -> Unit) {
-    var elapsed by remember { mutableLongStateOf(0L) }
-    val levels = remember { mutableStateListOf<Float>() }
-    LaunchedEffect(rec) {
-        val start = TimeSource.Monotonic.markNow()
-        var smooth = 0f
-        while (true) {
-            elapsed = start.elapsedNow().inWholeSeconds
-            smooth = smooth * 0.35f + rec.level() * 0.65f
-            levels.add(smooth.coerceIn(0f, 1f))
-            if (levels.size > 400) levels.removeRange(0, levels.size - 400)
-            delay(60)
-        }
-    }
-    val pulse by rememberInfiniteTransition().animateFloat(
-        initialValue = 1f, targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-    )
-    val bar = MaterialTheme.colorScheme.primary
-    val idle = MaterialTheme.colorScheme.outline
-    Column(Modifier.padding(4.dp)) {
-        Canvas(Modifier.fillMaxWidth().height(76.dp).padding(horizontal = 16.dp, vertical = 10.dp)) {
-            val w = BarWidth.toPx()
-            val step = w + BarGap.toPx()
-            val slots = (size.width / step).toInt()
-            val shown = levels.takeLast(slots)
-            val mid = size.height / 2
-            // Newest bar at the right edge; empty slots on the left are drawn as a quiet baseline.
-            for (i in 0 until slots) {
-                val level = shown.getOrNull(i - (slots - shown.size))
-                val h = if (level == null) w else maxOf(w, level * size.height)
-                drawRoundRect(
-                    color = if (level == null) idle else bar.copy(alpha = 0.45f + 0.55f * (i.toFloat() / slots)),
-                    topLeft = Offset(i * step, mid - h / 2),
-                    size = Size(w, h),
-                    cornerRadius = CornerRadius(w / 2),
-                )
-            }
-        }
-        Row(Modifier.height(ControlHeight), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, "Cancel recording") }
-            Box(Modifier.size(10.dp).alpha(pulse).clip(CircleShape).background(MaterialTheme.colorScheme.error))
-            Spacer(Modifier.width(10.dp))
-            Text("${elapsed / 60}:${(elapsed % 60).toString().padStart(2, '0')}", style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.weight(1f))
-            Box(Modifier.size(ControlHeight), contentAlignment = Alignment.Center) {
-                FilledIconButton(onClick = onSend, modifier = Modifier.size(38.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.Send, "Send recording", Modifier.size(18.dp))
-                }
-            }
-        }
     }
 }

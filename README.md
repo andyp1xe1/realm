@@ -55,7 +55,7 @@ cd app
 ./gradlew :androidApp:installDebug
 ```
 
-On first launch, sign in with the worker URL and owner token, or connect a share link. The app opens on your Main realm. The tabs button in the corner zooms out to all your realms, like a browser's tab overview, and share links you connect show up there as tiles too. The agent icons share the realm you have open.
+On first launch, log in with Cloudflare as with `realm login`, or connect with the worker URL and an owner token, or a share link. The app opens on your Main realm. The tabs button in the corner zooms out to all your realms, like a browser's tab overview, and share links you connect show up there as tiles too. The agent icons share the realm you have open.
 
 ## Share links
 
