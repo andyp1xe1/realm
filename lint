@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Checks the tree as the pre-commit hook checks what's staged: all of it, or only the given paths.
+#   ./lint [--fix] [path...]   e.g. ./lint app, ./lint --fix worker/src, ./lint cli/main.go
+# --fix formats first. Paths are relative to where you run it. go vet and tsc check their whole part.
+# Runs itself inside nix-shell when ktlint isn't on the PATH.
+set -uo pipefail
+root=$(cd "$(dirname "$0")" && pwd)
+command -v ktlint >/dev/null || exec nix-shell "$root/shell.nix" --run "$(printf '%q ' "$0" "$@")"
+fix=
+[ "${1:-}" = --fix ] && { fix=1; shift; }
+paths=()
+for p in "$@"; do
+  [ -e "$p" ] || { echo "no such path: $p"; exit 2; }
+  paths+=("$(realpath --relative-to="$root" "$p")")
+done
+cd "$root"
+mapfile -t files < <(git ls-files -co --exclude-standard -- "${paths[@]}")
+pick() { printf '%s\n' "${files[@]}" | grep -E "$1"; }
+[ -n "$(pick '\.(go|ts|js|json|kt|kts)$')" ] || { echo "nothing to lint there"; exit 2; }
+fail=0
+
+mapfile -t go < <(pick '^cli/.*\.go$')
+if [ ${#go[@]} -gt 0 ]; then
+  echo "cli"
+  [ -n "$fix" ] && gofmt -w "${go[@]}"
+  out=$(gofmt -l "${go[@]}")
+  [ -z "$out" ] || { echo "not gofmt'd: $out"; fail=1; }
+  (cd cli && go vet ./...) || fail=1
+fi
+
+mapfile -t ts < <(pick '^worker/.*\.(ts|js|json)$' | grep -v 'package-lock.json$' | sed 's|^worker/||')
+if [ ${#ts[@]} -gt 0 ]; then
+  echo "worker"
+  (
+    cd worker || exit 1
+    [ -x node_modules/.bin/oxfmt ] || { echo "run npm install in worker/ first"; exit 1; }
+    [ -n "$fix" ] && node_modules/.bin/oxfmt "${ts[@]}" >/dev/null
+    node_modules/.bin/oxfmt --list-different "${ts[@]}" | sed 's/^/not oxfmt'\''d: /' | grep . && exit 1
+    mapfile -t code < <(printf '%s\n' "${ts[@]}" | grep -E '\.(ts|js)$')
+    if [ ${#code[@]} -gt 0 ]; then node_modules/.bin/oxlint --deny-warnings "${code[@]}" || exit 1; fi
+    node_modules/.bin/tsc -p .
+  ) || fail=1
+fi
+
+mapfile -t kt < <(pick '^app/.*\.kts?$' | sed "s|^|$root/|")
+if [ ${#kt[@]} -gt 0 ]; then
+  echo "app"
+  # Same compose-rules jar as the hook; keep the version and checksum in step with .githooks/pre-commit.
+  rules="$(git rev-parse --git-common-dir)/ktlint-compose-0.6.8-all.jar"
+  sum="a25378ec616add11d2b279a87f54ccffefea87917da13773ff753386d30c22e5  $rules"
+  if ! sha256sum -c --status <<<"$sum" 2>/dev/null; then
+    curl -fsSL -o "$rules" https://github.com/mrmans0n/compose-rules/releases/download/v0.6.8/ktlint-compose-0.6.8-all.jar &&
+      sha256sum -c --status <<<"$sum" || { rm -f "$rules"; echo "couldn't fetch compose-rules"; exit 1; }
+  fi
+  [ -n "$fix" ] && ktlint -F --log-level=error -R "$rules" "${kt[@]}" >/dev/null 2>&1
+  out=$(ktlint --log-level=error -R "$rules" "${kt[@]}" 2>&1) || { sed "s|$root/||" <<<"$out" | grep -v '^$'; fail=1; }
+  for f in "${kt[@]}"; do
+    case "$f" in */src/test/*) ;; *) .githooks/placeholders "${f#"$root"/}" <"$f" || fail=1 ;; esac
+  done
+fi
+
+while read -r f; do
+  n=$(wc -l <"$f")
+  [ "$n" -gt 500 ] && { echo "$f: $n lines, over 500 — split it"; fail=1; }
+done < <(pick '\.(go|ts|js|kt|kts)$')
+
+[ $fail = 0 ] && echo "all clean"
+exit $fail

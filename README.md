@@ -14,7 +14,9 @@ cli/      Go CLI.
 app/      Compose Multiplatform app for Android and desktop.
 ```
 
-`nix-shell` in the repo root provides JDK 21, Go, and Node. Without Nix, install JDK 17 or later with `JAVA_HOME` set, Go 1.24 or later, and Node 22 or later.
+`nix-shell` in the repo root provides JDK 21, Go, Node, and ktlint. Without Nix, install JDK 17 or later with `JAVA_HOME` set, Go 1.24 or later, and Node 22 or later.
+
+Before committing, read [CONTRIBUTING.md](CONTRIBUTING.md) and run `git config core.hooksPath .githooks` once.
 
 ## Deploy the worker
 
