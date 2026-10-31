@@ -165,8 +165,9 @@ private fun home(feed: Model): Home {
     val file = "https://realm.sam.dev/s/f9"
     val drop = "https://realm.jo.dev/s/d4"
     h.shared += Space.Shared(sam, Info(scope = "read", realm = Realm("r", "Sam's recipes")), null, Api(sam, null, "desktop"))
-    h.shared += Space.Shared(file, Info(scope = "read", items = 1, item = item("f", "file", name = "lease-draft.pdf", mime = "application/pdf")), null, Api(file, null, "desktop"))
+    h.shared += Space.Shared(file, Info(scope = "read", realm = Realm("f", "Flat hunt"), items = 1, item = item("f", "file", name = "lease-draft.pdf", mime = "application/pdf")), null, Api(file, null, "desktop"))
     h.shared += Space.Shared(drop, Info(scope = "drop", realm = Realm("d", "Jo's inbox")), null, Api(drop, null, "desktop"))
+    h.previews["link:$file"] = listOf(item("f", "file", name = "lease-draft.pdf", mime = "application/pdf"))
     h.previews["link:$sam"] = listOf(
         item("s1", "note", "shakshuka: 6 eggs, 2 tins tomatoes, cumin, feta"),
         item("s2", "link", "https://cooking.nytimes.com/recipes/1014721"),

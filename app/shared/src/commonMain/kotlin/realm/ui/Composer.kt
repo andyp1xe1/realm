@@ -173,7 +173,14 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
         scope.launch { recording = platform.startRecording() ?: run { model.message = "Can't use the microphone"; null } }
     }
 
-    BackHandler(enabled = expanded) { collapse() }
+    // Long text would only open the editor again, so the shrink is off until it's short enough (≤2 lines here,
+    // where it closes by itself too). Back and Escape are still taken, so they don't leave with the text.
+    val canShrink = lines <= 2
+    fun shrink() {
+        if (canShrink) collapse()
+    }
+
+    BackHandler(enabled = expanded) { shrink() }
 
     val canSend = editing != null || value.text.isNotBlank() || staged.isNotEmpty()
     val canAttach = editing == null
@@ -293,7 +300,7 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                                     // Ctrl+Enter always sends. Plain Enter sends from the compact desktop composer;
                                     // in the expanded editor it's a newline.
                                     e.key == Key.Enter && (mod || (desktop && !expanded && !e.isShiftPressed)) -> { send(); true }
-                                    e.key == Key.Escape && expanded -> { collapse(); true }
+                                    e.key == Key.Escape && expanded -> { shrink(); true }
                                     e.key == Key.Escape && editing != null -> { cancelEdit(); true }
                                     e.key == Key.V && mod && canAttach -> {
                                         val files = platform.clipboardFiles()
@@ -305,7 +312,7 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                     )
                     if (editorShown) {
                         // Top-right corner, level with the first line of text: no header row eating space.
-                        IconButton(onClick = ::collapse, Modifier.align(Alignment.Top)) {
+                        IconButton(onClick = ::shrink, Modifier.align(Alignment.Top), enabled = canShrink) {
                             Icon(Icons.Outlined.FullscreenExit, "Shrink composer")
                         }
                     } else {

@@ -5,7 +5,6 @@ import androidx.compose.animation.core.tween
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -68,7 +67,6 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -288,7 +286,7 @@ private fun details(home: Home, space: Space): String = when (space) {
     is Space.Shared -> space.error ?: space.info.let { info ->
         when {
             info == null -> "Shared"
-            info.item != null -> "Shared file"
+            info.items == 1 -> "Shared · 1 file"
             info.items != null -> "Shared · ${info.items} items"
             info.scope == "drop" -> "Shared · add only"
             info.scope == "read" -> "Shared · read only"
@@ -305,14 +303,13 @@ private fun SharedBadge(modifier: Modifier) {
     ) { Icon(Icons.Outlined.Link, "Shared with you", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
-/** What's inside: for a realm you can read, a shrunken picture of its feed; otherwise what the link is for. */
+/** What's inside: for a realm you can read (a link to picked items too), a shrunken picture of its feed; otherwise what the link is for. */
 @Composable
 private fun TilePreview(home: Home, space: Space, page: Dp) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val shared = space as? Space.Shared
     when {
         shared?.error != null -> Centered { Icon(Icons.Outlined.ErrorOutline, null, tint = MaterialTheme.colorScheme.error) }
-        shared?.info?.item != null -> SoleItem(home, space, shared.info.item)
         space.canWrite && !space.canRead -> Centered {
             Icon(Icons.Outlined.FileUpload, null, Modifier.size(28.dp), tint = muted)
             Spacer(Modifier.height(6.dp))
@@ -368,25 +365,6 @@ private fun Miniature(width: Dp, content: @Composable () -> Unit) {
 @Composable
 private fun Centered(content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { content() }
-}
-
-@Composable
-private fun SoleItem(home: Home, space: Space, item: Item) {
-    if (item.kind == "image") {
-        val bmp = home.thumb(item.id)
-        LaunchedEffect(item.id) { home.loadThumb(space, item) }
-        if (bmp != null) return Image(bmp, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-    }
-    Centered {
-        Box(
-            Modifier.size(52.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) { KindIcon(item.kind, item.mime) }
-        item.name?.substringAfterLast('.', "")?.takeIf { it.length in 1..5 }?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(it.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
 }
 
 @Composable
