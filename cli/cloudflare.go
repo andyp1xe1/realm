@@ -93,17 +93,16 @@ func loginCloudflare() error {
 		if err := saveConfig(cfg); err != nil {
 			return err
 		}
-		return fmt.Errorf("no %q worker on %s", workerName, acc.Name)
+		return fmt.Errorf("no %q worker on %s: deploy it from the app, or with npm run deploy in worker/", workerName, acc.Name)
 	}
 
-	var sub struct{ Subdomain string }
-	if err := cfGet(tok.Access, "/accounts/"+acc.ID+"/workers/subdomain", &sub); err != nil {
-		return fmt.Errorf("workers.dev address: %w", err)
+	script := "/accounts/" + acc.ID + "/workers/scripts/" + workerName
+	origin, err := workerOrigin(tok.Access, acc.ID, script)
+	if err != nil {
+		return err
 	}
-	origin := fmt.Sprintf("https://%s.%s.workers.dev", workerName, sub.Subdomain)
 
 	// The worker takes a Cloudflare login as its owner's once it knows which account it's on.
-	script := "/accounts/" + acc.ID + "/workers/scripts/" + workerName
 	var secrets []struct{ Name string }
 	if err := cfGet(tok.Access, script+"/secrets", &secrets); err != nil {
 		return fmt.Errorf("worker secrets: %w", err)
@@ -140,6 +139,29 @@ func loginCloudflare() error {
 	}
 	warnMismatch(info)
 	return c.status()
+}
+
+// workerOrigin is where the worker answers: its custom domain if it has one, else its workers.dev address.
+func workerOrigin(token, account, script string) (string, error) {
+	var domains []struct{ Hostname string }
+	if err := cfGet(token, "/accounts/"+account+"/workers/domains?service="+workerName, &domains); err != nil {
+		return "", fmt.Errorf("worker domains: %w", err)
+	}
+	if len(domains) > 0 {
+		return "https://" + domains[0].Hostname, nil
+	}
+	var on struct{ Enabled bool }
+	if err := cfGet(token, script+"/subdomain", &on); err != nil {
+		return "", fmt.Errorf("workers.dev address: %w", err)
+	}
+	var sub struct{ Subdomain string }
+	if err := cfGet(token, "/accounts/"+account+"/workers/subdomain", &sub); err != nil {
+		return "", fmt.Errorf("workers.dev address: %w", err)
+	}
+	if !on.Enabled || sub.Subdomain == "" {
+		return "", errors.New("the worker has no address: turn on its workers.dev address, or give it a custom domain")
+	}
+	return fmt.Sprintf("https://%s.%s.workers.dev", workerName, sub.Subdomain), nil
 }
 
 func ask(prompt string) string {
