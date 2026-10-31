@@ -1,5 +1,6 @@
 package realm.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -150,6 +151,7 @@ fun ShareSheet(model: Model, onClose: () -> Unit, initialUrl: String? = null, ti
     var format by remember { mutableStateOf(Format.Prompt) }
     val docs = remember { mutableStateMapOf<String, String>() }
     var busy by remember { mutableStateOf(false) }
+    // Usually loaded already, when the realm opened; this catches links made elsewhere since.
     if (model.isOwner) LaunchedEffect(Unit) { model.loadLinks() }
 
     val link = url
@@ -174,7 +176,8 @@ fun ShareSheet(model: Model, onClose: () -> Unit, initialUrl: String? = null, ti
         }
     }
 
-    Column {
+    // Grows smoothly if the list of links arrives after the sheet opens, instead of jumping taller.
+    Column(Modifier.animateContentSize()) {
         Text(title?.let { "Share “$it”" } ?: "Share", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(

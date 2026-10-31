@@ -162,6 +162,8 @@ fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
     var showShare by remember { mutableStateOf(false) }
     val searchFocus = remember { FocusRequester() }
 
+    // Links load with the realm, so the share sheet opens at its full height instead of growing once they arrive.
+    LaunchedEffect(model) { if (model.isOwner) model.loadLinks() }
     LaunchedEffect(model.query, model.filter) {
         if (model.query.isNotEmpty()) delay(250)
         model.refresh()

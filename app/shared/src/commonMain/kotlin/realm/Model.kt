@@ -310,8 +310,11 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
         scope.launch {
             try {
                 val l = api.links()
-                links.clear()
-                links.addAll(l)
+                // One swap, so an open share sheet never sees the list empty in between.
+                Snapshot.withMutableSnapshot {
+                    links.clear()
+                    links.addAll(l)
+                }
             } catch (e: Exception) {
                 fail(e)
             }
