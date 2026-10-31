@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -26,6 +27,19 @@ internal fun Sheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface, modifier = Modifier.widthIn(max = 520.dp)) {
             Column(Modifier.padding(20.dp)) { content() }
         }
+    }
+}
+
+/** Asks before something that can't be taken back. [action] names the button: "Delete", "Revoke", "Remove". */
+@Composable
+fun Confirm(title: String, body: String, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit) = Sheet(onDismiss) {
+    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(8.dp))
+    Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(16.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextButton(onClick = onDismiss) { Text("Cancel") }
+        TextButton(onClick = { onDismiss(); onConfirm() }) { Text(action, color = MaterialTheme.colorScheme.error) }
     }
 }
 

@@ -10,6 +10,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -62,6 +63,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     /** The tab overview is up instead of the current realm's feed. */
     var showingTabs by mutableStateOf(false)
         private set
+    /** Tiles on their way out: they fade away in the overview while the server deletes them. */
+    val leaving = mutableStateListOf<String>()
     /** A tile just added in the overview: it's shown arriving there first, then opened from where it landed. */
     var fresh by mutableStateOf<String?>(null)
         private set
@@ -284,10 +287,15 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun disconnect(space: Space.Shared) {
-        shared.remove(space)
-        forget(space.key)
-        saveLinks()
-        if (open == null) reopen()
+        leaving += space.key
+        scope.launch {
+            delay(TileLeaveMillis) // let the tile fade out first
+            shared.removeAll { it.key == space.key }
+            leaving -= space.key
+            forget(space.key)
+            saveLinks()
+            if (open == null) reopen()
+        }
     }
 
     private fun saveLinks() = prefs.set("links", json.encodeToString(shared.map { it.url }))
@@ -325,15 +333,23 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
 
     fun deleteRealm(realm: Realm) {
         val s = server ?: return
+        val key = ownKey(realm.id)
+        leaving += key
         scope.launch {
             try {
-                s.deleteRealm(realm.id)
+                // The tile fades out meanwhile; it's only removed (and the rest slide over) once both are done.
+                coroutineScope {
+                    launch { delay(TileLeaveMillis) }
+                    s.deleteRealm(realm.id)
+                }
                 realms.removeAll { it.id == realm.id }
-                forget(ownKey(realm.id))
+                forget(key)
                 prefs.set("realms", json.encodeToString(realms.toList()))
                 if (open == null) reopen()
             } catch (e: Exception) {
-                message = explain(e)
+                message = explain(e) // the tile comes back
+            } finally {
+                leaving -= key
             }
         }
     }
@@ -364,9 +380,12 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         else -> e.message ?: "Can't reach the server"
     }
 
-    private companion object {
+    companion object {
+        /** How long a tile takes to fade away when deleted or removed. */
+        const val TileLeaveMillis = 220L
+
         /** Items fetched per tile: enough to fill a tall one; the oldest clip off the top. */
-        const val PREVIEW = 8
-        val json = Json { ignoreUnknownKeys = true }
+        private const val PREVIEW = 8
+        private val json = Json { ignoreUnknownKeys = true }
     }
 }

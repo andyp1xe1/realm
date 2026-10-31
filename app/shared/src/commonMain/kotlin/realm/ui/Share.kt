@@ -288,6 +288,7 @@ private fun CopyBox(text: String?, onCopy: (String) -> Unit) {
 
 @Composable
 private fun LinkRow(l: Link, model: Model, selected: Boolean, onSelect: () -> Unit) {
+    var revoking by remember { mutableStateOf(false) }
     Row(
         Modifier
             .fillMaxWidth()
@@ -319,8 +320,16 @@ private fun LinkRow(l: Link, model: Model, selected: Boolean, onSelect: () -> Un
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        IconButton(onClick = { model.revoke(l) }, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { revoking = true }, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Outlined.Delete, "Revoke", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+    if (revoking) {
+        Confirm(
+            "Revoke this link?",
+            "Anyone or anything using it loses access straight away.",
+            "Revoke",
+            onDismiss = { revoking = false },
+        ) { model.revoke(l) }
     }
 }

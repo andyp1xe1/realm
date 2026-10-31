@@ -362,6 +362,7 @@ private fun fileDetails(size: Long?, name: String?) =
 @Composable
 private fun ItemMenu(item: Item, model: Model, open: Boolean, onDismiss: () -> Unit, onView: () -> Unit) {
     var linkStep by remember(open) { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
     DropdownMenu(open, onDismiss, shape = MaterialTheme.shapes.small, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
         fun act(f: () -> Unit) = { f(); onDismiss() }
         val isFile = item.name != null
@@ -384,9 +385,17 @@ private fun ItemMenu(item: Item, model: Model, open: Boolean, onDismiss: () -> U
             if (model.isOwner) DropdownMenuItem(text = { Text("Share link…") }, onClick = { linkStep = true })
             DropdownMenuItem(
                 text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                onClick = act { model.delete(item) },
+                onClick = act { deleting = true },
             )
         }
+    }
+    if (deleting) {
+        Confirm(
+            item.name?.let { "Delete “$it”?" } ?: if (item.kind == "link") "Delete this link?" else "Delete this note?",
+            "It's gone for good, and links that share only it stop working.",
+            "Delete",
+            onDismiss = { deleting = false },
+        ) { model.delete(item) }
     }
 }
 

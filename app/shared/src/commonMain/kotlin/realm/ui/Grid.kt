@@ -130,7 +130,13 @@ fun Grid(home: Home) {
         ) {
             item(key = "add") { AddTile(if (home.server != null) "New realm" else "Add a link") { adding = true } }
             items(spaces, key = { it.key }) {
-                Tile(home, it, page, current = it.key == home.openKey, dimmed = home.incoming != null && !it.canWrite)
+                // When a tile goes, the ones after it slide over rather than jump.
+                Tile(
+                    home, it, page,
+                    current = it.key == home.openKey,
+                    dimmed = home.incoming != null && !it.canWrite,
+                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
+                )
             }
         }
     }
@@ -166,16 +172,20 @@ private const val TileRatio = 1f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: Boolean) {
-    // A new tile fades and grows into place; the rest are simply there.
+private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: Boolean, modifier: Modifier = Modifier) {
+    // A new tile fades and grows into place, a deleted one fades and shrinks away; the rest are simply there.
+    val leaving = space.key in home.leaving
     val arrive = remember(space.key) { Animatable(if (space.key == home.fresh) 0f else 1f) }
-    LaunchedEffect(space.key) { arrive.animateTo(1f, tween(TileArriveMillis)) }
+    LaunchedEffect(space.key, leaving) {
+        arrive.animateTo(if (leaving) 0f else 1f, tween(if (leaving) Home.TileLeaveMillis.toInt() else TileArriveMillis))
+    }
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf(false) }
 
     Column(
-        Modifier.graphicsLayer {
+        modifier.graphicsLayer {
             alpha = arrive.value * if (dimmed) 0.4f else 1f
             scaleX = 0.9f + 0.1f * arrive.value
             scaleY = scaleX
@@ -203,7 +213,7 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
                             }
                         }
                     }
-                    .combinedClickable(enabled = !dimmed, onClick = { home.open(space) }, onLongClick = { menu = true }),
+                    .combinedClickable(enabled = !dimmed && !leaving, onClick = { home.open(space) }, onLongClick = { menu = true }),
             ) {
                 Box {
                     TilePreview(home, space, page)
@@ -220,7 +230,7 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
                     }
                     is Space.Shared -> {
                         DropdownMenuItem(text = { Text("Copy link") }, onClick = act { home.platform.copyText(space.url); home.message = "Link copied" })
-                        DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, onClick = act { home.disconnect(space) })
+                        DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, onClick = act { removing = true })
                     }
                 }
             }
@@ -248,20 +258,22 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
         if (renaming) Sheet({ renaming = false }) {
             NameSheet("Rename realm", space.realm.name, "Rename", onClose = { renaming = false }) { home.renameRealm(space.realm, it) }
         }
-        if (deleting) Sheet({ deleting = false }) {
-            Text("Delete “${space.name}”?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-            Text(
+        if (deleting) {
+            Confirm(
+                "Delete “${space.name}”?",
                 "Everything in it goes, and every link to it stops working. This can't be undone.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { deleting = false }) { Text("Cancel") }
-                TextButton(onClick = { deleting = false; home.deleteRealm(space.realm) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-            }
+                "Delete",
+                onDismiss = { deleting = false },
+            ) { home.deleteRealm(space.realm) }
         }
+    }
+    if (space is Space.Shared && removing) {
+        Confirm(
+            "Remove “${space.name}”?",
+            "It leaves your tabs. The link itself keeps working, so you can add it again.",
+            "Remove",
+            onDismiss = { removing = false },
+        ) { home.disconnect(space) }
     }
 }
 

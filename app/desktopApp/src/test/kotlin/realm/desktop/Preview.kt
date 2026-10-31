@@ -282,6 +282,7 @@ private fun create() {
                 path == "/api/realms" && x.requestMethod == "POST" ->
                     """{"id":"ideas","name":"Ideas","created":3,"count":0}""".also { realms += it }
                 path == "/api/realms" -> """{"realms":[${realms.joinToString(",")}]}"""
+                x.requestMethod == "DELETE" -> { realms.removeAll { "\"${path.substringAfterLast('/')}\"" in it }; """{"ok":true}""" }
                 path.endsWith("/links") -> """{"links":[]}"""
                 else -> """{"items":[],"next":null}"""
             }.toByteArray()
@@ -306,6 +307,15 @@ private fun create() {
         val img = frame()
         Thread.sleep(5) // real time for the stand-in server to answer
         if (n % 4 == 0) File(out, "create-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+    }
+    // Then back to the grid and delete Lisbon trip: it fades away and Ideas slides into its place (delete-N).
+    h.showTabs()
+    repeat(40) { frame(); Thread.sleep(5) }
+    h.deleteRealm(h.realms.first { it.id == "trip" })
+    for (n in 0..40) {
+        val img = frame()
+        Thread.sleep(5)
+        if (n % 4 == 0) File(out, "delete-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
     }
     scene.close()
     server.stop(0)
