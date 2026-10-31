@@ -5,11 +5,21 @@ package realm
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
 
+/** What logging in with Cloudflare came to: signed in, or logged in with no realm worker to sign in to yet. */
+sealed interface LoggedIn
+
 /**
  * Signed in as a server's owner, with its realms already fetched. Save [connection] to sign in again next
  * time. [session] is the Cloudflare login as it renews itself, when signed in with one.
  */
-class SignedIn(val api: Api, val info: Info, val realms: List<Realm>, val connection: Connection.Owner, val session: CloudflareSession?)
+class SignedIn(val api: Api, val info: Info, val realms: List<Realm>, val connection: Connection.Owner, val session: CloudflareSession?) :
+    LoggedIn
+
+/**
+ * Logged in with Cloudflare, but none of [accounts], the ones picked on the consent screen, has a realm
+ * worker yet. [login] still works: deploy one with it, then [signInWithCloudflare], with no second consent.
+ */
+class NoWorker(val login: CloudflareLogin, val accounts: List<Account>) : LoggedIn
 
 /** A share link connected to: [url] as it's saved, and what the link says about itself. */
 class Connected(val url: String, val api: Api, val info: Info)
@@ -57,28 +67,44 @@ suspend fun signInWithToken(server: String, token: String, source: String, engin
 /**
  * Logs in with Cloudflare in the browser and signs in to the realm worker on that account, as `realm login`
  * does: no URL or token to copy, the login is the owner's token. With realm workers on more than one
- * account, [choose] picks one; null from it gives up, and so does this. [session] makes the connection's
- * login a bearer that keeps its renewals, as the caller saves them.
+ * account, [choose] picks one; null from it gives up, and so does this. With none, it's [NoWorker], to
+ * deploy one. [session] makes the connection's login a bearer that keeps its renewals, as the caller saves
+ * them. [engine] is the platform's own unless one is given, as previews do.
  */
 suspend fun logInWithCloudflare(
     browser: Browser,
     source: String,
     choose: suspend (List<Worker>) -> Worker?,
     session: (Connection.ByCloudflare) -> CloudflareSession = { CloudflareSession(it.login) {} },
-): SignedIn? = inWords {
-    val login = Cloudflare.logIn(browser)
-    val found = Cloudflare.workers(login.access)
+    engine: HttpClientEngine? = null,
+): LoggedIn? = inWords {
+    val login = Cloudflare.logIn(browser, engine)
+    val found = Cloudflare.workers(login.access, engine)
     val worker = when (found.size) {
-        0 -> throw ApiException("There's no realm worker on that Cloudflare account. Deploy it first, then log in.")
+        0 -> return@inWords NoWorker(login, CloudflareApi(Bearer { login.access }, engine).use { it.accounts() })
         1 -> found[0]
         else -> choose(found) ?: return@inWords null
     }
     // The worker takes a Cloudflare login as its owner's once it knows which account it's on.
-    Cloudflare.claim(login.access, worker)
-    val s = session(Connection.ByCloudflare(worker.origin, login.copy(account = worker.account)))
-    val api = Api.server(worker.origin, s, source)
+    Cloudflare.claim(login.access, worker, engine)
+    signInWithCloudflare(worker.origin, login.copy(account = worker.account), source, session, engine)
+}
+
+/**
+ * Signs in to the realm worker at [origin] with a Cloudflare [login] for its account, as logging in does once
+ * it has found the worker: one just deployed, say. [session] is as for [logInWithCloudflare].
+ */
+suspend fun signInWithCloudflare(
+    origin: String,
+    login: CloudflareLogin,
+    source: String,
+    session: (Connection.ByCloudflare) -> CloudflareSession = { CloudflareSession(it.login) {} },
+    engine: HttpClientEngine? = null,
+): SignedIn = inWords {
+    val s = session(Connection.ByCloudflare(origin, login))
+    val api = Api.server(origin, s, source, engine)
     val (info, realms) = api.closingOnFailure { Cloudflare.checkOwner(api) to api.realms() }
-    SignedIn(api, info, realms, Connection.ByCloudflare(worker.origin, s.login), s)
+    SignedIn(api, info, realms, Connection.ByCloudflare(origin, s.login), s)
 }
 
 /** Connects to a share link, as `realm connect <link>` does. Asking what it is spends none of its uses. */

@@ -2,6 +2,7 @@
 // localhost, then finding the realm worker on the chosen account. The login is then the owner's token.
 package realm
 
+import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.request.forms.submitForm
@@ -67,7 +68,7 @@ object Cloudflare {
     private val http by lazy { client(null) }
 
     /** The browser login: authorization code with PKCE, caught on localhost. */
-    suspend fun logIn(browser: Browser): CloudflareLogin {
+    suspend fun logIn(browser: Browser, engine: HttpClientEngine? = null): CloudflareLogin {
         val verifier = generateNonce() + generateNonce()
         val challenge = sha256(verifier.encodeToByteArray()).encodeBase64().trimEnd('=').replace('+', '-').replace('/', '_')
         val state = generateNonce()
@@ -95,6 +96,7 @@ object Cloudflare {
                 "code_verifier" to verifier,
             ),
             keep = null,
+            engine,
         )
     }
 
@@ -130,7 +132,12 @@ object Cloudflare {
     )
 
     /** Posts to the token endpoint, form-encoded. A reply without a new refresh token leaves [keep] valid. */
-    private suspend fun exchange(form: Map<String, String>, keep: String?): CloudflareLogin {
+    private suspend fun exchange(form: Map<String, String>, keep: String?, engine: HttpClientEngine? = null): CloudflareLogin {
+        if (engine != null) return client(engine).use { exchange(it, form, keep) }
+        return exchange(http, form, keep)
+    }
+
+    private suspend fun exchange(http: HttpClient, form: Map<String, String>, keep: String?): CloudflareLogin {
         val res = try {
             http.submitForm(TOKEN, parameters { form.forEach { (k, v) -> append(k, v) } })
         } catch (e: Exception) {
