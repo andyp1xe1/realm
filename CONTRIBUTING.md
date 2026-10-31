@@ -17,3 +17,7 @@ Run `git config core.hooksPath .githooks` once per clone. The hooks check every 
 - Say what changed for someone using realm, in plain words, not how it was done: "Log in with Cloudflare from the app", not "Add CloudflareSession bearer to Api".
 
 The hook enforces the first two. The third is a review step: read the message as a user would before committing.
+
+## Agent skills
+
+Skills live in `.agents/skills/<name>/SKILL.md`, the cross-tool [Agent Skills](https://agentskills.io) location. `.claude/skills` is a symlink to it, so Claude Code loads the same files. Edit them under `.agents/`.
