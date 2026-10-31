@@ -14,7 +14,12 @@ class Stmt {
     return new Stmt(this.db, this.sql, args);
   }
   async all() {
-    return { results: this.db.prepare(this.sql).all(...(this.args as never[])).map((r) => ({ ...r })) };
+    return {
+      results: this.db
+        .prepare(this.sql)
+        .all(...(this.args as never[]))
+        .map((r) => ({ ...r })),
+    };
   }
   async first() {
     const r = this.db.prepare(this.sql).get(...(this.args as never[]));
@@ -72,7 +77,10 @@ export function mockR2() {
       const chunks = parts.map((p) => up.parts.get(p.partNumber)!);
       const data = new Uint8Array(chunks.reduce((a, c) => a + c.length, 0));
       let off = 0;
-      for (const c of chunks) data.set(c, off), (off += c.length);
+      for (const c of chunks) {
+        data.set(c, off);
+        off += c.length;
+      }
       objects.set(key, { data, type: up.type });
       uploads.delete(uploadId);
       return meta(key, { data });
