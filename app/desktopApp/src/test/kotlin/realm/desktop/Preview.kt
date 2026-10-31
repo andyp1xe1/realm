@@ -420,7 +420,8 @@ fun main(args: Array<String>) {
     val empty = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:${none.address.port}/api", "t", "desktop"))
     shot("empty", 400, 760, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
     shot("empty-light", 400, 760, dark = false, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
-    shot("setup", 400, 700) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
+    shot("setup", 400, 760) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
+    shot("setup-light", 400, 760, dark = false) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
     val home = home(m)
     for ((label, w, h) in listOf(Triple("phone", 400, 820), Triple("desktop", 880, 640))) {
         shot("grid-$label", w, h, realtimeMs = 1500) { Grid(home) }

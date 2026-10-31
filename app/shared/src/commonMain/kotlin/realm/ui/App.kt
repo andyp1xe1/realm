@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -282,6 +283,8 @@ fun Setup(home: Home) {
         Modifier.widthIn(max = 420.dp).fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
+        WelcomeArt(Modifier.offset(x = (-6).dp))
+        Spacer(Modifier.height(28.dp))
         Wordmark(34)
         Spacer(Modifier.height(8.dp))
         Text("Your dump, everywhere.", color = MaterialTheme.colorScheme.onSurfaceVariant)

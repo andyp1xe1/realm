@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
@@ -118,6 +120,81 @@ private fun GhostFeed(drift: Float) {
                     Offset((154f + i * 7f) * u, (144f - h / 2) * u),
                     Size(3f * u, h * u),
                     CornerRadius(1.5f * u),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * For the sign-in screen: realms as tiles fanned out like tabs under the Cloudflare cloud they run on, the
+ * front one outlined, with a note and a voice note drifting in towards it. Same ghosted style as [EmptyRealm].
+ */
+@Composable
+fun WelcomeArt(modifier: Modifier = Modifier) {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, tween(500)) }
+    val drift by rememberInfiniteTransition().animateFloat(0f, 1f, infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart))
+    val card = MaterialTheme.colorScheme.surfaceContainer
+    val back = MaterialTheme.colorScheme.surfaceContainerHigh
+    val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
+    val tile = MaterialTheme.colorScheme.primaryContainer
+    val accent = MaterialTheme.colorScheme.primary
+    val cloud = rememberVectorPainter(Cloudflare)
+    Canvas(modifier.size(260.dp, 180.dp).graphicsLayer { alpha = appear.value }) {
+        val u = size.width / 260f // design units: drawn on a 260×180 grid
+        fun bob(phase: Float, amp: Float = 3f) = sin((drift + phase) * 2 * PI).toFloat() * amp * u
+
+        // The cloud they live in, behind them all, in Cloudflare's own colours.
+        translate(170f * u, -10f * u + bob(0.85f, 2f)) {
+            with(cloud) { draw(Size(72f * u, 72f * u)) }
+        }
+
+        // Two realms behind, tilted out like tabs in an overview.
+        for ((x, turn, phase) in listOf(Triple(28f, -9f, 0.1f), Triple(122f, 9f, 0.6f))) {
+            translate(0f, bob(phase, 2f)) {
+                rotate(turn, Offset((x + 55f) * u, 95f * u)) {
+                    card(x, 40f, 110f, 110f, u, back)
+                    bar(x + 14f, 112f, 60f, u, line)
+                    bar(x + 14f, 124f, 40f, u, line)
+                }
+            }
+        }
+        // The front realm: outlined, a feed inside.
+        translate(0f, bob(0.35f, 2f)) {
+            card(75f, 22f, 110f, 136f, u, card)
+            drawRoundRect(accent, Offset(75f * u, 22f * u), Size(110f * u, 136f * u), CornerRadius(14f * u), style = Stroke(2f * u))
+            bar(89f, 38f, 64f, u, line)
+            bar(89f, 50f, 44f, u, line)
+            drawRoundRect(tile, Offset(89f * u, 66f * u), Size(26f * u, 26f * u), CornerRadius(7f * u))
+            drawRoundRect(accent.copy(alpha = 0.7f), Offset(97f * u, 73f * u), Size(10f * u, 12f * u), CornerRadius(2f * u), style = Stroke(1.6f * u))
+            bar(122f, 72f, 48f, u, line)
+            bar(122f, 82f, 30f, u, line)
+            val hills = Path().apply {
+                moveTo(89f * u, 146f * u)
+                lineTo(110f * u, 124f * u)
+                lineTo(124f * u, 136f * u)
+                lineTo(136f * u, 126f * u)
+                lineTo(171f * u, 146f * u)
+                close()
+            }
+            drawRoundRect(back, Offset(89f * u, 102f * u), Size(82f * u, 44f * u), CornerRadius(8f * u))
+            clipPath(Path().apply { addRoundRect(RoundRect(89f * u, 102f * u, 171f * u, 146f * u, CornerRadius(8f * u))) }) { drawPath(hills, line) }
+            drawCircle(accent.copy(alpha = 0.55f), 5f * u, Offset(158f * u, 113f * u))
+        }
+        // Things on their way in.
+        translate(bob(0.0f, 2f), bob(0.2f, 4f)) {
+            card(6f, 14f, 58f, 22f, u, card)
+            bar(14f, 22f, 34f, u, line)
+        }
+        translate(bob(0.5f, 2f), bob(0.7f, 4f)) {
+            card(196f, 138f, 58f, 26f, u, card)
+            listOf(5f, 11f, 16f, 9f, 13f, 6f).forEachIndexed { i, h ->
+                drawRoundRect(
+                    if (i < 3) accent.copy(alpha = 0.6f) else line,
+                    Offset((208f + i * 6f) * u, (151f - h / 2) * u),
+                    Size(2.6f * u, h * u),
+                    CornerRadius(1.3f * u),
                 )
             }
         }
