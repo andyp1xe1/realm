@@ -2,19 +2,12 @@
 // localhost, then finding the realm worker on the chosen account. The login is then the owner's token.
 package realm
 
-import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.request.forms.submitForm
-import io.ktor.client.request.header
-import io.ktor.client.request.request
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.URLBuilder
-import io.ktor.http.contentType
 import io.ktor.http.parameters
-import io.ktor.serialization.kotlinx.json.json
 import io.ktor.util.encodeBase64
 import io.ktor.util.generateNonce
 import io.ktor.util.sha256
@@ -23,9 +16,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlin.time.Clock
 
 /** The browser, for logins that come back to localhost. Implemented by each app's Platform. */
@@ -58,7 +50,6 @@ object Cloudflare {
     private const val AUTHORIZE = "https://dash.cloudflare.com/oauth2/auth"
     private const val TOKEN = "https://dash.cloudflare.com/oauth2/token"
     private const val REVOKE = "https://dash.cloudflare.com/oauth2/revoke"
-    private const val API = "https://api.cloudflare.com/client/v4"
     private const val PORT = 53134 // registered as http://localhost:53134/oauth/callback
     private const val CALLBACK = "/oauth/callback"
     private const val REDIRECT = "http://localhost:$PORT$CALLBACK"
@@ -76,13 +67,7 @@ object Cloudflare {
         "offline_access",
     )
 
-    private val json = Json { ignoreUnknownKeys = true }
-    private val http by lazy {
-        HttpClient {
-            expectSuccess = false
-            install(ContentNegotiation) { json(json) }
-        }
-    }
+    private val http by lazy { client(null) }
 
     /** The browser login: authorization code with PKCE, caught on localhost. */
     suspend fun logIn(browser: Browser): CloudflareLogin {
@@ -164,35 +149,24 @@ object Cloudflare {
         return CloudflareLogin(t.accessToken, t.refreshToken ?: keep, now() + t.expiresIn)
     }
 
-    @Serializable
-    private data class Named(val id: String, val name: String = "")
-
-    @Serializable
-    private data class Subdomain(val subdomain: String)
-
     /**
-     * The accounts on [token]'s login that have a realm worker. Logging in picks the accounts on the consent
-     * screen; usually that's one.
+     * The accounts on [token]'s login that have a realm worker, and where each answers: a custom domain if it
+     * has one, else workers.dev. Logging in picks the accounts on the consent screen; usually that's one.
      */
-    suspend fun workers(token: String): List<Worker> {
-        val accounts = call<List<Named>>(token, HttpMethod.Get, "/accounts")
-        if (accounts.isEmpty()) throw ApiException("No Cloudflare account was picked on the consent screen")
-        return accounts.mapNotNull { acc ->
-            val scripts = call<List<Named>>(token, HttpMethod.Get, "/accounts/${acc.id}/workers/scripts")
-            if (scripts.none { it.id == WORKER }) return@mapNotNull null
-            val sub = call<Subdomain>(token, HttpMethod.Get, "/accounts/${acc.id}/workers/subdomain").subdomain
-            Worker(acc.id, acc.name, "https://$WORKER.$sub.workers.dev")
-        }
-    }
+    suspend fun workers(token: String, engine: HttpClientEngine? = null): List<Worker> =
+        CloudflareApi(Bearer { token }, engine).use { it.workers() }
 
     @Serializable
     private data class Secret(val name: String, val text: String? = null, val type: String = "secret_text")
 
     /** Tells the worker which account it runs on, if it doesn't know yet: then Cloudflare logins are its owner. */
-    suspend fun claim(token: String, worker: Worker) {
-        val script = "/accounts/${worker.account}/workers/scripts/$WORKER/secrets"
-        if (call<List<Secret>>(token, HttpMethod.Get, script).any { it.name == "REALM_ACCOUNT" }) return
-        call<JsonElement>(token, HttpMethod.Put, script, json.encodeToString(Secret("REALM_ACCOUNT", worker.account)))
+    suspend fun claim(token: String, worker: Worker, engine: HttpClientEngine? = null) {
+        CloudflareApi(Bearer { token }, engine).use { cf ->
+            val script = "/accounts/${worker.account}/workers/scripts/$WORKER/secrets"
+            if (cf.call<List<Secret>>(HttpMethod.Get, script).none { it.name == "REALM_ACCOUNT" }) {
+                cf.call<JsonElement?>(HttpMethod.Put, script, cloudflareJson.encodeToJsonElement(Secret("REALM_ACCOUNT", worker.account)))
+            }
+        }
     }
 
     /**
@@ -211,39 +185,6 @@ object Cloudflare {
             if (attempt < 4) delay(2_000)
         }
         throw ApiException("That worker is too old for Cloudflare login. Redeploy it, then log in again.")
-    }
-
-    @Serializable
-    private data class Envelope(val success: Boolean = false, val errors: List<Problem> = emptyList(), val result: JsonElement? = null)
-
-    @Serializable
-    private data class Problem(val code: Int = 0, val message: String = "")
-
-    /** Calls the Cloudflare API and decodes its "result". */
-    private suspend inline fun <reified T> call(token: String, method: HttpMethod, path: String, body: String? = null): T {
-        val res = try {
-            http.request("$API$path") {
-                this.method = method
-                header("Authorization", "Bearer $token")
-                if (body != null) {
-                    contentType(ContentType.Application.Json)
-                    setBody(body)
-                }
-            }
-        } catch (e: Exception) {
-            throw ApiException("Can't reach Cloudflare")
-        }
-        val env = runCatching {
-            res.body<Envelope>()
-        }.getOrElse { throw ApiException("Cloudflare sent something odd (HTTP ${res.status.value})") }
-        if (!env.success) {
-            throw ApiException(
-                env.errors.joinToString("; ") {
-                    it.message
-                }.ifBlank { "Cloudflare said no (HTTP ${res.status.value})" },
-            )
-        }
-        return json.decodeFromJsonElement(env.result ?: throw ApiException("Cloudflare sent nothing back"))
     }
 
     fun now() = Clock.System.now().epochSeconds

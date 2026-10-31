@@ -101,7 +101,7 @@ private data class NewLink(
 )
 
 /** What went wrong, in words for the user. [status] is the HTTP status when a server said so. */
-class ApiException(message: String, val status: Int? = null) : Exception(message)
+open class ApiException(message: String, val status: Int? = null) : Exception(message)
 
 /** Where an owner's token comes from: a fixed owner token, or a Cloudflare login that renews itself. */
 fun interface Bearer {
