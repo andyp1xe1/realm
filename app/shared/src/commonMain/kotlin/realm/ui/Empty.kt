@@ -1,6 +1,7 @@
 package realm.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -45,7 +46,8 @@ fun EmptyRealm(modifier: Modifier = Modifier, still: Boolean = false) {
     val appear = remember { Animatable(if (still) 1f else 0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, tween(400)) }
     val drift = if (still) 0f else {
-        val t by rememberInfiniteTransition().animateFloat(0f, 1f, infiniteRepeatable(tween(6000), RepeatMode.Restart))
+        // Linear: with easing, each cycle would slow to a stop before the next, reading as an end.
+        val t by rememberInfiniteTransition().animateFloat(0f, 1f, infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Restart))
         t
     }
     Column(modifier.graphicsLayer { alpha = appear.value }, horizontalAlignment = Alignment.CenterHorizontally) {
