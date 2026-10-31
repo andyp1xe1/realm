@@ -64,6 +64,8 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
+            CloudflareButton { home.signInWithCloudflare() }
+            Spacer(Modifier.height(20.dp))
             SignInForm(home, onDone = onDismiss)
         }
     }

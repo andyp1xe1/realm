@@ -2,6 +2,7 @@ package realm.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -276,9 +279,10 @@ fun Wordmark(size: Int = 20, realm: String? = null, modifier: Modifier = Modifie
 /** Outlined fields are 56dp; buttons in the same form match them. */
 val FormHeight = 56.dp
 
-/** First run: nothing signed in, nothing connected. */
+/** First run: nothing signed in, nothing connected. Log in with Cloudflare, or connect with a token. */
 @Composable
 fun Setup(home: Home) {
+    var withToken by remember { mutableStateOf(false) }
     Column(
         Modifier.widthIn(max = 420.dp).fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -289,8 +293,60 @@ fun Setup(home: Home) {
         Spacer(Modifier.height(8.dp))
         Text("Your dump, everywhere.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(32.dp))
-        SignInForm(home)
+        CloudflareButton { home.signInWithCloudflare() }
+        Spacer(Modifier.height(12.dp))
+        TokenButton { withToken = true }
     }
+
+    if (withToken) Sheet({ withToken = false }) { TokenSheet(home) { withToken = false } }
+}
+
+/** Cloudflare's orange, for the button that logs in with it. */
+private val CloudflareOrange = Color(0xFFF38020)
+
+/** The main way in: log in with a Cloudflare account. */
+@Composable
+fun CloudflareButton(onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().height(FormHeight),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(containerColor = CloudflareOrange, contentColor = Color.White),
+    ) {
+        Icon(Cloudflare, null, Modifier.size(26.dp), tint = Color.White)
+        Spacer(Modifier.width(10.dp))
+        Text("Log in with Cloudflare", fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** The other way in: a server URL and owner token, or a share link. Opens [TokenSheet]. */
+@Composable
+fun TokenButton(onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().height(FormHeight),
+        shape = CircleShape,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Text("Connect with a token", color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/** The token sheet's content on its own, for previews. */
+@Composable
+fun TokenSheetPreview(home: Home) = TokenSheet(home) {}
+
+@Composable
+private fun TokenSheet(home: Home, onDone: () -> Unit) {
+    Text("Connect with a token", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        "Your server's address and owner token, or a share link someone sent you.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(16.dp))
+    SignInForm(home, onDone = onDone)
 }
 
 /**

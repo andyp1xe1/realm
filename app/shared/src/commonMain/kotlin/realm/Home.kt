@@ -240,6 +240,14 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
 
     // ---------- signing in and connecting ----------
 
+    /**
+     * Signs in with a Cloudflare account, which finds or deploys the worker and keeps its token: no URL or
+     * token to copy. Waits on the OAuth client; until then, connecting with a token is the way in.
+     */
+    fun signInWithCloudflare() {
+        message = "Logging in with Cloudflare isn't ready yet. Connect with a token for now."
+    }
+
     /** Signs in to your own server; returns an error message or null. */
     suspend fun signIn(origin: String, token: String): String? {
         val api = Api.server(origin, token, platform.name)

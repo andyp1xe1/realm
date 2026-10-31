@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
@@ -127,8 +126,8 @@ private fun GhostFeed(drift: Float) {
 }
 
 /**
- * For the sign-in screen: realms as tiles fanned out like tabs, the front one outlined and badged with the
- * Cloudflare cloud it runs on, a note and a voice note drifting in towards it. Same ghosted style as [EmptyRealm].
+ * For the sign-in screen: realms as tiles fanned out like tabs, the front one outlined, with a note and a voice
+ * note drifting in towards it. Same ghosted style as [EmptyRealm].
  */
 @Composable
 fun WelcomeArt(modifier: Modifier = Modifier) {
@@ -140,8 +139,6 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
     val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
     val tile = MaterialTheme.colorScheme.primaryContainer
     val accent = MaterialTheme.colorScheme.primary
-    val cloud = rememberVectorPainter(Cloudflare)
-    val page = MaterialTheme.colorScheme.background
     Canvas(modifier.size(260.dp, 180.dp).graphicsLayer { alpha = appear.value }) {
         val u = size.width / 260f // design units: drawn on a 260×180 grid
         fun bob(phase: Float, amp: Float = 3f) = sin((drift + phase) * 2 * PI).toFloat() * amp * u
@@ -178,13 +175,6 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
             drawRoundRect(back, Offset(89f * u, 102f * u), Size(82f * u, 44f * u), CornerRadius(8f * u))
             clipPath(Path().apply { addRoundRect(RoundRect(89f * u, 102f * u, 171f * u, 146f * u, CornerRadius(8f * u))) }) { drawPath(hills, line) }
             drawCircle(accent.copy(alpha = 0.55f), 5f * u, Offset(158f * u, 113f * u))
-            // Where it lives: a round badge on the corner, like the link badge on shared tiles.
-            val badge = Offset(183f * u, 25f * u)
-            drawCircle(page, 17f * u, badge)
-            drawCircle(back, 15f * u, badge)
-            translate(badge.x - 11f * u, badge.y - 12.5f * u) {
-                with(cloud) { draw(Size(22f * u, 22f * u)) }
-            }
         }
         // Things on their way in.
         translate(bob(0.0f, 2f), bob(0.2f, 4f)) {

@@ -422,6 +422,11 @@ fun main(args: Array<String>) {
     shot("empty-light", 400, 760, dark = false, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
     shot("setup", 400, 760) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
     shot("setup-light", 400, 760, dark = false) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
+    shot("setup-token", 460, 440) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
+            androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { realm.ui.TokenSheetPreview(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
+        }
+    }
     val home = home(m)
     for ((label, w, h) in listOf(Triple("phone", 400, 820), Triple("desktop", 880, 640))) {
         shot("grid-$label", w, h, realtimeMs = 1500) { Grid(home) }
