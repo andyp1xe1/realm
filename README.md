@@ -34,13 +34,15 @@ The last command prints your owner token. The worker sets up and upgrades its ow
 cd cli && make
 realm login https://realm.you.workers.dev <token>
 realm add buy oat milk
-realm add ~/Downloads/*.pdf -t "tax stuff"
-realm ls invoice -k file
+realm realms add Tax 2026
+realm use tax
+realm add ~/Downloads/*.pdf -t "receipts"
+realm -r main ls invoice -k file
 realm get last
 realm link --read --ttl 1d
 ```
 
-Run `realm` with no arguments for the full command list.
+`realm connect <link>` uses a share link instead of your own server, and `realm get <link>` downloads a link to one file without connecting. Deleting asks first; `-y` skips the question. Run `realm` with no arguments for the full command list.
 
 ## Run the app
 
