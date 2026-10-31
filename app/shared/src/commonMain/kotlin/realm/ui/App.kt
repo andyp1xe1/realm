@@ -51,7 +51,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -90,6 +89,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import realm.Filter
 import realm.Home
+import realm.Login
 import realm.Model
 import realm.Platform
 import realm.isLink as isLinkUrl
@@ -113,7 +113,7 @@ fun App(platform: Platform, modifier: Modifier = Modifier) {
         Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.TopCenter) {
                 SetupOrTabs(home)
-                WorkerChoice(home)
+                CloudflareSheet(home.cloudflare)
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp)) {
                     Snackbar(
                         it,
@@ -153,6 +153,7 @@ fun Tabs(home: Home, modifier: Modifier = Modifier) {
             onTabs = { if (open == null) home.hideTabs() else home.showTabs() },
             onSettings = { settings = true },
             modifier = Modifier.widthIn(max = PageWidth),
+            update = home.cloudflare.update != null,
         )
         SharedTransitionLayout(Modifier.weight(1f)) {
             AnimatedContent(
@@ -278,40 +279,12 @@ fun Setup(home: Home, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(8.dp))
         Text("Your dump, everywhere.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.height(32.dp))
-        CloudflareButton(onClick = home::signInWithCloudflare, busy = home.loggingIn)
+        CloudflareButton(onClick = home.cloudflare::logIn, busy = home.cloudflare.login == Login.LoggingIn)
         Spacer(Modifier.height(12.dp))
         TokenButton(onClick = { withToken = true })
     }
 
     if (withToken) Sheet({ withToken = false }) { TokenSheet(home) { withToken = false } }
-}
-
-/** Logging in found a realm worker on more than one Cloudflare account: which one to sign in to. */
-@Composable
-fun WorkerChoice(home: Home, modifier: Modifier = Modifier) {
-    val workers = home.workerChoice ?: return
-    Sheet({ home.pick(null) }, modifier) {
-        Text("Which realm?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "There's a realm worker on more than one of your Cloudflare accounts.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-        workers.forEach { w ->
-            TextButton(onClick = { home.pick(w) }, Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth()) {
-                    Text(w.accountName, color = MaterialTheme.colorScheme.onSurface)
-                    Text(
-                        w.origin.removePrefix("https://"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
 }
 
 /** Cloudflare's orange, for the button that logs in with it. */

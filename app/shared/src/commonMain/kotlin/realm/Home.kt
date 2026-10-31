@@ -6,12 +6,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -23,9 +21,10 @@ import kotlin.time.TimeSource
 /**
  * Everything above one feed: the server you're signed in to, its realms, the share links you've connected
  * to, and which of them is open. Each space keeps its [Model] while the app runs, like a browser tab, so
- * leaving a realm mid-upload doesn't stop the upload.
+ * leaving a realm mid-upload doesn't stop the upload. [engine] carries every request, the platform's own
+ * unless one is given, as previews do.
  */
-class Home(val platform: Platform, private val scope: CoroutineScope) {
+class Home(val platform: Platform, private val scope: CoroutineScope, private val engine: HttpClientEngine? = null) {
     /** The owner API of the server you're signed in to; null when you only use share links. */
     var server by mutableStateOf<Api?>(null)
         private set
@@ -53,13 +52,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     var loading by mutableStateOf(false)
         private set
 
-    /** Logging in with Cloudflare is under way: the browser is open, or the worker is being looked for. */
-    var loggingIn by mutableStateOf(false)
-        private set
-
-    /** Logging in found a realm worker on more than one Cloudflare account: one is to be [pick]ed. */
-    var workerChoice by mutableStateOf<List<Worker>?>(null)
-        private set
+    /** Logging in with Cloudflare, and deploying or updating the worker with it. */
+    val cloudflare = CloudflareSetup(this, scope, engine)
 
     private val prefs = platform.prefs
     private val apis = mutableMapOf<String, Api>()
@@ -73,9 +67,11 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     private var lastRefresh: TimeSource.Monotonic.ValueTimeMark? = null
 
     /** The Cloudflare login the server is signed in with, if it is. */
-    private var session: CloudflareSession? = null
-    private var loginJob: Job? = null
-    private var picked: CompletableDeferred<Worker?>? = null
+    internal var session: CloudflareSession? = null
+        private set
+
+    /** A server just deployed, signed in to before its address reached us. */
+    private var deployedJustNow: Api? = null
 
     val spaces: List<Space> get() = realms.map { own(it) } + shared
     val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
@@ -88,9 +84,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         if (owner != null) {
             val bearer = when (owner) {
                 is Connection.ByToken -> Bearer { owner.token }
-                is Connection.ByCloudflare -> cloudflare(owner).also { session = it }
+                is Connection.ByCloudflare -> sessionFor(owner).also { session = it }
             }
-            server = Api.server(owner.server, bearer, platform.name)
+            server = Api.server(owner.server, bearer, platform.name, engine)
             // Last known realms, so the overview shows straight away and works offline.
             realms.addAll(prefs.get("realms")?.let { runCatching { JSON.decodeFromString<List<Realm>>(it) }.getOrNull() }.orEmpty())
         }
@@ -99,6 +95,11 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         }
         openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
         refresh()
+    }
+
+    /** Whether there's a newer worker for [api]; only the owner's Cloudflare login can deploy it. */
+    private fun checkForUpdate(force: Boolean, api: Api? = server) {
+        api?.let { cloudflare.checkForUpdate(it, canDeploy = session?.login?.account != null, force) }
     }
 
     /** Before realms, the app kept one url: a server (with a token) or a share link. */
@@ -119,6 +120,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     fun refresh(force: Boolean = false) {
         if (!force && lastRefresh?.let { it.elapsedNow() < 3.seconds } == true) return // the overview and init both ask
         lastRefresh = TimeSource.Monotonic.markNow()
+        checkForUpdate(force = false)
         scope.launch {
             loading = true
             try {
@@ -146,7 +148,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            message = explain(e)
+            if (s !== deployedJustNow) message = explain(e) // that one was said to take a few minutes
         }
     }
 
@@ -236,50 +238,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
 
     // ---------- signing in and connecting ----------
 
-    /**
-     * Logs in with Cloudflare in the browser and signs in to the realm worker on that account, as `realm login`
-     * does: no URL or token to copy, the login is the owner's token. Tapping again starts over.
-     */
-    fun signInWithCloudflare() {
-        val previous = loginJob
-        loginJob = scope.launch {
-            previous?.cancelAndJoin()
-            loggingIn = true
-            try {
-                val s = logInWithCloudflare(platform, platform.name, ::askWhich) { cloudflare(it) } ?: return@launch
-                signOut()
-                session = s.session
-                prefs.saveOwner(s.connection)
-                adopt(s.api, s.realms)
-                message = Api.mismatch(s.info)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message = explain(e)
-            } finally {
-                if (loginJob === coroutineContext[Job]) loggingIn = false
-            }
-        }
-    }
-
-    /** Answers [workerChoice]; null gives up on logging in. */
-    fun pick(worker: Worker?) {
-        picked?.complete(worker)
-    }
-
-    private suspend fun askWhich(found: List<Worker>): Worker? {
-        val d = CompletableDeferred<Worker?>().also { picked = it }
-        workerChoice = found
-        return try {
-            d.await()
-        } finally {
-            workerChoice = null
-            picked = null
-        }
-    }
-
     /** [owner]'s login as the owner's token, keeping each renewal while it's the one signed in, and signing out once it's turned down. */
-    private fun cloudflare(owner: Connection.ByCloudflare): CloudflareSession {
+    internal fun sessionFor(owner: Connection.ByCloudflare): CloudflareSession {
         lateinit var s: CloudflareSession
         s = CloudflareSession(owner.login) { next ->
             if (session !== s) return@CloudflareSession
@@ -299,15 +259,43 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     /** Signs in to your own server at [url], as typed; returns an error message or null. */
     suspend fun signIn(url: String, token: String): String? {
         val s = try {
-            signInWithToken(url, token, platform.name)
+            signInWithToken(url, token, platform.name, engine)
         } catch (e: ApiException) {
             return e.message
         }
+        signedIn(s)
+        return null
+    }
+
+    /** Switches to a server just signed in to, as the owner. */
+    internal fun signedIn(s: SignedIn) {
         signOut()
+        session = s.session
         prefs.saveOwner(s.connection)
+        checkForUpdate(force = true, s.api) // before adopt's refresh, which would check less eagerly
         adopt(s.api, s.realms)
         message = Api.mismatch(s.info)
-        return null
+    }
+
+    /**
+     * Signs in to a worker just deployed whose address doesn't reach you yet, as new ones may not for a few
+     * minutes: the overview shows its realms once it answers.
+     */
+    internal fun signedInBeforeItAnswers(owner: Connection.ByCloudflare) {
+        signOut()
+        val s = sessionFor(owner).also { session = it }
+        prefs.saveOwner(owner)
+        val api = Api.server(owner.server, s, platform.name, engine)
+        server = api
+        deployedJustNow = api
+        scope.launch {
+            repeat(30) {
+                delay(10.seconds)
+                if (server !== api) return@launch
+                val list = runCatching { api.realms() }.getOrNull() ?: return@repeat
+                return@launch adopt(api, list)
+            }
+        }
     }
 
     /**
@@ -329,6 +317,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         server = null
         session?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
         session = null
+        cloudflare.signedOut()
         prefs.saveOwner(null)
         prefs.set("realms", null)
         if (open == null) reopen()
@@ -341,7 +330,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
             return null
         }
         val c = try {
-            connectLink(link, platform.name)
+            connectLink(link, platform.name, engine)
         } catch (e: ApiException) {
             return e.message
         }
@@ -433,7 +422,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
 
     private fun own(r: Realm) = Space.Own(r, apis.getOrPut(ownKey(r.id)) { server!!.realm(r.id) })
 
-    private fun linkApi(url: String) = apis.getOrPut(sharedKey(url)) { Api(url, null, platform.name) }
+    private fun linkApi(url: String) = apis.getOrPut(sharedKey(url)) { Api(url, null, platform.name, engine) }
 
     private fun forget(key: String) {
         apis.remove(key)?.close()

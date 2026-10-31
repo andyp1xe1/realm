@@ -1,0 +1,347 @@
+// Filmstrips of logging in with Cloudflare and deploying the worker, against stand-ins for Cloudflare, GitHub
+// and the worker it deploys, all on one MockEngine. Nothing real is called.
+package realm.desktop
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.unit.Density
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandleScope
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
+import io.ktor.http.headersOf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import org.jetbrains.skia.EncodedImageFormat
+import realm.Choices
+import realm.Home
+import realm.Login
+import realm.ui.CloudflareSheet
+import realm.ui.RealmTheme
+import realm.ui.SettingsDialog
+import realm.ui.SetupOrTabs
+import java.io.File
+
+/**
+ * Jo's Cloudflare account and everything deploying talks to. [worker] is what the realm worker answers its
+ * owner, null while there's none; deploying makes it version 3. [r2] off answers bucket writes as R2 does
+ * when it's not turned on. notes.jo.dev has an A record in the way until it's deleted.
+ */
+private class FakeCloud(var worker: String? = null, val r2: Boolean = true, val accounts: Int = 1) {
+    private var record = true
+    private var hostname = ""
+    private val gh = "github.com/andyp1xe1/realm/releases/download/v1.2.0"
+
+    val engine = MockEngine { req ->
+        val route = "${req.method.value} ${req.url.host}${req.url.encodedPath}".replace("api.cloudflare.com/client/v4", "cf")
+        // Each write takes a moment, as Cloudflare's do, so every step is on screen for a few frames.
+        delay(if (req.method.value == "GET") 40 else 450)
+        when {
+            route == "POST dash.cloudflare.com/oauth2/token" -> json("""{"access_token":"cf","refresh_token":"r","expires_in":3600}""")
+
+            route == "GET api.github.com/repos/andyp1xe1/realm/releases" -> json(
+                """[{"tag_name":"v1.2.0","assets":[{"name":"worker.json","browser_download_url":"https://$gh/worker.json"},
+                    {"name":"worker.js","browser_download_url":"https://$gh/worker.js"}]}]""",
+            )
+
+            route == "GET $gh/worker.json" -> json(
+                """{"version":3,"name":"realm","main_module":"worker.js","compatibility_date":"2026-10-01",
+                    "sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                    "r2_buckets":[{"binding":"BUCKET","bucket_name":"realm"}],
+                    "d1_databases":[{"binding":"DB","database_name":"realm"}],"crons":["17 4 * * *"]}""",
+            )
+
+            route == "GET $gh/worker.js" -> respond("abc")
+
+            route == "GET cf/accounts" ->
+                cf(
+                    if (accounts ==
+                        1
+                    ) {
+                        """[{"id":"a1","name":"Jo's account"}]"""
+                    } else {
+                        """[{"id":"a1","name":"Jo's account"},{"id":"a2","name":"Studio"}]"""
+                    },
+                )
+
+            route.endsWith("/workers/scripts") -> cf(if (worker != null && "/a1/" in route) """[{"id":"realm"}]""" else "[]")
+
+            route == "GET cf/accounts/a1/workers/subdomain" -> cf("""{"subdomain":"jo"}""")
+
+            route == "GET cf/accounts/a1/workers/domains" -> cf("[]")
+
+            route == "GET cf/accounts/a1/workers/scripts/realm/subdomain" -> cf("""{"enabled":true}""")
+
+            route == "GET cf/accounts/a1/workers/scripts/realm/secrets" -> cf("""[{"name":"REALM_ACCOUNT"}]""")
+
+            // A worker that's there has its storage too.
+            route == "GET cf/accounts/a1/r2/buckets" ->
+                if (r2) {
+                    cf(
+                        if (worker !=
+                            null
+                        ) {
+                            """{"buckets":[{"name":"realm"}]}"""
+                        } else {
+                            """{"buckets":[]}"""
+                        },
+                    )
+                } else {
+                    cfError(10042, "Please enable R2")
+                }
+
+            route == "GET cf/accounts/a1/d1/database" -> cf(if (worker != null) """[{"uuid":"db1","name":"realm"}]""" else "[]")
+
+            route == "GET cf/zones" -> cf("""[{"id":"z1","name":"jo.dev","status":"active"}]""")
+
+            route == "POST cf/accounts/a1/r2/buckets" -> if (r2) cf("""{"name":"realm"}""") else cfError(10042, "Please enable R2")
+
+            route == "POST cf/accounts/a1/d1/database" -> cf("""{"uuid":"db1","name":"realm"}""")
+
+            route == "PUT cf/accounts/a1/workers/scripts/realm" -> {
+                worker = """{"version":3,"scope":"owner"}"""
+                cf("""{"id":"realm"}""")
+            }
+
+            route == "PUT cf/accounts/a1/workers/domains" -> {
+                hostname = Regex(""""hostname":"([^"]+)"""").find((req.body as TextContent).text)!!.groupValues[1]
+                if (record) {
+                    cfError(100117, "Hostname already has DNS records")
+                } else {
+                    cf("""{"id":"d1","hostname":"$hostname","zone_id":"z1","service":"realm"}""")
+                }
+            }
+
+            route == "GET cf/zones/z1/dns_records" ->
+                cf(if (record) """[{"id":"r1","type":"A","name":"$hostname","content":"192.0.2.1"}]""" else "[]")
+
+            route == "DELETE cf/zones/z1/dns_records/r1" -> {
+                record = false
+                cf("""{"id":"r1"}""")
+            }
+
+            " cf/" in route -> cf("{}")
+
+            // the schedule and workers.dev switch
+
+            route.endsWith("/api/info") -> worker?.let { json(it) } ?: json("""{"error":"not found"}""", HttpStatusCode.NotFound)
+
+            route.endsWith("/api/realms") -> json("""{"realms":[{"id":"main","name":"Main","created":1,"count":0}]}""")
+
+            route.endsWith("/links") -> json("""{"links":[]}""")
+
+            else -> json("""{"items":[],"next":null}""")
+        }
+    }
+
+    private fun MockRequestHandleScope.json(body: String, status: HttpStatusCode = HttpStatusCode.OK) =
+        respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
+
+    private fun MockRequestHandleScope.cf(result: String) = json("""{"success":true,"errors":[],"result":$result}""")
+
+    private fun MockRequestHandleScope.cfError(code: Int, message: String) =
+        json("""{"success":false,"errors":[{"code":$code,"message":"$message"}],"result":null}""", HttpStatusCode.Conflict)
+}
+
+/** A scene of the app's first screen with the Cloudflare sheet over it, and frames taken as real time passes. */
+private class Film(val home: Home, settings: Boolean = false) {
+    var settings by mutableStateOf(settings)
+    val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
+        RealmTheme {
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Box {
+                    SetupOrTabs(home)
+                    if (this@Film.settings) SettingsDialog(home, onDismiss = { this@Film.settings = false })
+                    CloudflareSheet(home.cloudflare)
+                }
+            }
+        }
+    }
+    private var t = 0L
+    private var n = 0
+
+    /** What each frame drew from: the step of the sheet, and whether a server was signed in to. */
+    val drawn = mutableListOf<Pair<String, Boolean>>()
+
+    fun frame() = scene.render(t).also {
+        t += 16_000_000L
+        drawn += (home.cloudflare.login?.let { it::class.simpleName } ?: "-") to (home.server != null)
+    }
+
+    /** Renders frames, ~16ms of real time apart, until [done] or [max]; saves every [every]th as [name]-N. */
+    fun roll(name: String, every: Int = 4, max: Int = 400, done: () -> Boolean = { false }) {
+        repeat(max) {
+            val img = frame()
+            if (n % every == 0) save("$name-$n", img)
+            n++
+            if (done()) return
+            Thread.sleep(16)
+        }
+    }
+
+    /** Lets things settle, unsaved, until [done]. */
+    fun until(done: () -> Boolean) {
+        repeat(600) {
+            if (done()) return
+            frame()
+            Thread.sleep(10)
+        }
+        error("never got there")
+    }
+
+    /** Half a second on, settled, as [name]. */
+    fun still(name: String) {
+        repeat(30) { frame() }
+        save(name, frame())
+    }
+
+    /** A tap at [x], [y] in the 400×820 window. */
+    fun tap(x: Int, y: Int) {
+        val at = Offset(x * 2f, y * 2f)
+        scene.sendPointerEvent(PointerEventType.Press, at)
+        scene.sendPointerEvent(PointerEventType.Release, at)
+    }
+
+    /**
+     * Checks what the frames drew: setup, then [steps] of the sheet in order, then signed in. Every frame is a
+     * step or signed in, never neither (setup again) and never both.
+     */
+    fun drew(name: String, vararg steps: String) {
+        val seen = drawn.map { it.first }.fold(listOf<String>()) { acc, s -> if (acc.lastOrNull() == s) acc else acc + s }
+        println("$name drew: ${seen.joinToString(" → ")}")
+        check(seen == listOf("-") + steps + "-") { "$name drew $seen" }
+        check(
+            drawn.dropWhile {
+                it.first == "-"
+            }.dropWhile { it.first != "-" }.all { it.second },
+        ) { "$name: a frame with neither sheet nor server" }
+        check(drawn.none { it.first != "-" && it.second }) { "$name: a frame with both the sheet and a server" }
+    }
+
+    private fun save(name: String, img: org.jetbrains.skia.Image) =
+        File(out, "$name.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+
+    fun close() = scene.close()
+}
+
+/**
+ * deploy-N: logging in finds no worker, the plan fades in, Deploy runs its steps, and the app signs in.
+ * existing-N: logging in finds a worker and signs in to it, straight from setup into realm/Main.
+ * conflict-N: the same onto a domain of the account's, whose A record is shown and replaced. r2-off: the plan
+ * on an account without R2. pick-account: a login with two accounts and no worker.
+ */
+internal fun deploying() {
+    run {
+        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud().engine)
+        val film = Film(home)
+        film.roll("deploy", max = 8)
+        home.cloudflare.logIn()
+        film.roll("deploy", max = 120) { home.cloudflare.login is Login.Confirm }
+        film.roll("deploy", max = 30)
+        film.tap(DEPLOY_X, DEPLOY_Y)
+        film.roll("deploy", every = 6, max = 600) { home.server != null }
+        film.roll("deploy", max = 40)
+        film.close()
+        film.drew("deploy", "LoggingIn", "Planning", "Confirm", "Deploying")
+    }
+    run {
+        // A worker there already: logging in signs in to it, as before, with nothing to deploy.
+        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud(worker = """{"version":3,"scope":"owner"}""").engine)
+        val film = Film(home)
+        film.roll("existing", every = 3, max = 8)
+        home.cloudflare.logIn()
+        film.roll("existing", every = 3, max = 300) { home.server != null }
+        film.roll("existing", every = 3, max = 30)
+        film.close()
+        film.drew("existing", "LoggingIn")
+    }
+    run {
+        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud().engine)
+        val film = Film(home)
+        film.frame()
+        home.cloudflare.logIn()
+        film.until { home.cloudflare.login is Login.Confirm }
+        film.roll("conflict", max = 20)
+        film.tap(218, 468) // the jo.dev chip
+        film.roll("conflict", max = 30)
+        film.tap(DOMAIN_DEPLOY_X, DOMAIN_DEPLOY_Y)
+        film.roll("conflict", every = 6, max = 600) { home.cloudflare.login is Login.Replace }
+        film.roll("conflict", max = 30)
+        home.cloudflare.replace(agree = true)
+        film.roll("conflict", every = 6, max = 600) { home.server != null }
+        film.roll("conflict", max = 40)
+        println("signed in to ${home.server?.base}")
+        film.close()
+        film.drew("conflict", "LoggingIn", "Planning", "Confirm", "Deploying", "Replace", "Deploying")
+    }
+    run {
+        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud(r2 = false).engine)
+        val film = Film(home)
+        home.cloudflare.logIn()
+        film.until { home.cloudflare.login is Login.Confirm }
+        film.still("r2-off")
+        film.close()
+    }
+    run {
+        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud(accounts = 2).engine)
+        val film = Film(home)
+        home.cloudflare.logIn()
+        film.until { home.cloudflare.login is Login.PickAccount }
+        film.still("pick-account")
+        film.close()
+    }
+    println("${out.path}/deploy-*.png, existing-*.png, conflict-*.png, r2-off.png, pick-account.png")
+    updating()
+}
+
+// Where Deploy is in the plan sheet, with workers.dev picked and with a domain.
+private const val DEPLOY_X = 292
+private const val DEPLOY_Y = 559
+private const val DOMAIN_DEPLOY_X = 292
+private const val DOMAIN_DEPLOY_Y = 600
+
+/**
+ * update-N: signed in with Cloudflare to a version 2 worker, the overview's settings has a dot (update-grid),
+ * settings offers the update, and Update runs it. refused-N: the worker turned out to be newer meanwhile, so
+ * the plan says why it stays.
+ */
+private fun updating() {
+    val cloud = FakeCloud(worker = """{"version":2,"scope":"owner"}""")
+    val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), cloud.engine)
+    home.cloudflare.logIn()
+    Film(home).apply {
+        until { home.cloudflare.update != null }
+        home.showTabs()
+        still("update-grid")
+        home.hideTabs()
+    }.close()
+    val film = Film(home, settings = true)
+    film.roll("update", max = 20)
+    film.tap(88, 436) // Update, in settings
+    film.roll("update", max = 200) { home.cloudflare.login is Login.Confirm }
+    film.roll("update", max = 30)
+    home.cloudflare.deploy(Choices())
+    film.roll("update", every = 6, max = 600) { home.cloudflare.update == null }
+    film.roll("update", max = 20)
+    film.close()
+
+    cloud.worker = """{"version":4,"scope":"owner"}"""
+    val refused = Film(home)
+    home.cloudflare.startUpdate()
+    refused.roll("refused", max = 200) { home.cloudflare.login is Login.Confirm }
+    refused.roll("refused", max = 30)
+    refused.close()
+    println("${out.path}/update-*.png, refused-*.png")
+}

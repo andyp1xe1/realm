@@ -76,7 +76,10 @@ internal class FakePlatform(vararg prefs: Pair<String, String>) : Platform {
     override fun copyText(text: String) {}
     override suspend fun save(url: String, auth: String?, name: String) = ""
     override suspend fun open(url: String, auth: String?, name: String) {}
-    override suspend fun authorize(url: String, port: Int, path: String) = emptyMap<String, String>()
+
+    /** Consents at once, as if the user had clicked through Cloudflare's screen. */
+    override suspend fun authorize(url: String, port: Int, path: String) =
+        mapOf("code" to "preview", "state" to io.ktor.http.Url(url).parameters["state"].orEmpty())
     override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = real.decodeImage(bytes, maxSize)
     override fun cachedImage(key: String): ByteArray? = null
     override fun cacheImage(key: String, bytes: ByteArray) {}

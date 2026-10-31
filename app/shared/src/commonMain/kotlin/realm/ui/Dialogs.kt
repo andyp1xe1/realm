@@ -2,6 +2,7 @@ package realm.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import realm.Home
+import realm.Login
 
 @Composable
 internal fun Sheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -61,6 +63,15 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit, modifier: Modifier = Modif
         if (server != null) {
             Text("Signed in to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(server.base.removeSuffix("/api"), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            home.cloudflare.update?.let { u ->
+                Spacer(Modifier.height(16.dp))
+                Text("Server update: realm ${u.from} → ${u.to}", style = MaterialTheme.typography.bodyMedium)
+                // Only the account's Cloudflare login can deploy; a fixed token can't.
+                TextButton(onClick = {
+                    onDismiss()
+                    if (u.canDeploy) home.cloudflare.startUpdate() else home.cloudflare.logIn()
+                }, contentPadding = PaddingValues(0.dp)) { Text(if (u.canDeploy) "Update" else "Log in with Cloudflare to update") }
+            }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = {
@@ -76,7 +87,7 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit, modifier: Modifier = Modif
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
-            CloudflareButton(onClick = home::signInWithCloudflare, busy = home.loggingIn)
+            CloudflareButton(onClick = home.cloudflare::logIn, busy = home.cloudflare.login == Login.LoggingIn)
             Spacer(Modifier.height(20.dp))
             SignInForm(home, onDone = onDismiss)
         }

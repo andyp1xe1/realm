@@ -24,6 +24,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.coroutines.swing)
+    testImplementation(libs.ktor.client.mock)
 }
 
 compose.desktop {

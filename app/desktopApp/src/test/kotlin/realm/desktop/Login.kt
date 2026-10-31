@@ -67,6 +67,7 @@ internal fun login() {
     server.stop(0)
     println("${out.path}/login-*.png")
     header()
+    deploying()
 }
 
 /** Frames of an empty realm's top bar as its first item arrives (header-N): the agents move up into it. */

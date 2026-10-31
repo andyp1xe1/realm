@@ -22,6 +22,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,10 +55,19 @@ val TopBarHeight = 56.dp
 /**
  * The one bar over the feed and the overview. It stays put while the page under it zooms: going out to
  * the overview, the feed's buttons close up and settings opens out, sliding the others aside, while the
- * tabs button holds its corner. [model] is the open feed's, or null in the overview.
+ * tabs button holds its corner. [model] is the open feed's, or null in the overview. [update] puts a dot on
+ * settings, where the server update is offered.
  */
 @Composable
-fun TopBar(title: String?, model: Model?, tabs: Int, onTabs: () -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
+fun TopBar(
+    title: String?,
+    model: Model?,
+    tabs: Int,
+    onTabs: () -> Unit,
+    onSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+    update: Boolean = false,
+) {
     Row(modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         if (model?.searching == true) {
             SearchField(model)
@@ -65,7 +76,13 @@ fun TopBar(title: String?, model: Model?, tabs: Int, onTabs: () -> Unit, onSetti
             // An empty realm offers the agents in its middle instead; they move up here once it's known to have things in it.
             BarItem(model != null && model.loaded && !model.isEmpty) { ShareButton(onClick = { model?.sharing = true }) }
             BarItem(model != null) { IconButton(onClick = { model?.searching = true }) { Icon(Icons.Outlined.Search, "Search") } }
-            BarItem(model == null) { IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Settings") } }
+            BarItem(model == null) {
+                IconButton(onClick = onSettings) {
+                    BadgedBox(badge = { if (update) Badge(containerColor = MaterialTheme.colorScheme.primary) }) {
+                        Icon(Icons.Outlined.Settings, if (update) "Settings, server update" else "Settings")
+                    }
+                }
+            }
             TabsButton(tabs, onTabs)
         }
     }
