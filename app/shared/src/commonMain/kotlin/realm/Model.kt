@@ -53,7 +53,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     var filter by mutableStateOf(Filter.All)
     var loading by mutableStateOf(false)
         private set
-    /** The first page has been asked for and answered; until then an empty feed isn't known to be empty. */
+    /** The server has answered for the first page; until then (or if it can't be reached) an empty feed isn't known to be empty. */
     var loaded by mutableStateOf(false)
         private set
     var message by mutableStateOf<String?>(null)
@@ -92,15 +92,20 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
                 items.clear()
                 items.addAll(page.items)
                 next = page.next
+                loaded = true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
-                if ("can't read" in (e.message ?: "")) canRead = false else fail(e)
+                if ("can't read" in (e.message ?: "")) {
+                    canRead = false
+                    loaded = true
+                } else {
+                    fail(e)
+                }
             } catch (e: Exception) {
                 fail(e)
             } finally {
                 loading = false
-                loaded = true
             }
         }
     }

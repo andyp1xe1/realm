@@ -335,6 +335,19 @@ fun main(args: Array<String>) {
             androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { ShareSheet(sharing, {}, url) }
         }
     }
+    // A realm the server says has nothing in it, from a stand-in server that answers every list with no items.
+    val none = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0).apply {
+        createContext("/") { x ->
+            val body = """{"items":[],"next":null}""".toByteArray()
+            x.responseHeaders.add("content-type", "application/json")
+            x.sendResponseHeaders(200, body.size.toLong())
+            x.responseBody.use { it.write(body) }
+        }
+        start()
+    }
+    val empty = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:${none.address.port}/api", "t", "desktop"))
+    shot("empty", 400, 760, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
+    shot("empty-light", 400, 760, dark = false, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
     shot("setup", 400, 700) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
     val home = home(m)
     for ((label, w, h) in listOf(Triple("phone", 400, 820), Triple("desktop", 880, 640))) {

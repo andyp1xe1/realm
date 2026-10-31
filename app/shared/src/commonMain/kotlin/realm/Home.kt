@@ -164,6 +164,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     fun preview(space: Space): List<Item> =
         models[space.key]?.items?.takeIf { it.isNotEmpty() }?.take(PREVIEW) ?: previews[space.key].orEmpty()
 
+    /** Known to have nothing in it: fetched and empty, not just not fetched yet. */
+    fun isEmpty(space: Space): Boolean =
+        preview(space).isEmpty() && (previews[space.key] != null || (space is Space.Own && space.realm.count == 0L))
+
     fun thumb(id: String): ImageBitmap? = thumbs[id]
 
     /** An image for a tile: the open feed's copy if it has one, else the tile's own. */

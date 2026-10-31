@@ -291,6 +291,8 @@ private fun TilePreview(home: Home, space: Space, page: Dp) {
                 Column(Modifier.fillMaxSize()) {
                     // Pinned to the bottom like the feed, so what doesn't fit is the oldest, cut off at the top.
                     Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                        // As on the page: the empty-realm art, centred above the composer.
+                        if (home.isEmpty(space)) EmptyRealm(Modifier.align(Alignment.Center), still = true)
                         if (items.isNotEmpty()) {
                             FeedPicture(
                                 items, home.platform, { home.image(space, it) },

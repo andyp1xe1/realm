@@ -100,15 +100,14 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) 
         if (state.firstVisibleItemIndex < 4) state.animateScrollToItem(0)
     }
 
-    // Only notes that say something real; an empty realm is just an empty page.
-    val note = when {
-        !model.canRead -> "This link can only add things. Dump away."
-        model.filtering -> "Nothing matches."
-        else -> null
-    }
-    if (note != null && model.items.isEmpty() && model.pending.isEmpty() && !model.loading && model.loaded) {
+    // Known to be empty, not just not loaded yet.
+    if (model.items.isEmpty() && model.pending.isEmpty() && !model.loading && model.loaded) {
         Box(modifier.fillMaxSize().padding(bottom = bottomPadding), contentAlignment = Alignment.Center) {
-            Text(note, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            when {
+                !model.canRead -> Text("This link can only add things. Dump away.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                model.filtering -> Text("Nothing matches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> EmptyRealm()
+            }
         }
         return
     }
