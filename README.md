@@ -9,9 +9,10 @@ realm is a personal dump for notes and files. Anything you type, paste, drop, or
 </p>
 
 ```
-worker/   Cloudflare Worker API. R2 stores files, D1 stores items and the search index.
-cli/      Go CLI.
-app/      Compose Multiplatform app for Android and desktop.
+worker/       Cloudflare Worker API. R2 stores files, D1 stores items and the search index.
+app/core/     Client logic without UI, shared by the app and a future Kotlin CLI.
+app/shared/   Compose Multiplatform UI on top of core, for Android and desktop.
+cli/          Go CLI, maintained but not extended. It does a subset of what the app does.
 ```
 
 `nix-shell` in the repo root provides JDK 21, Go, Node, and ktlint. Without Nix, install JDK 17 or later with `JAVA_HOME` set, Go 1.24 or later, and Node 22 or later.

@@ -56,6 +56,7 @@ if [ ${#kt[@]} -gt 0 ]; then
   out=$(ktlint --log-level=error -R "$rules" "${kt[@]}" 2>&1) || { sed "s|$root/||" <<<"$out" | grep -v '^$'; fail=1; }
   for f in "${kt[@]}"; do
     case "$f" in */src/test/*) ;; *) .githooks/placeholders "${f#"$root"/}" <"$f" || fail=1 ;; esac
+    case "$f" in */app/core/*) .githooks/core-free "${f#"$root"/}" <"$f" || fail=1 ;; esac
   done
 fi
 

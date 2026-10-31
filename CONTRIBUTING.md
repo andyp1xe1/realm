@@ -9,6 +9,8 @@ Run `git config core.hooksPath .githooks` once per clone. The hooks check every 
 - Kotlin passes ktlint with [compose-rules](https://mrmans0n.github.io/compose-rules/).
 - No code file is over 500 lines; split it instead.
 - App text follows [docs/ui-text.md](docs/ui-text.md): no stand-in text, and only the listed placeholders.
+- `app/core` holds all client logic: signing in, the server and Cloudflare APIs, deploying, transfers. A Kotlin CLI will be built on it, so it has no UI or Android code, and it returns whole results instead of holding UI state. `./lint` and the hook reject androidx, android, and Compose there. New client features go in core. The UI in `app/shared` only adds state and screens on top.
+- The Go CLI in `cli/` is in maintenance: keep its commands working, but don't add features to it.
 
 ## Commit messages
 

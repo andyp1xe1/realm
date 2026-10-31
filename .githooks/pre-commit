@@ -48,6 +48,7 @@ if [ -n "$kt" ]; then
     git show ":$f" | ktlint --log-level=error -R "$rules" --stdin --stdin-path "$PWD/$f" ||
       { echo "$f: ktlint -F $f fixes the formatting; the rest needs a hand"; fail=1; }
     case "$f" in */src/test/*) ;; *) git show ":$f" | .githooks/placeholders "$f" || fail=1 ;; esac
+    case "$f" in app/core/*) git show ":$f" | .githooks/core-free "$f" || fail=1 ;; esac
   done
 fi
 
