@@ -84,7 +84,7 @@ fun CloudflareSheet(cloudflare: CloudflareSetup, modifier: Modifier = Modifier) 
                     is Login.Confirm -> if (l.plan is Plan.Ready) Confirm(l, cloudflare) else Refused(l, cloudflare)
                     is Login.Failed -> Failed(l, cloudflare)
                     is Login.Deploying -> Deploying(l)
-                    is Login.Replace -> Replace(l, cloudflare)
+                    is Login.Replace -> Replace(l)
                     Login.LoggingIn -> {}
                 }
             }
@@ -369,25 +369,26 @@ private fun ColumnScope.Deploying(l: Login.Deploying) {
 
 /** DNS records stand in the way of the custom domain: shown, and deleted only if the user says so. */
 @Composable
-private fun ColumnScope.Replace(l: Login.Replace, cloudflare: CloudflareSetup) {
-    val hostname = l.conflict.choice.hostname
+private fun ColumnScope.Replace(l: Login.Replace) {
+    val q = l.question
+    val hostname = q.conflict.choice.hostname
     Title(
         "Replace DNS records?",
         "$hostname has DNS records already, and Cloudflare won't put realm there while they're in the way.",
     )
     Spacer(Modifier.height(12.dp))
-    l.conflict.records.forEach { r ->
+    q.conflict.records.forEach { r ->
         Text("${r.type}  ${r.name}  ${r.content}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
     }
     Spacer(Modifier.height(12.dp))
     Text(
-        "Deleting them stops whatever they point to now. realm answers on ${l.deployed.origin.removePrefix("https://")} either way.",
+        "Deleting them stops whatever they point to now. realm answers on ${q.origin.removePrefix("https://")} either way.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    l.problem?.let { Problem(it.message.orEmpty()) }
+    q.problem?.let { Problem(it.message.orEmpty()) }
     Buttons {
-        TextButton(onClick = { cloudflare.replace(agree = false) }) { Text("Keep workers.dev") }
-        TextButton(onClick = { cloudflare.replace(agree = true) }) { Text("Delete them", color = MaterialTheme.colorScheme.error) }
+        TextButton(onClick = { l.answer(false) }) { Text("Keep workers.dev") }
+        TextButton(onClick = { l.answer(true) }) { Text("Delete them", color = MaterialTheme.colorScheme.error) }
     }
 }

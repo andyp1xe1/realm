@@ -14,8 +14,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.days
-import kotlin.time.TimeSource
 
 class CloudflareSetup internal constructor(
     private val home: Home,
@@ -32,7 +30,7 @@ class CloudflareSetup internal constructor(
 
     private val platform get() = home.platform
     private var job: Job? = null
-    private var lastCheck: TimeSource.Monotonic.ValueTimeMark? = null
+    private val updateChecks = UpdateChecks(home.platform.prefs, { latestRelease(engine) })
 
     /**
      * Logs in with Cloudflare in the browser and signs in to the realm worker on that account, as `realm login`
@@ -97,83 +95,57 @@ class CloudflareSetup internal constructor(
         val confirm = login as? Login.Confirm ?: return
         val plan = confirm.plan as? Plan.Ready ?: return
         start {
-            val steps = mutableListOf<Step>()
-            login = Login.Deploying(plan, steps.toList())
-            val done = try {
-                CloudflareApi(confirm.session, engine).use { cf ->
+            login = Login.Deploying(plan, emptyList())
+            CloudflareApi(confirm.session, engine).use { cf ->
+                val steps = mutableListOf<Step>()
+                val done = try {
                     cf.deploy(plan, choices) {
                         steps += it
                         login = Login.Deploying(plan, steps.toList())
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logFailure("Deploying to ${plan.found.account.id}", e)
+                    login = Login.Confirm(confirm.session, plan, choices, e as? ApiException ?: ApiException(explain(e)))
+                    return@start
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                logFailure("Deploying to ${plan.found.account.id}", e)
-                login = Login.Confirm(confirm.session, plan, choices, e as? ApiException ?: ApiException(explain(e)))
-                return@start
-            }
-            val conflict = done.domain as? DomainOutcome.Conflict
-            if (conflict != null) {
-                // Up to the domain: putting it there starts again once the user has answered.
-                login = Login.Replace(confirm.session, plan, done, conflict, steps.takeWhile { it !is Step.Domain }, null)
-            } else {
-                land(confirm.session, plan, done)
-            }
-        }
-    }
-
-    /** Answers [Login.Replace]: deletes the records shown and puts the worker on the domain, or keeps workers.dev. */
-    fun replace(agree: Boolean) {
-        val asked = login as? Login.Replace ?: return
-        start {
-            if (!agree) return@start land(asked.session, asked.plan, asked.deployed)
-            val steps = asked.steps + Step.Domain(asked.conflict.choice.hostname)
-            login = Login.Deploying(asked.plan, steps)
-            try {
-                CloudflareApi(asked.session, engine).use { cf ->
-                    when (val out = cf.attachDomain(asked.deployed.account, asked.conflict.choice, asked.conflict)) {
-                        is DomainOutcome.Conflict ->
-                            login =
-                                Login.Replace(asked.session, asked.plan, asked.deployed, out, asked.steps, null)
-
-                        is DomainOutcome.Attached -> {
-                            val origin = "https://${out.domain.hostname}"
-                            login = Login.Deploying(asked.plan, steps + Step.Waiting(origin))
-                            land(
-                                asked.session,
-                                asked.plan,
-                                asked.deployed.copy(origin = origin, info = cf.waitForOwner(origin), domain = out),
-                            )
-                        }
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                logFailure("Putting realm on ${asked.conflict.choice.hostname}", e)
-                login = Login.Replace(asked.session, asked.plan, asked.deployed, asked.conflict, asked.steps, ApiException(explain(e)))
+                finish(
+                    cf.land(
+                        plan,
+                        done,
+                        steps,
+                        confirm.session.login,
+                        platform.name,
+                        home::sessionFor,
+                        progress = { login = Login.Deploying(plan, it) },
+                        agrees = { q ->
+                            val answer = CompletableDeferred<Boolean>()
+                            login = Login.Replace(plan, q, answer)
+                            answer.await()
+                        },
+                    ),
+                )
             }
         }
     }
 
     /** A finished deploy: signed in to, as logging in would; an update needs no new sign-in. */
-    private suspend fun land(session: CloudflareSession, plan: Plan.Ready, done: Deployed) {
-        val login = session.login.copy(account = done.account.id)
-        when {
-            plan is Plan.Update -> {
-                this.login = null
+    private fun finish(landed: Landed) {
+        when (landed) {
+            is Landed.Updated -> {
+                login = null
                 update = null
-                home.message = "Your server runs realm ${plan.release.manifest.version} now."
+                home.message = "Your server runs realm ${landed.plan.release.manifest.version} now."
             }
 
-            done.info == null -> Snapshot.withMutableSnapshot {
-                this.login = null
-                home.signedInBeforeItAnswers(Connection.ByCloudflare(done.origin, login))
+            is Landed.NotAnswering -> Snapshot.withMutableSnapshot {
+                login = null
+                home.signedInBeforeItAnswers(landed.connection)
                 home.message = "realm is deployed. Its address may take a few minutes to reach you."
             }
 
-            else -> signedIn(signInWithCloudflare(done.origin, login, platform.name, home::sessionFor, engine))
+            is Landed.SignedInTo -> signedIn(landed.signedIn)
         }
     }
 
@@ -198,23 +170,17 @@ class CloudflareSetup internal constructor(
     }
 
     /**
-     * Looks for a newer worker for [server]: on every sign-in, else at most once a day. Asks GitHub only when
-     * the last release it saw is a day old, and offers it only over an older worker of this app's fork.
+     * Looks for a newer worker for [server]: on every sign-in, else at most once a day. Offers it only over an
+     * older worker of this app's fork.
      */
     internal fun checkForUpdate(server: Api, canDeploy: Boolean, force: Boolean) {
-        if (!force && lastCheck?.let { it.elapsedNow() < 1.days } == true) return
-        lastCheck = TimeSource.Monotonic.markNow()
+        if (!updateChecks.due(force)) return
         scope.launch {
             try {
                 val info = server.info()
-                val seen = home.platform.prefs.get(RELEASE)?.split(' ')
-                val fresh = seen?.takeIf { !force && Cloudflare.now() - it[0].toLong() < 1.days.inWholeSeconds }
-                val latest = fresh?.get(1)?.toInt() ?: latestRelease(engine).let {
-                    home.platform.prefs.set(RELEASE, "${Cloudflare.now()} ${it.manifest.version} ${it.tag}")
-                    it.manifest.version
-                }
+                val newer = updateChecks.newerFor(info, force)
                 if (home.server !== server) return@launch // signed out meanwhile
-                update = ServerUpdate(info.version, latest, canDeploy).takeIf { offersUpdate(info, latest) }
+                update = newer?.let { ServerUpdate(info.version, it, canDeploy) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -225,11 +191,11 @@ class CloudflareSetup internal constructor(
     }
 
     /** The tag of the newest release last seen, like v1.2.0, if one was. */
-    internal fun knownRelease(): String? = home.platform.prefs.get(RELEASE)?.split(' ')?.getOrNull(2)
+    internal fun knownRelease(): String? = updateChecks.knownTag
 
     internal fun signedOut() {
         update = null
-        lastCheck = null
+        updateChecks.reset()
     }
 
     /** Runs [block] instead of whatever this was doing; what goes wrong goes to the snackbar. */
@@ -251,10 +217,5 @@ class CloudflareSetup internal constructor(
                 home.message = explain(e)
             }
         }
-    }
-
-    private companion object {
-        /** When the newest release was last asked for, its API version and tag: "<unix seconds> <version> <tag>". */
-        const val RELEASE = "release"
     }
 }

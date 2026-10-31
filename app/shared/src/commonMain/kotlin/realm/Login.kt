@@ -36,18 +36,12 @@ sealed interface Login {
     /** Deploying [plan]: [steps] so far, the last one under way. */
     class Deploying(val plan: Plan.Ready, val steps: List<Step>) : Login
 
-    /**
-     * Deployed, but [conflict]'s DNS records stand in the way of the custom domain: they're shown and deleted
-     * only if the user agrees. The worker answers on [deployed]'s origin meanwhile.
-     */
-    class Replace(
-        val session: CloudflareSession,
-        val plan: Plan.Ready,
-        val deployed: Deployed,
-        val conflict: DomainOutcome.Conflict,
-        val steps: List<Step>,
-        val problem: ApiException?,
-    ) : Login
+    /** Deployed [plan], but DNS records stand in the way of the custom domain: [answer] whether they may go. */
+    class Replace(val plan: Plan.Ready, val question: ReplaceQuestion, private val agrees: CompletableDeferred<Boolean>) : Login {
+        fun answer(agree: Boolean) {
+            agrees.complete(agree)
+        }
+    }
 }
 
 /** A newer worker than the server you're signed in to runs, of the same fork. [canDeploy] with a Cloudflare login. */

@@ -293,7 +293,7 @@ internal fun deploying() {
         film.tap(DOMAIN_DEPLOY_X, DOMAIN_DEPLOY_Y)
         film.roll("conflict", every = 6, max = 600) { home.cloudflare.login is Login.Replace }
         film.roll("conflict", max = 30)
-        home.cloudflare.replace(agree = true)
+        (home.cloudflare.login as Login.Replace).answer(agree = true)
         film.roll("conflict", every = 6, max = 600) { home.server != null }
         film.roll("conflict", max = 40)
         println("signed in to ${home.server?.base}")
