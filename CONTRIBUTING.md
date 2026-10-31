@@ -1,6 +1,6 @@
 # Contributing
 
-Run `git config core.hooksPath .githooks` once per clone. The hooks check every commit; `./lint` runs the same code checks on the whole tree or on given paths (`./lint app`, `./lint worker/src`), and `./lint --fix` formats first.
+Run `git config core.hooksPath .githooks` once per clone. The hooks check every commit and every pushed tag; `./lint` runs the same code checks on the whole tree or on given paths (`./lint app`, `./lint worker/src`), and `./lint --fix` formats first.
 
 ## Code
 
@@ -17,6 +17,10 @@ Run `git config core.hooksPath .githooks` once per clone. The hooks check every 
 - Say what changed for someone using realm, in plain words, not how it was done: "Log in with Cloudflare from the app", not "Add CloudflareSession bearer to Api".
 
 The hook enforces the first two. The third is a review step: read the message as a user would before committing.
+
+## Releases
+
+A release is a tag `vMAJOR.MINOR.PATCH`, like `v1.2.0`. To try one out first, tag a release candidate, `v1.2.0-rc.1`: it becomes a GitHub pre-release, which the app never deploys. No other names, like `-test`. Pushing a tag builds the worker and attaches it to the release. The pre-push hook refuses any other tag, and the release workflow ignores them.
 
 ## Agent skills
 

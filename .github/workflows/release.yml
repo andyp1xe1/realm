@@ -2,7 +2,8 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    # release versions and their release candidates only, as .githooks/pre-push enforces
+    tags: ["v[0-9]+.[0-9]+.[0-9]+", "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"]
 
 permissions:
   contents: write
@@ -23,6 +24,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: gh release create "$GITHUB_REF_NAME" dist/worker.js dist/worker.json --title "$GITHUB_REF_NAME" --generate-notes
+      # A release candidate is a pre-release, which the app never deploys.
+      - run: >-
+          gh release create "$GITHUB_REF_NAME" dist/worker.js dist/worker.json --title "$GITHUB_REF_NAME" --generate-notes
+          ${{ contains(github.ref_name, '-rc.') && '--prerelease' || '' }}
         env:
           GH_TOKEN: ${{ github.token }}
