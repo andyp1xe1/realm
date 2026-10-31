@@ -1,5 +1,8 @@
 package realm.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -58,7 +61,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
@@ -96,6 +98,14 @@ fun Grid(home: Home) {
     // Start scrolled to the current tab, so the feed has a tile on screen to zoom into.
     val grid = rememberLazyGridState(initialFirstVisibleItemIndex = spaces.indexOfFirst { it.key == home.openKey } + 1)
     LaunchedEffect(Unit) { home.refresh() }
+    // A tile just made or connected: bring it into view, let it arrive, then zoom into it from there.
+    LaunchedEffect(home.fresh) {
+        val key = home.fresh ?: return@LaunchedEffect
+        val i = home.spaces.indexOfFirst { it.key == key }
+        if (i >= 0) grid.animateScrollToItem(i + 1)
+        delay(TileArriveMillis.toLong() + 80)
+        home.spaces.firstOrNull { it.key == key }?.let(home::open)
+    }
     BackHandler(enabled = home.open != null) { home.hideTabs() }
 
     Column(Modifier.widthIn(max = PageWidth).fillMaxSize()) {
@@ -148,17 +158,29 @@ private fun IncomingBanner(incoming: Incoming, onCancel: () -> Unit) {
     }
 }
 
+/** How long a new tile takes to fade and grow into place before it opens. */
+private const val TileArriveMillis = 300
+
 /** Tiles are square. */
 private const val TileRatio = 1f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: Boolean) {
+    // A new tile fades and grows into place; the rest are simply there.
+    val arrive = remember(space.key) { Animatable(if (space.key == home.fresh) 0f else 1f) }
+    LaunchedEffect(space.key) { arrive.animateTo(1f, tween(TileArriveMillis)) }
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
 
-    Column(Modifier.alpha(if (dimmed) 0.4f else 1f)) {
+    Column(
+        Modifier.graphicsLayer {
+            alpha = arrive.value * if (dimmed) 0.4f else 1f
+            scaleX = 0.9f + 0.1f * arrive.value
+            scaleY = scaleX
+        },
+    ) {
         Box {
             Surface(
                 shape = MaterialTheme.shapes.large,

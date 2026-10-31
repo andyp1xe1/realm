@@ -62,6 +62,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     /** The tab overview is up instead of the current realm's feed. */
     var showingTabs by mutableStateOf(false)
         private set
+    /** A tile just added in the overview: it's shown arriving there first, then opened from where it landed. */
+    var fresh by mutableStateOf<String?>(null)
+        private set
     /** Files or text from outside that arrived with no realm open, waiting for one to be picked. */
     var incoming by mutableStateOf<Incoming?>(null)
     var message by mutableStateOf<String?>(null)
@@ -190,6 +193,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     // ---------- opening ----------
 
     fun open(space: Space) {
+        if (fresh == space.key) fresh = null
         openKey = space.key
         prefs.set("open", space.key)
         showingTabs = false
@@ -274,7 +278,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         val space = Space.Shared(u, info, null, api)
         shared += space
         saveLinks()
-        open(space)
+        arrive(space)
         if (space.canRead) runCatching { api.list(limit = PREVIEW).items }.onSuccess { previews[space.key] = it }
         return null
     }
@@ -297,7 +301,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
                 val r = s.createRealm(name)
                 realms += r
                 prefs.set("realms", json.encodeToString(realms.toList()))
-                open(own(r))
+                val space = own(r)
+                modelOf(space).startEmpty() // brand new: nothing to ask the server for
+                arrive(space)
             } catch (e: Exception) {
                 message = explain(e)
             }
@@ -330,6 +336,14 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
                 message = explain(e)
             }
         }
+    }
+
+    /**
+     * A new tile: in the overview it arrives first and the overview opens it once it has landed, so the zoom
+     * starts from a tile that's really there. Elsewhere (first run) it just opens.
+     */
+    private fun arrive(space: Space) {
+        if (showingTabs) fresh = space.key else open(space)
     }
 
     private fun own(r: Realm) = Space.Own(r, apis.getOrPut(ownKey(r.id)) { server!!.realm(r.id) })

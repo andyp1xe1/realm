@@ -64,6 +64,11 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
 
     val filtering get() = query.isNotBlank() || filter != Filter.All
 
+    /** A realm just made: known to be empty without asking, so it opens straight onto its empty state. */
+    fun startEmpty() {
+        loaded = true
+    }
+
     /** Known to have nothing in it yet (not loading, not a search, not a drop-only link): the empty state shows. */
     val isEmpty get() = loaded && canRead && !filtering && items.isEmpty() && pending.isEmpty()
 

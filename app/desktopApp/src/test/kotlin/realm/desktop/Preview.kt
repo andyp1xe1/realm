@@ -262,6 +262,54 @@ private fun arrive() {
     shots("one")
     scene.close()
     println("${out.path}/arrive-*.png")
+    create()
+}
+
+/**
+ * Frames of making a realm from the tab grid (create-N), against a stand-in server that keeps a list of
+ * realms, adds one on POST /api/realms, and has no items or links anywhere.
+ */
+private fun create() {
+    val realms = mutableListOf(
+        """{"id":"main","name":"Main","created":1,"count":3}""",
+        """{"id":"trip","name":"Lisbon trip","created":2,"count":2}""",
+    )
+    val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0).apply {
+        createContext("/") { x ->
+            val path = x.requestURI.path
+            val body = when {
+                path == "/api/info" -> """{"version":2,"scope":"owner","realm":null}"""
+                path == "/api/realms" && x.requestMethod == "POST" ->
+                    """{"id":"ideas","name":"Ideas","created":3,"count":0}""".also { realms += it }
+                path == "/api/realms" -> """{"realms":[${realms.joinToString(",")}]}"""
+                path.endsWith("/links") -> """{"links":[]}"""
+                else -> """{"items":[],"next":null}"""
+            }.toByteArray()
+            x.responseHeaders.add("content-type", "application/json")
+            x.sendResponseHeaders(if (x.requestMethod == "POST") 201 else 200, body.size.toLong())
+            x.responseBody.use { it.write(body) }
+        }
+        start()
+    }
+    val h = Home(FakePlatform("server" to "http://127.0.0.1:${server.address.port}", "token" to "t"), CoroutineScope(Dispatchers.Default))
+    val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
+        RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Tabs(h) } }
+    }
+    var t = 0L
+    fun frame() = scene.render(t).also { t += 16_000_000L }
+    // Let the realms load and Main open, then go to the grid.
+    repeat(60) { frame(); Thread.sleep(10) }
+    h.showTabs()
+    repeat(40) { frame(); Thread.sleep(5) }
+    h.createRealm("Ideas")
+    for (n in 0..80) {
+        val img = frame()
+        Thread.sleep(5) // real time for the stand-in server to answer
+        if (n % 4 == 0) File(out, "create-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+    }
+    scene.close()
+    server.stop(0)
+    println("${out.path}/create-*.png")
 }
 
 /** Same arrangement as the real screen: the composer floats over the bottom of the feed. */
