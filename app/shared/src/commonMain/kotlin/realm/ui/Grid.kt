@@ -291,9 +291,7 @@ private fun TilePreview(home: Home, space: Space, page: Dp) {
                 Column(Modifier.fillMaxSize()) {
                     // Pinned to the bottom like the feed, so what doesn't fit is the oldest, cut off at the top.
                     Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                        if (items.isEmpty()) {
-                            if (space is Space.Own && space.realm.count == 0L) Text("Empty", Modifier.align(Alignment.Center), color = muted)
-                        } else {
+                        if (items.isNotEmpty()) {
                             FeedPicture(
                                 items, home.platform, { home.image(space, it) },
                                 Modifier.align(Alignment.BottomStart).fillMaxWidth().wrapContentHeight(Alignment.Bottom, unbounded = true),

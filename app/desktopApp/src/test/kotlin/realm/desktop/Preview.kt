@@ -237,6 +237,31 @@ private fun modes() {
         scene.close()
     }
     println("${out.path}/mode-*.png")
+    arrive()
+}
+
+/** Frames of a feed getting its first page (arrive-page-N), then one new item (arrive-one-N). */
+private fun arrive() {
+    val full = model().apply { pending.clear() }
+    val m = model().apply { pending.clear(); items.clear() }
+    val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
+        RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Screen(m) } }
+    }
+    var t = 0L
+    fun frame() = scene.render(t).also { t += 16_000_000L }
+    fun shots(name: String) {
+        for (n in 0..20) {
+            val img = frame()
+            if (n in setOf(0, 4, 8, 20)) File(out, "arrive-$name-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        }
+    }
+    repeat(10) { frame() }
+    m.items.addAll(full.items.drop(1))
+    shots("page")
+    m.items.add(0, full.items[0].copy(id = "zz-new", text = "just arrived from the phone"))
+    shots("one")
+    scene.close()
+    println("${out.path}/arrive-*.png")
 }
 
 /** Same arrangement as the real screen: the composer floats over the bottom of the feed. */

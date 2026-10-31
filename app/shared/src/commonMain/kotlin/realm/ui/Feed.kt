@@ -37,7 +37,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -50,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
@@ -96,16 +100,15 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) 
         if (state.firstVisibleItemIndex < 4) state.animateScrollToItem(0)
     }
 
-    if (model.items.isEmpty() && model.pending.isEmpty() && !model.loading) {
+    // Only notes that say something real; an empty realm is just an empty page.
+    val note = when {
+        !model.canRead -> "This link can only add things. Dump away."
+        model.filtering -> "Nothing matches."
+        else -> null
+    }
+    if (note != null && model.items.isEmpty() && model.pending.isEmpty() && !model.loading && model.loaded) {
         Box(modifier.fillMaxSize().padding(bottom = bottomPadding), contentAlignment = Alignment.Center) {
-            Text(
-                when {
-                    !model.canRead -> "This link can only add things. Dump away."
-                    model.filtering -> "Nothing matches."
-                    else -> "Empty. Type, paste, drop or record something."
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(note, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
@@ -119,12 +122,15 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) 
         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.Bottom),
     ) {
         item { Spacer(Modifier.height(8.dp)) }
-        items(model.pending.reversed(), key = { "p${it.key}" }) { PendingRow(it, model) }
+        // Rows fade in the first time they're shown: the first page, older pages, other devices, what you send.
+        items(model.pending.reversed(), key = { "p${it.key}" }) {
+            Box(Modifier.fadeInOnce(model, "p${it.key}")) { PendingRow(it, model) }
+        }
         items(model.items.size, key = { model.items[it].id }) { i ->
             val item = model.items[i]
             val older = model.items.getOrNull(i + 1)
             val day = platform.formatDay(item.created)
-            Column {
+            Column(Modifier.fadeInOnce(model, item.id)) {
                 if (older == null || platform.formatDay(older.created) != day) DayHeader(day)
                 ItemRow(item, model)
             }
@@ -171,6 +177,17 @@ fun FeedPicture(items: List<Item>, platform: Platform, image: (Item) -> ImageBit
         }
         Spacer(Modifier.height(8.dp))
     }
+}
+
+/**
+ * Fades a row in the first time this realm shows it. Rows scrolled back into view, or seen again after a trip
+ * through the tabs, are already there.
+ */
+@Composable
+private fun Modifier.fadeInOnce(model: Model, key: String): Modifier {
+    val alpha = remember(key) { Animatable(if (model.firstShown(key)) 0f else 1f) }
+    LaunchedEffect(key) { alpha.animateTo(1f, tween(260)) }
+    return graphicsLayer { this.alpha = alpha.value }
 }
 
 @Composable
@@ -284,18 +301,21 @@ private fun Caption(text: String?) {
 }
 
 @Composable
-private fun ImageContent(item: Item, bmp: ImageBitmap?) {
+private fun ImageContent(item: Item, image: ImageBitmap?) {
     Column(Modifier.widthIn(max = 340.dp).fillMaxWidth()) {
-        if (bmp != null) {
-            val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.5f, 2.5f)
-            Image(
-                bmp, item.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).aspectRatio(ratio),
-            )
-        } else {
-            Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Image, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+        // The picture fades in over its placeholder once it has loaded.
+        Crossfade(image, animationSpec = tween(260)) { bmp ->
+            if (bmp != null) {
+                val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.5f, 2.5f)
+                Image(
+                    bmp, item.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).aspectRatio(ratio),
+                )
+            } else {
+                Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Image, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                }
             }
         }
         if (!item.text.isNullOrBlank()) {

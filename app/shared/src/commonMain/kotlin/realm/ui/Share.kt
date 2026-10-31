@@ -260,7 +260,7 @@ private fun CopyBox(text: String?, onCopy: (String) -> Unit) {
     Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth()) {
         Box {
             SelectionContainer(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()).padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 48.dp)) {
-                Text(text ?: "Loading…", style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                Text(text.orEmpty(), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
             }
             IconButton(
                 onClick = { text?.let { onCopy(it); copied = true } },

@@ -53,6 +53,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     var filter by mutableStateOf(Filter.All)
     var loading by mutableStateOf(false)
         private set
+    /** The first page has been asked for and answered; until then an empty feed isn't known to be empty. */
+    var loaded by mutableStateOf(false)
+        private set
     var message by mutableStateOf<String?>(null)
     var editing by mutableStateOf<Item?>(null)
     /** False when connected through a drop-only share link. */
@@ -65,6 +68,12 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     private var listJob: Job? = null
     private val uploads = Semaphore(2)
     private var pendingKeys = 0
+
+    /** Rows the feed has shown once; only new ones fade in. */
+    private val shown = HashSet<String>()
+
+    /** True the first time the feed shows the row with [key]. */
+    fun firstShown(key: String): Boolean = shown.add(key)
 
     private val images = mutableStateMapOf<String, ImageBitmap>()
     private val imageOrder = ArrayDeque<String>()
@@ -91,6 +100,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
                 fail(e)
             } finally {
                 loading = false
+                loaded = true
             }
         }
     }
@@ -192,6 +202,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
                 }
                 if (p.file != null && item.kind == "image") seedImage(item, p.file)
                 // Swap pending → real item in one snapshot so there's no frame with both or neither.
+                shown += item.id // it takes the sending row's place, already on screen: no fade
                 Snapshot.withMutableSnapshot {
                     pending.remove(p)
                     prepend(item)
