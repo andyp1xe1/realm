@@ -11,6 +11,7 @@
 
 import {
   HttpError,
+  FORK,
   VERSION,
   cors,
   json,
@@ -365,7 +366,7 @@ async function route(ctx: Ctx, p: string[]): Promise<Response> {
 /** What a client needs to know before connecting. Free: it never spends a use. */
 async function info(ctx: Ctx): Promise<Response> {
   const l = ctx.link;
-  const out: Record<string, unknown> = { version: VERSION, scope: ctx.scope, realm: ctx.realm };
+  const out: Record<string, unknown> = { fork: FORK, version: VERSION, scope: ctx.scope, realm: ctx.realm };
   if (l) {
     Object.assign(out, {
       label: l.label,

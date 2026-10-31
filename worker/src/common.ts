@@ -11,7 +11,13 @@ export interface Env {
   REALM_WORKER?: string;
 }
 
-/** Bump with every release, so clients can tell a deployment needs updating. */
+/**
+ * The GitHub "owner/repo" of a fork, so clients can tell its API from realm's and know where its releases are.
+ * Set it when you fork; realm itself has none.
+ */
+export const FORK: string | undefined = undefined;
+
+/** Bump with every change to the API, so clients can tell a deployment needs updating. */
 export const VERSION = 3;
 
 export type Scope = "owner" | "full" | "read" | "drop";

@@ -119,7 +119,7 @@ test("info tells a client what a link is without spending a use", async () => {
   ).json();
   assert.deepEqual([d.scope, d.items, d.bytes_left], ["drop", undefined, 5]);
   const o = await (await call("/api/info")).json();
-  assert.deepEqual([o.scope, o.realm, typeof o.version], ["owner", null, "number"]);
+  assert.deepEqual([o.scope, o.realm, o.fork, typeof o.version], ["owner", null, undefined, "number"]);
   assert.match(await (await call("/api")).text(), /## Realms/);
 });
 
