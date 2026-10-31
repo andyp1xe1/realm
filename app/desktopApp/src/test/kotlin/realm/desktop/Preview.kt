@@ -56,6 +56,7 @@ import kotlin.math.sin
 private fun model(): Model {
     // Unreachable server: nothing is fetched, we fill the lists by hand.
     val m = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
+    m.startEmpty() // loaded, as if fetched: the lists below are its first page
     val now = System.currentTimeMillis()
     fun item(
         i: Int,
@@ -136,7 +137,7 @@ private fun home(feed: Model): Home {
     return h
 }
 
-/** Frames from the feed zooming out into the tab overview: zoom-0 is before, zoom-N about N×16ms in. */
+/** Frames from the feed zooming out into the tab overview (zoom-N, about N×16ms in; zoom-0 is before), then back (unzoom-N). */
 private fun zoom(h: Home) {
     h.open(h.spaces.first())
     val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
@@ -149,7 +150,13 @@ private fun zoom(h: Home) {
     h.showTabs()
     for (n in 1..40) {
         val img = frame()
-        if (n in setOf(6, 12, 18, 24, 40)) File(out, "zoom-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        if (n % 3 == 0 || n == 40) File(out, "zoom-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+    }
+    // And back into the feed: unzoom-N.
+    h.hideTabs()
+    for (n in 1..30) {
+        val img = frame()
+        if (n % 3 == 0) File(out, "unzoom-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
     }
     scene.close()
     println("${out.path}/zoom-*.png")
@@ -163,7 +170,7 @@ private fun modes() {
     for (which in listOf("mic", "expand")) {
         val m = model().apply { pending.clear() }
         val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
-            RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Main(m, "Main", tabs = 7) } }
+            RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { FeedPage(m, "Main", 7) } }
         }
         var t = 0L
         fun frame() = scene.render(t).also { t += 16_000_000L }
@@ -243,7 +250,7 @@ private fun create() {
         createContext("/") { x ->
             val path = x.requestURI.path
             val body = when {
-                path == "/api/info" -> """{"version":2,"scope":"owner","realm":null}"""
+                path == "/api/info" -> """{"version":3,"scope":"owner","realm":null}"""
 
                 path == "/api/realms" && x.requestMethod == "POST" ->
                     """{"id":"ideas","name":"Ideas","created":3,"count":0}""".also { realms += it }
@@ -309,6 +316,7 @@ private fun create() {
     scene.close()
     server.stop(0)
     println("${out.path}/create-*.png")
+    login()
 }
 
 /** Same arrangement as the real screen: the composer floats over the bottom of the feed. */
@@ -332,7 +340,7 @@ fun main(args: Array<String>) {
     // The README screenshot: the whole app, top bar included.
     // No uploads in flight; realtimeMs lets the fetch from the unreachable server fail so the loading bar is gone.
     val clean = model().apply { pending.clear() }
-    shot("app", 400, 760, realtimeMs = 1500) { Main(clean, "Main", tabs = 7) }
+    shot("app", 400, 760, realtimeMs = 1500) { FeedPage(clean, "Main", 7) }
     shot("feed-light", 400, 820, dark = false) {
         Screen(m)
     }
@@ -453,8 +461,8 @@ fun main(args: Array<String>) {
                 "desktop",
             ),
         )
-    shot("empty", 400, 760, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
-    shot("empty-light", 400, 760, dark = false, realtimeMs = 1500) { Main(empty, "Ideas", tabs = 7) }
+    shot("empty", 400, 760, realtimeMs = 1500) { FeedPage(empty, "Ideas", 7) }
+    shot("empty-light", 400, 760, dark = false, realtimeMs = 1500) { FeedPage(empty, "Ideas", 7) }
     shot("setup", 400, 760) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
     shot("setup-light", 400, 760, dark = false) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
     shot("setup-token", 460, 440) {
@@ -466,10 +474,17 @@ fun main(args: Array<String>) {
     }
     val home = home(m)
     for ((label, w, h) in listOf(Triple("phone", 400, 820), Triple("desktop", 880, 640))) {
-        shot("grid-$label", w, h, realtimeMs = 1500) { Grid(home) }
+        shot("grid-$label", w, h, realtimeMs = 1500) { GridPage(home) }
     }
-    shot("grid-light", 400, 820, dark = false) { Grid(home) }
-    zoom(home(m).also { it.modelOf(it.spaces.first()).items.addAll(m.items) })
+    shot("grid-light", 400, 820, dark = false) { GridPage(home) }
+    zoom(
+        home(m).also {
+            it.modelOf(it.spaces.first()).apply {
+                startEmpty() // loaded, as if fetched: its first page is the feed's
+                items.addAll(m.items)
+            }
+        },
+    )
     modes()
     kotlin.system.exitProcess(0)
 }

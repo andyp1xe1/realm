@@ -84,14 +84,13 @@ import realm.Model
 import realm.Space
 
 /**
- * The overview: every realm and connected link as a tile, like a browser's tab overview. The current one
- * is outlined; the tabs button, in the same corner as on the feed, goes back to it.
+ * The overview, below the top bar: every realm and connected link as a tile, like a browser's tab overview.
+ * The current one is outlined.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun Grid(home: Home, modifier: Modifier = Modifier) {
     var adding by remember { mutableStateOf(false) }
-    var settings by remember { mutableStateOf(false) }
     val spaces = home.spaces
     // Start scrolled to the current tab, so the feed has a tile on screen to zoom into.
     val grid = rememberLazyGridState(initialFirstVisibleItemIndex = spaces.indexOfFirst { it.key == home.openKey } + 1)
@@ -107,14 +106,6 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
     BackHandler(enabled = home.open != null) { home.hideTabs() }
 
     Column(modifier.widthIn(max = PageWidth).fillMaxSize()) {
-        Row(
-            Modifier.topBarBounds().fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PageTitle(null, Modifier.weight(1f))
-            IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, "Settings") }
-            TabsButton(spaces.size, onClick = { home.hideTabs() })
-        }
         Box(Modifier.fillMaxWidth().height(2.dp)) {
             if (home.loading) {
                 LinearProgressIndicator(
@@ -151,7 +142,6 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
     }
 
     if (adding) Sheet({ adding = false }) { AddSheet(home) { adding = false } }
-    if (settings) SettingsDialog(home, onDismiss = { settings = false })
 }
 
 @Composable

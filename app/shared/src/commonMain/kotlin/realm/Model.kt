@@ -63,11 +63,23 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     var message by mutableStateOf<String?>(null)
     var editing by mutableStateOf<Item?>(null)
 
+    /** The search field is open in the top bar; like a browser's find bar, it stays open through the overview. */
+    var searching by mutableStateOf(false)
+
+    /** The share sheet is up. */
+    var sharing by mutableStateOf(false)
+
     /** False when connected through a drop-only share link. */
     var canRead by mutableStateOf(true)
         private set
 
     val filtering get() = query.isNotBlank() || filter != Filter.All
+
+    fun closeSearch() {
+        searching = false
+        query = ""
+        filter = Filter.All
+    }
 
     /** A realm just made: known to be empty without asking, so it opens straight onto its empty state. */
     fun startEmpty() {

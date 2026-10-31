@@ -2,6 +2,7 @@
 package realm.desktop
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +48,7 @@ import realm.ui.Setup
 import realm.ui.ShareButton
 import realm.ui.ShareSheet
 import realm.ui.Tabs
+import realm.ui.TopBar
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -114,4 +116,18 @@ internal fun shot(name: String, wDp: Int, hDp: Int, dark: Boolean = true, realti
     File(out, "$name.png").writeBytes(png)
     scene.close()
     println("${out.path}/$name.png")
+}
+
+/** A feed as the app shows it, under the top bar. */
+@Composable
+internal fun FeedPage(m: Model, title: String, tabs: Int) = Column {
+    TopBar(title, m, tabs, onTabs = {}, onSettings = {})
+    Main(m, title)
+}
+
+/** The overview as the app shows it, under the top bar. */
+@Composable
+internal fun GridPage(home: Home) = Column {
+    TopBar(null, null, home.spaces.size, onTabs = {}, onSettings = {})
+    Grid(home)
 }

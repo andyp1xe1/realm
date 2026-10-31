@@ -1,5 +1,6 @@
 package realm.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -7,6 +8,8 @@ import androidx.compose.animation.SharedTransitionScope.ResizeMode.Companion.sca
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -22,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import realm.Home
 
 /** How long a tab takes to zoom in or out; the overview fades over the same time. */
 const val TAB_ZOOM_MILLIS = 380
@@ -59,24 +63,27 @@ fun Modifier.tabBounds(key: String, shape: Shape): Modifier {
 }
 
 /**
- * The top bar stays put while the page under it zooms: the feed's bar and the overview's crossfade in place.
- * Without a transition around it (previews), it does nothing.
+ * Setup until something is signed in or connected, then the realms. Between the two it fades through:
+ * the outgoing screen fades out quickly, then the incoming one fades in as it grows into place.
  */
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun Modifier.topBarBounds(): Modifier {
-    val shared = LocalSharedTransition.current ?: return this
-    val visibility = LocalTabTransition.current ?: return this
-    return with(shared) {
-        this@topBarBounds.sharedBounds(
-            rememberSharedContentState("top-bar"),
-            visibility,
-            enter = fadeIn(tween(TAB_ZOOM_MILLIS)),
-            exit = fadeOut(tween(TAB_ZOOM_MILLIS)),
-            boundsTransform = { _, _ -> tween(TAB_ZOOM_MILLIS) },
-        )
-    }
+fun SetupOrTabs(home: Home, modifier: Modifier = Modifier) {
+    AnimatedContent(
+        home.isEmpty,
+        modifier,
+        transitionSpec = {
+            (
+                fadeIn(tween(FADE_THROUGH_MILLIS * 2 / 3, delayMillis = FADE_THROUGH_MILLIS / 3)) +
+                    scaleIn(tween(FADE_THROUGH_MILLIS * 2 / 3, delayMillis = FADE_THROUGH_MILLIS / 3), initialScale = 0.92f)
+                ) togetherWith
+                fadeOut(tween(FADE_THROUGH_MILLIS / 3))
+        },
+        contentAlignment = Alignment.TopCenter,
+    ) { empty -> if (empty) Setup(home) else Tabs(home) }
 }
+
+/** How long signing in or out takes to fade from setup to the realms, or back. */
+const val FADE_THROUGH_MILLIS = 300
 
 /** A rounded square with the number of tabs in it, in the same corner on both screens. */
 @Composable

@@ -190,11 +190,12 @@ object Cloudflare {
      * Checks that [api] takes its Cloudflare login as the owner's. A REALM_ACCOUNT just set takes a few seconds
      * to reach the worker; one that never takes the login is from before Cloudflare logins.
      */
-    suspend fun checkOwner(api: Api) {
+    suspend fun checkOwner(api: Api): Info {
         repeat(5) { attempt ->
             try {
-                if (api.info().scope != "owner") throw ApiException("not an owner token")
-                return
+                val info = api.info()
+                if (info.scope != "owner") throw ApiException("not an owner token")
+                return info
             } catch (e: ApiException) {
                 if (e.message != "bad token") throw e
             }

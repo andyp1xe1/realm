@@ -260,18 +260,18 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
                 Cloudflare.claim(login.access, worker)
                 val s = cloudflare(login.copy(account = worker.account))
                 val api = Api.server(worker.origin, s, platform.name)
-                try {
-                    Cloudflare.checkOwner(api)
+                val (info, list) = try {
+                    Cloudflare.checkOwner(api) to api.realms()
                 } catch (e: Exception) {
                     api.close()
                     throw e
                 }
                 signOut()
                 session = s
-                server = api
                 prefs.set("server", worker.origin)
                 prefs.set("cloudflare", JSON.encodeToString(s.login))
-                refresh(force = true)
+                adopt(api, list)
+                message = Api.mismatch(info)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -319,8 +319,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     /** Signs in to your own server; returns an error message or null. */
     suspend fun signIn(origin: String, token: String): String? {
         val api = Api.server(origin, Bearer { token }, platform.name)
-        try {
-            if (api.info().scope != "owner") error("not an owner token")
+        val (info, list) = try {
+            val info = api.info()
+            if (info.scope != "owner") error("not an owner token")
+            info to api.realms()
         } catch (e: CancellationException) {
             api.close()
             throw e
@@ -329,11 +331,23 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
             return explain(e)
         }
         signOut()
-        server = api
         prefs.set("server", origin)
         prefs.set("token", token)
-        refresh(force = true)
+        adopt(api, list)
+        message = Api.mismatch(info)
         return null
+    }
+
+    /**
+     * Switches to a server just signed in to, with its realms already fetched: the app goes straight
+     * from setup into a realm, instead of to an empty overview that then zooms into the realm as it loads.
+     */
+    private fun adopt(api: Api, list: List<Realm>) {
+        server = api
+        realms.addAll(list)
+        prefs.set("realms", JSON.encodeToString(list))
+        if (open == null) reopen()
+        refresh(force = true)
     }
 
     fun signOut() {
@@ -366,6 +380,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         }
         apis[sharedKey(u)] = api
         val space = Space.Shared(u, info, null, api)
+        message = Api.mismatch(info)
         shared += space
         saveLinks()
         arrive(space)

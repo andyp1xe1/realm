@@ -55,6 +55,8 @@ private data class RealmName(val name: String)
 /** What a server or link says about itself before anything is fetched. Asking never spends a link's use. */
 @Serializable
 data class Info(
+    /** The GitHub "owner/repo" of the fork the server runs, or null for realm itself. */
+    val fork: String? = null,
     val version: Int = 0,
     val scope: String,
     val realm: Realm? = null,
@@ -274,6 +276,18 @@ class Api(base: String, private val bearer: Bearer?, private val source: String)
 
         /** Part size for multipart uploads; also the largest single-request upload. R2 wants equal parts. */
         const val PART = 16 * 1024 * 1024
+
+        /** The fork ("owner/repo", null for realm itself) and API version this app is written for, as in [Info]. */
+        val FORK: String? = null
+        const val VERSION = 3
+
+        /** What's worth saying about a server whose code isn't the one this app is written for, if anything. */
+        fun mismatch(info: Info): String? = when {
+            info.fork != FORK -> "That server runs ${info.fork ?: "realm"}, version ${info.version}. Some things may not work."
+            info.version < VERSION -> "That server needs updating: redeploy the worker."
+            info.version > VERSION -> "That server is newer than this app. Update the app."
+            else -> null
+        }
     }
 }
 

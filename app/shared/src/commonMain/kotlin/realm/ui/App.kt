@@ -111,7 +111,7 @@ fun App(platform: Platform, modifier: Modifier = Modifier) {
 
         Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.TopCenter) {
-                if (home.isEmpty) Setup(home) else Tabs(home)
+                SetupOrTabs(home)
                 WorkerChoice(home)
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp)) {
                     Snackbar(
@@ -136,46 +136,55 @@ fun App(platform: Platform, modifier: Modifier = Modifier) {
     }
 }
 
-/** The current realm's feed, or the tab overview zoomed out from it. */
+/** The current realm's feed, or the tab overview zoomed out from it, under the one top bar both share. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun Tabs(home: Home, modifier: Modifier = Modifier) {
+    var settings by remember { mutableStateOf(false) }
     // Keyed by the realm, not the Space: a fresh Space each recomposition would restart the animation.
     val current = home.openKey.takeUnless { home.showingTabs || home.model == null }
-    SharedTransitionLayout(modifier) {
-        AnimatedContent(
-            current,
-            // The overview fades in as the tab shrinks into it, and out as a tab grows from it.
-            transitionSpec = { fadeIn(tween(TAB_ZOOM_MILLIS)) togetherWith fadeOut(tween(TAB_ZOOM_MILLIS)) },
-            contentAlignment = Alignment.TopCenter,
-        ) { key ->
-            CompositionLocalProvider(LocalSharedTransition provides this@SharedTransitionLayout, LocalTabTransition provides this) {
-                val space = key?.let { k -> home.spaces.firstOrNull { it.key == k } }
-                if (space == null) {
-                    Grid(home)
-                } else {
-                    Box(
-                        Modifier.fillMaxSize().tabBounds(
-                            space.key,
-                            MaterialTheme.shapes.large,
-                        ).background(MaterialTheme.colorScheme.background),
-                        contentAlignment = Alignment.TopCenter,
-                    ) {
-                        Main(home.modelOf(space), space.name, tabs = home.spaces.size, onTabs = home::showTabs)
+    val open = current?.let { k -> home.spaces.firstOrNull { it.key == k } }
+    Column(modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+        TopBar(
+            title = open?.name,
+            model = open?.let(home::modelOf),
+            tabs = home.spaces.size,
+            onTabs = { if (open == null) home.hideTabs() else home.showTabs() },
+            onSettings = { settings = true },
+            modifier = Modifier.widthIn(max = PageWidth),
+        )
+        SharedTransitionLayout(Modifier.weight(1f)) {
+            AnimatedContent(
+                current,
+                // The overview fades in as the tab shrinks into it, and out as a tab grows from it.
+                transitionSpec = { fadeIn(tween(TAB_ZOOM_MILLIS)) togetherWith fadeOut(tween(TAB_ZOOM_MILLIS)) },
+                contentAlignment = Alignment.TopCenter,
+            ) { key ->
+                CompositionLocalProvider(LocalSharedTransition provides this@SharedTransitionLayout, LocalTabTransition provides this) {
+                    val space = key?.let { k -> home.spaces.firstOrNull { it.key == k } }
+                    if (space == null) {
+                        Grid(home)
+                    } else {
+                        Box(
+                            Modifier.fillMaxSize().tabBounds(
+                                space.key,
+                                MaterialTheme.shapes.large,
+                            ).background(MaterialTheme.colorScheme.background),
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            Main(home.modelOf(space), space.name)
+                        }
                     }
                 }
             }
         }
     }
+    if (settings) SettingsDialog(home, onDismiss = { settings = false })
 }
 
-/** One realm's feed. [onTabs] zooms out to the tab overview. */
+/** One realm's feed, below the top bar. */
 @Composable
-fun Main(model: Model, title: String, modifier: Modifier = Modifier, tabs: Int = 1, onTabs: () -> Unit = {}) {
-    var searching by remember { mutableStateOf(false) }
-    var showShare by remember { mutableStateOf(false) }
-    val searchFocus = remember { FocusRequester() }
-
+fun Main(model: Model, title: String, modifier: Modifier = Modifier) {
     // Links load with the realm, so the share sheet opens at its full height instead of growing once they arrive.
     LaunchedEffect(model) { if (model.isOwner) model.loadLinks() }
     LaunchedEffect(model.query, model.filter) {
@@ -183,23 +192,17 @@ fun Main(model: Model, title: String, modifier: Modifier = Modifier, tabs: Int =
         model.refresh()
     }
 
-    fun closeSearch() {
-        searching = false
-        model.query = ""
-        model.filter = Filter.All
-    }
-
     Column(
         modifier.widthIn(max = PageWidth).fillMaxSize().onPreviewKeyEvent { e ->
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when {
                 e.key == Key.F && (e.isCtrlPressed || e.isMetaPressed) -> {
-                    searching = true
+                    model.searching = true
                     true
                 }
 
-                e.key == Key.Escape && searching -> {
-                    closeSearch()
+                e.key == Key.Escape && model.searching -> {
+                    model.closeSearch()
                     true
                 }
 
@@ -207,42 +210,7 @@ fun Main(model: Model, title: String, modifier: Modifier = Modifier, tabs: Int =
             }
         },
     ) {
-        // top bar
-        Row(
-            Modifier.topBarBounds().fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (searching) {
-                IconButton(onClick = ::closeSearch) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close search") }
-                var q by remember { mutableStateOf(TextFieldValue(model.query)) }
-                Field(
-                    value = q,
-                    onValueChange = {
-                        q = it
-                        model.query = it.text
-                    },
-                    placeholder = "Search the dump",
-                    singleLine = true,
-                    modifier = Modifier.weight(1f).focusRequester(searchFocus),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { model.refresh() }),
-                )
-                if (q.text.isNotEmpty()) {
-                    IconButton(onClick = {
-                        q = TextFieldValue("")
-                        model.query = ""
-                    }) { Icon(Icons.Outlined.Close, "Clear") }
-                }
-                LaunchedEffect(Unit) { searchFocus.requestFocus() }
-            } else {
-                PageTitle(title, Modifier.weight(1f))
-                // An empty realm offers the agents in its middle instead; they move up here once it has things in it.
-                AnimatedVisibility(!model.isEmpty, enter = fadeIn(), exit = fadeOut()) { ShareButton(onClick = { showShare = true }) }
-                IconButton(onClick = { searching = true }) { Icon(Icons.Outlined.Search, "Search") }
-                TabsButton(tabs, onTabs)
-            }
-        }
-        AnimatedVisibility(searching) {
+        AnimatedVisibility(model.searching) {
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -276,46 +244,19 @@ fun Main(model: Model, title: String, modifier: Modifier = Modifier, tabs: Int =
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // The feed fades out as the editor opens over it, and back in as it closes.
             var editorOpen by remember { mutableFloatStateOf(0f) }
-            Feed(model, Modifier.fillMaxSize().graphicsLayer { alpha = 1f - editorOpen }, bottomPadding = composerHeight, onShare = {
-                showShare =
-                    true
-            })
+            val faded = Modifier.fillMaxSize().graphicsLayer { alpha = 1f - editorOpen }
+            Feed(model, faded, bottomPadding = composerHeight, onShare = { model.sharing = true })
             Composer(model, Modifier.align(Alignment.BottomCenter), onCompactHeight = { composerHeight = it }, onOpen = { editorOpen = it })
         }
     }
 
-    if (showShare) ShareDialog(model, title) { showShare = false }
+    if (model.sharing) ShareDialog(model, title) { model.sharing = false }
 }
 
-/** Height of both screens' top bars; their text starts where the content's gutter does, plus a little. */
-val TopBarHeight = 56.dp
-
-/** The top bar's title, lined up with the page content below it: realm/<name>, or just realm. */
+/** The name, on its own: setup and the about dialog. */
 @Composable
-fun PageTitle(realm: String?, modifier: Modifier = Modifier) {
-    Wordmark(realm = realm, modifier = modifier.padding(start = PageGutter))
-}
-
-/** "realm", or "realm/Main" inside a realm, with the "realm/" part muted. */
-@Composable
-fun Wordmark(modifier: Modifier = Modifier, size: Int = 20, realm: String? = null) {
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Text(
-        buildAnnotatedString {
-            if (realm == null) {
-                append("realm")
-            } else {
-                withStyle(SpanStyle(color = muted)) { append("realm/") }
-                append(realm)
-            }
-        },
-        modifier,
-        fontSize = size.sp,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 0.5.sp,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
+fun Wordmark(modifier: Modifier = Modifier, size: Int = 20) {
+    Text("realm", modifier, fontSize = size.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
 }
 
 /** Outlined fields are 56dp; buttons in the same form match them. */
