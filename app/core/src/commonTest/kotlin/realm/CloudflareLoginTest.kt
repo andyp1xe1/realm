@@ -25,7 +25,12 @@ class CloudflareLoginTest {
             route.endsWith("/workers/scripts") ->
                 cf(if (route.split('/')[4] in withWorker) """[{"id":"realm"}]""" else "[]")
 
-            route.endsWith("/workers/domains") -> cf("[]")
+            // As Cloudflare really answers this one: null errors and messages, unlike its other endpoints.
+            route.endsWith("/workers/domains") ->
+                json(
+                    """{"result":[],"success":true,"errors":null,"messages":null,""" +
+                        """"result_info":{"page":1,"per_page":0,"count":0,"total_count":0}}""",
+                )
 
             route.endsWith("/scripts/realm/subdomain") -> cf("""{"enabled":true}""")
 

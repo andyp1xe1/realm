@@ -143,9 +143,9 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
         }.getOrElse { throw ApiException("Cloudflare sent something odd (HTTP ${res.status.value})", res.status.value) }
         if (!env.success) {
             throw CloudflareError(
-                env.errors.joinToString("; ") { it.message }.ifBlank { "Cloudflare said no (HTTP ${res.status.value})" },
+                env.errors.orEmpty().joinToString("; ") { it.message }.ifBlank { "Cloudflare said no (HTTP ${res.status.value})" },
                 res.status.value,
-                env.errors.map { it.code },
+                env.errors.orEmpty().map { it.code },
             )
         }
         return env.result
@@ -174,7 +174,8 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
     internal data class ScriptSubdomain(val enabled: Boolean = false)
 
     @Serializable
-    private data class Envelope(val success: Boolean = false, val errors: List<Problem> = emptyList(), val result: JsonElement? = null)
+    // errors can be null: the custom domains endpoint answers "errors":null where the others send [].
+    private data class Envelope(val success: Boolean = false, val errors: List<Problem>? = null, val result: JsonElement? = null)
 
     @Serializable
     private data class Problem(val code: Int = 0, val message: String = "")
