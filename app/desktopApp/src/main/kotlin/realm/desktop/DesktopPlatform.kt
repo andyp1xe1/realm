@@ -17,6 +17,7 @@ import realm.LocalFile
 import realm.Platform
 import realm.Prefs
 import realm.Recording
+import realm.jvm.DiskCache
 import realm.jvm.Dates
 import realm.jvm.JFile
 import realm.jvm.download
@@ -153,6 +154,21 @@ class DesktopPlatform : Platform {
         val canOpen = Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)
         if (!canOpen || runCatching { Desktop.getDesktop().open(file) }.isFailure) ProcessBuilder("xdg-open", file.path).start()
         Unit
+    }
+
+    private val imageCache = DiskCache(File(cacheHome(), "images"), 300L * 1024 * 1024)
+    override fun cachedImage(key: String) = imageCache.get(key)
+    override fun cacheImage(key: String, bytes: ByteArray) = imageCache.put(key, bytes)
+
+    /** The system's place for caches: XDG on Linux, Library/Caches on macOS, LocalAppData on Windows. */
+    private fun cacheHome(): File {
+        val home = System.getProperty("user.home")
+        val os = System.getProperty("os.name").lowercase()
+        return when {
+            "mac" in os -> File(home, "Library/Caches/realm")
+            "win" in os -> File(System.getenv("LOCALAPPDATA") ?: home, "realm/cache")
+            else -> File(System.getenv("XDG_CACHE_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.cache", "realm")
+        }
     }
 
     override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = runCatching {

@@ -91,3 +91,40 @@ object Dates {
         }
     }
 }
+
+/**
+ * Image bytes kept on disk between runs. An item's file never changes once uploaded, so an entry never goes
+ * stale; past [maxBytes] the least recently used go first. Blocking; call from an IO thread.
+ */
+class DiskCache(private val dir: File, private val maxBytes: Long) {
+    fun get(key: String): ByteArray? {
+        val f = file(key)
+        if (!f.isFile) return null
+        f.setLastModified(System.currentTimeMillis()) // recently used, so trimmed last
+        return runCatching { f.readBytes() }.getOrNull()
+    }
+
+    fun put(key: String, bytes: ByteArray) {
+        runCatching {
+            dir.mkdirs()
+            val f = file(key)
+            val part = File(dir, f.name + ".part")
+            part.writeBytes(bytes)
+            if (!part.renameTo(f)) part.delete()
+            trim()
+        }
+    }
+
+    private fun file(key: String) = File(dir, key.map { if (it.isLetterOrDigit() || it in "-_.") it else '_' }.joinToString("").take(150))
+
+    private fun trim() {
+        val files = dir.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") } ?: return
+        var total = files.sumOf { it.length() }
+        if (total <= maxBytes) return
+        for (f in files.sortedBy { it.lastModified() }) {
+            if (total <= maxBytes) break
+            total -= f.length()
+            f.delete()
+        }
+    }
+}

@@ -187,6 +187,9 @@ class Api(base: String, private val token: String?, private val source: String) 
         http.delete("$base/items/$id") { common() }.ok()
     }
 
+    /** Names an item's bytes in the image cache: its server and id, which never change. */
+    fun cacheKey(id: String) = base.substringAfter("://").substringBefore('/') + "_" + id
+
     fun rawUrl(id: String, download: Boolean = false) = "$base/items/$id/raw" + if (download) "?dl=1" else ""
 
     suspend fun bytes(id: String): ByteArray = http.get(rawUrl(id)) { common() }.ok().body()

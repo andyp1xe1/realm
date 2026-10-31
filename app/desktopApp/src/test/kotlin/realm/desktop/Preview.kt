@@ -72,6 +72,8 @@ private class FakePlatform(vararg prefs: Pair<String, String>) : Platform {
     override suspend fun save(url: String, auth: String?, name: String) = ""
     override suspend fun open(url: String, auth: String?, name: String) {}
     override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = real.decodeImage(bytes, maxSize)
+    override fun cachedImage(key: String): ByteArray? = null
+    override fun cacheImage(key: String, bytes: ByteArray) {}
     override fun formatTime(epochMs: Long) = Dates.time(epochMs)
     override fun formatDay(epochMs: Long) = Dates.day(epochMs)
 }

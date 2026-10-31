@@ -32,6 +32,11 @@ interface Platform {
     suspend fun open(url: String, auth: String?, name: String)
 
     fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap?
+
+    /** Image bytes kept on disk between runs, by key; null if not there. Blocking. */
+    fun cachedImage(key: String): ByteArray?
+    /** Keeps image bytes on disk for next time, dropping the least recently used past a size limit. Blocking. */
+    fun cacheImage(key: String, bytes: ByteArray)
     fun formatTime(epochMs: Long): String
     fun formatDay(epochMs: Long): String
 }

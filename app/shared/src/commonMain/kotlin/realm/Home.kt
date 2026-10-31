@@ -81,6 +81,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     val previews = mutableStateMapOf<String, List<Item>>()
     private val thumbs = mutableStateMapOf<String, ImageBitmap>()
     private val thumbLoading = mutableSetOf<String>()
+    private val thumbOrder = ArrayDeque<String>()
     private var lastRefresh: TimeSource.Monotonic.ValueTimeMark? = null
 
     val spaces: List<Space> get() = realms.map { own(it) } + shared
@@ -180,11 +181,16 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
     fun image(space: Space, item: Item): ImageBitmap? = models[space.key]?.image(item.id) ?: thumbs[item.id]
 
     suspend fun loadThumb(space: Space, item: Item) {
-        if (space.limited || item.id in thumbs || item.id in thumbLoading || (item.size ?: 0) > Model.MAX_INLINE_IMAGE) return
+        if (item.id in thumbs || item.id in thumbLoading || (item.size ?: 0) > Model.MAX_INLINE_IMAGE) return
         thumbLoading += item.id
         try {
-            val bytes = space.api.bytes(item.id)
-            withContext(Dispatchers.Default) { platform.decodeImage(bytes, 480) }?.let { thumbs[item.id] = it }
+            // A use-limited link only shows what's already on disk: a download would spend a use.
+            val bytes = imageBytes(platform, space.api, item.id, download = !space.limited) ?: return
+            withContext(Dispatchers.Default) { platform.decodeImage(bytes, 480) }?.let { bmp ->
+                thumbs[item.id] = bmp
+                thumbOrder.addLast(item.id)
+                while (thumbOrder.size > 120) thumbs.remove(thumbOrder.removeFirst()) // the disk has the rest
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

@@ -243,9 +243,12 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     private suspend fun seedImage(item: Item, file: LocalFile) {
         if (file.size !in 1..MAX_INLINE_IMAGE) return
         val bmp = withContext(Dispatchers.IO) {
-            runCatching { file.reader().use { it.readAll(file.size.toInt()) } }.getOrNull()?.let { platform.decodeImage(it, 1280) }
+            runCatching { file.reader().use { it.readAll(file.size.toInt()) } }.getOrNull()?.let { bytes ->
+                platform.cacheImage(api.cacheKey(item.id), bytes) // on disk for next time, no download needed
+                platform.decodeImage(bytes, 1280)
+            }
         } ?: return
-        cacheImage(item.id, bmp)
+        remember(item.id, bmp)
     }
 
     private fun saveEdit(item: Item, text: String) {
@@ -319,12 +322,13 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     fun image(id: String): ImageBitmap? = images[id]
 
     suspend fun loadImage(item: Item) {
-        if (!loadImages || item.id in images || item.id in imageLoading || (item.size ?: 0) > MAX_INLINE_IMAGE) return
+        if (item.id in images || item.id in imageLoading || (item.size ?: 0) > MAX_INLINE_IMAGE) return
         imageLoading += item.id
         try {
-            val bytes = api.bytes(item.id)
+            // Without loadImages (every download spends a link's use), only what's already on disk.
+            val bytes = imageBytes(platform, api, item.id, download = loadImages) ?: return
             val bmp = withContext(Dispatchers.Default) { platform.decodeImage(bytes, 1280) } ?: return
-            cacheImage(item.id, bmp)
+            remember(item.id, bmp)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -333,7 +337,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
         }
     }
 
-    private fun cacheImage(id: String, bmp: ImageBitmap) {
+    private fun remember(id: String, bmp: ImageBitmap) {
         images[id] = bmp
         imageOrder.addLast(id)
         while (imageOrder.size > 80) images.remove(imageOrder.removeFirst())
@@ -384,6 +388,19 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     companion object {
         const val MAX_INLINE_IMAGE = 15L * 1024 * 1024
     }
+}
+
+/**
+ * An item's image bytes: from the disk cache if they're there, else downloaded and kept for next time.
+ * With [download] false, only what's already on disk.
+ */
+internal suspend fun imageBytes(platform: Platform, api: Api, id: String, download: Boolean = true): ByteArray? {
+    val key = api.cacheKey(id)
+    withContext(Dispatchers.IO) { platform.cachedImage(key) }?.let { return it }
+    if (!download) return null
+    val bytes = api.bytes(id)
+    withContext(Dispatchers.IO) { platform.cacheImage(key, bytes) }
+    return bytes
 }
 
 fun ttlLabel(seconds: Long): String = when {

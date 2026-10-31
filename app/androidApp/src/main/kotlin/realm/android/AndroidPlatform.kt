@@ -36,6 +36,7 @@ import realm.LocalFile
 import realm.Platform
 import realm.Prefs
 import realm.Recording
+import realm.jvm.DiskCache
 import realm.jvm.Dates
 import realm.jvm.JFile
 import realm.jvm.StreamReader
@@ -159,6 +160,11 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
             throw IOException("No app can open $name")
         }
     }
+
+    // Android may clear its cache dir when space runs low, which is fine for this.
+    private val imageCache = DiskCache(File(activity.cacheDir, "images"), 150L * 1024 * 1024)
+    override fun cachedImage(key: String) = imageCache.get(key)
+    override fun cacheImage(key: String, bytes: ByteArray) = imageCache.put(key, bytes)
 
     override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
