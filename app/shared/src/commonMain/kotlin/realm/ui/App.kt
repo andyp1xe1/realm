@@ -204,7 +204,8 @@ fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
                 LaunchedEffect(Unit) { searchFocus.requestFocus() }
             } else {
                 PageTitle(title, Modifier.weight(1f))
-                ShareButton { showShare = true }
+                // An empty realm offers the agents in its middle instead; they move up here once it has things in it.
+                AnimatedVisibility(!model.isEmpty, enter = fadeIn(), exit = fadeOut()) { ShareButton { showShare = true } }
                 IconButton(onClick = { searching = true }) { Icon(Icons.Outlined.Search, "Search") }
                 TabsButton(tabs, onTabs)
             }
@@ -234,7 +235,7 @@ fun Main(model: Model, title: String, tabs: Int = 1, onTabs: () -> Unit = {}) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // The feed fades out as the editor opens over it, and back in as it closes.
             var editorOpen by remember { mutableFloatStateOf(0f) }
-            Feed(model, Modifier.fillMaxSize().graphicsLayer { alpha = 1f - editorOpen }, bottomPadding = composerHeight)
+            Feed(model, Modifier.fillMaxSize().graphicsLayer { alpha = 1f - editorOpen }, bottomPadding = composerHeight, onShare = { showShare = true })
             Composer(model, Modifier.align(Alignment.BottomCenter), onCompactHeight = { composerHeight = it }, onOpen = { editorOpen = it })
         }
     }

@@ -38,11 +38,11 @@ import kotlin.math.sin
 
 /**
  * A realm with nothing in it yet: ghosts of what a feed holds (a note, a file, a picture, a voice note)
- * drifting gently, and one line on how to fill it. Only for a realm known to be empty, never while loading.
- * [still] skips the drift, for tile pictures.
+ * drifting gently, one short line, and the agents to share it with, which leave the header meanwhile.
+ * Only for a realm known to be empty, never while loading. [still] skips the drift, for tile pictures.
  */
 @Composable
-fun EmptyRealm(modifier: Modifier = Modifier, still: Boolean = false) {
+fun EmptyRealm(modifier: Modifier = Modifier, still: Boolean = false, onShare: () -> Unit = {}) {
     val appear = remember { Animatable(if (still) 1f else 0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, tween(400)) }
     val drift = if (still) 0f else {
@@ -54,11 +54,13 @@ fun EmptyRealm(modifier: Modifier = Modifier, still: Boolean = false) {
         GhostFeed(drift)
         Spacer(Modifier.height(20.dp))
         Text(
-            "Type, paste, drop or record anything.",
+            "Dump anything, or let an agent in.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
+        Spacer(Modifier.height(12.dp))
+        ShareButton(expanded = true, onClick = onShare)
     }
 }
 

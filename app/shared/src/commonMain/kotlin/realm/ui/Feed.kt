@@ -82,7 +82,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import realm.humanSize
 
 @Composable
-fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) {
+fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp, onShare: () -> Unit = {}) {
     val state = model.listState
     val platform = model.platform
 
@@ -106,7 +106,7 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) 
             when {
                 !model.canRead -> Text("This link can only add things. Dump away.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 model.filtering -> Text("Nothing matches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else -> EmptyRealm()
+                else -> EmptyRealm(onShare = onShare)
             }
         }
         return
