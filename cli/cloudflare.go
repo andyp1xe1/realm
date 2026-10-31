@@ -57,22 +57,21 @@ func loginCloudflare() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("logged in to Cloudflare")
 
 	var accounts []struct{ ID, Name string }
 	if err := cfGet(tok.Access, "/accounts", &accounts); err != nil {
 		return fmt.Errorf("listing your accounts: %w", err)
 	}
 	if len(accounts) == 0 {
-		return errors.New("this login can't see any Cloudflare account; pick one on the consent screen")
+		return errors.New("no Cloudflare account picked on the consent screen")
 	}
 	acc := accounts[0]
 	if len(accounts) > 1 {
-		fmt.Println("Which account is realm on?")
+		fmt.Println("account:")
 		for i, a := range accounts {
 			fmt.Printf("  %d  %s\n", i+1, a.Name)
 		}
-		n, err := strconv.Atoi(ask("number: "))
+		n, err := strconv.Atoi(ask("> "))
 		if err != nil || n < 1 || n > len(accounts) {
 			return errors.New("no such account")
 		}
@@ -94,21 +93,20 @@ func loginCloudflare() error {
 		if err := saveConfig(cfg); err != nil {
 			return err
 		}
-		return fmt.Errorf("there's no %q worker on %s yet; deploying it from here comes next", workerName, acc.Name)
+		return fmt.Errorf("no %q worker on %s", workerName, acc.Name)
 	}
 
 	var sub struct{ Subdomain string }
 	if err := cfGet(tok.Access, "/accounts/"+acc.ID+"/workers/subdomain", &sub); err != nil {
-		return fmt.Errorf("finding your workers.dev address: %w", err)
+		return fmt.Errorf("workers.dev address: %w", err)
 	}
 	origin := fmt.Sprintf("https://%s.%s.workers.dev", workerName, sub.Subdomain)
-	fmt.Println("found your realm at", origin)
 
 	// The worker takes a Cloudflare login as its owner's once it knows which account it's on.
 	script := "/accounts/" + acc.ID + "/workers/scripts/" + workerName
 	var secrets []struct{ Name string }
 	if err := cfGet(tok.Access, script+"/secrets", &secrets); err != nil {
-		return fmt.Errorf("reading the worker's settings: %w", err)
+		return fmt.Errorf("worker secrets: %w", err)
 	}
 	has := false
 	for _, s := range secrets {
@@ -117,7 +115,7 @@ func loginCloudflare() error {
 	if !has {
 		body := map[string]string{"name": "REALM_ACCOUNT", "text": acc.ID, "type": "secret_text"}
 		if err := cfSend(tok.Access, "PUT", script+"/secrets", body, nil); err != nil {
-			return fmt.Errorf("telling the worker its account: %w", err)
+			return fmt.Errorf("setting REALM_ACCOUNT: %w", err)
 		}
 	}
 
@@ -136,7 +134,7 @@ func loginCloudflare() error {
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "(401)") {
-			return errors.New("your worker doesn't take Cloudflare logins yet: redeploy it once (cd worker && npm run deploy) and run `realm login` again")
+			return errors.New("worker too old for Cloudflare login: redeploy it, then realm login")
 		}
 		return err
 	}
@@ -183,7 +181,7 @@ func cfOAuth() (*cfAuth, error) {
 		var res result
 		switch {
 		case p.Get("state") != state:
-			res.err = errors.New("the login came back with the wrong state; try again")
+			res.err = errors.New("state mismatch, try again")
 		case p.Get("error") != "":
 			res.err = fmt.Errorf("Cloudflare said %s: %s", p.Get("error"), p.Get("error_description"))
 		default:
@@ -210,11 +208,11 @@ func cfOAuth() (*cfAuth, error) {
 		}
 	}
 	if listening == 0 {
-		return nil, fmt.Errorf("port %d is busy; close whatever is using it and try again", cfPort)
+		return nil, fmt.Errorf("port %d is busy", cfPort)
 	}
 	defer srv.Shutdown(context.Background())
 
-	fmt.Println("Opening Cloudflare in your browser. If it doesn't open, visit:")
+	fmt.Println("opening browser:")
 	fmt.Println(authURL)
 	openBrowser(authURL)
 
@@ -222,7 +220,7 @@ func cfOAuth() (*cfAuth, error) {
 	select {
 	case res = <-done:
 	case <-time.After(5 * time.Minute):
-		return nil, errors.New("gave up waiting for the browser after 5 minutes")
+		return nil, errors.New("timed out waiting for the browser")
 	}
 	if res.err != nil {
 		return nil, res.err
@@ -238,7 +236,7 @@ func cfOAuth() (*cfAuth, error) {
 }
 
 // errCFRejected means Cloudflare turned the login down: the only way on is logging in again.
-var errCFRejected = errors.New("your Cloudflare login has run out: run `realm login` again")
+var errCFRejected = errors.New("Cloudflare login expired: realm login")
 
 // cfExchange posts to the token endpoint (form-encoded; it doesn't take JSON). A reply without a new
 // refresh token leaves [keep] valid, so it's kept.
@@ -256,13 +254,13 @@ func cfExchange(form url.Values, keep string) (*cfAuth, error) {
 		Description  string `json:"error_description"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
-		return nil, fmt.Errorf("reading Cloudflare's token (http %d): %w", resp.StatusCode, err)
+		return nil, fmt.Errorf("token response (http %d): %w", resp.StatusCode, err)
 	}
 	if t.AccessToken == "" {
 		if resp.StatusCode == 400 || resp.StatusCode == 401 || t.Error == "invalid_grant" {
 			return nil, errCFRejected
 		}
-		return nil, fmt.Errorf("Cloudflare didn't give a token: %s %s", t.Error, t.Description)
+		return nil, fmt.Errorf("no token: %s %s", t.Error, t.Description)
 	}
 	if t.RefreshToken == "" {
 		t.RefreshToken = keep
@@ -277,7 +275,7 @@ func cfAccess() (string, error) {
 	cfg := readConfig()
 	auth := cfg.Cloudflare
 	if auth == nil {
-		return "", errors.New("not logged in with Cloudflare: run `realm login`")
+		return "", errors.New("not logged in: realm login")
 	}
 	if time.Now().Unix() < auth.Expires-60 {
 		return auth.Access, nil

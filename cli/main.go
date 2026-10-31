@@ -228,7 +228,7 @@ func login(args []string) error {
 		return errors.New("that's a share link: use `realm connect <link>`")
 	}
 	if len(args) < 2 {
-		return errors.New("a server needs its owner token: realm login <url> <token>")
+		return errors.New("usage: realm login [<url> <token>]")
 	}
 	cfg := config{URL: strings.TrimSuffix(strings.TrimRight(args[0], "/"), "/api"), Token: args[1]}
 	if !strings.HasPrefix(cfg.URL, "http") {
@@ -238,21 +238,20 @@ func login(args []string) error {
 	var info Info
 	if err := c.do("GET", "/info", nil, &info); err != nil {
 		if strings.Contains(err.Error(), "(404)") {
-			return errors.New("that server is out of date: redeploy the worker")
+			return errors.New("worker too old: redeploy it")
 		}
 		return fmt.Errorf("can't sign in to %s: %w", cfg.URL, err)
 	}
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
-	fmt.Println("signed in to", cfg.URL)
 	warnOld(info)
 	return c.status()
 }
 
 func connect(args []string) error {
 	if len(args) != 1 || !isLink(args[0]) {
-		return errors.New("usage: realm connect <link>   (a link with /s/ in it; for your own server, use realm login)")
+		return errors.New("usage: realm connect <link>")
 	}
 	cfg := config{URL: strings.TrimRight(args[0], "/")}
 	c := newClient(cfg)
@@ -263,7 +262,6 @@ func connect(args []string) error {
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
-	fmt.Println("connected")
 	warnOld(info)
 	return c.status()
 }
@@ -272,7 +270,7 @@ func logout() error {
 	cfRevoke(readConfig().Cloudflare)
 	err := os.Remove(configPath())
 	if errors.Is(err, os.ErrNotExist) {
-		return errors.New("not signed in or connected")
+		return errors.New("not logged in")
 	}
 	if err == nil {
 		fmt.Println("signed out")
@@ -282,7 +280,7 @@ func logout() error {
 
 func warnOld(info Info) {
 	if info.Version < workerVersion {
-		fmt.Fprintf(os.Stderr, "note: this server runs worker version %d, older than this CLI expects (%d); redeploy it\n", info.Version, workerVersion)
+		fmt.Fprintf(os.Stderr, "worker v%d is older than this CLI (v%d): redeploy it\n", info.Version, workerVersion)
 	}
 }
 
@@ -295,12 +293,12 @@ func loadClient(realm string) (*Client, error) {
 		cfg.Token = v
 	}
 	if cfg.URL == "" {
-		return nil, errors.New("not set up: run `realm login <url> <token>` or `realm connect <link>`")
+		return nil, errors.New("not logged in: realm login, or realm connect <link>")
 	}
 	c := newClient(cfg)
 	if realm != "" {
 		if c.server == "" {
-			return nil, errors.New("a share link is one realm; -r only works signed in to your server")
+			return nil, errors.New("-r needs realm login, not a link")
 		}
 		r, err := c.findRealm(realm)
 		if err != nil {
@@ -458,7 +456,7 @@ func (c *Client) status() error {
 		if _, err := cfAccess(); err != nil {
 			fmt.Println("cloudflare", err)
 		} else {
-			fmt.Println("cloudflare logged in, renews by itself")
+			fmt.Println("cloudflare ok")
 		}
 	}
 	return nil
@@ -532,7 +530,7 @@ func (c *Client) current(rs []Realm) string {
 
 func (c *Client) realms(args []string) error {
 	if c.server == "" {
-		return errors.New("a share link is one realm; realms are for your own server")
+		return errors.New("realms need realm login, not a link")
 	}
 	sub := ""
 	if len(args) > 0 {
@@ -571,7 +569,7 @@ func (c *Client) realms(args []string) error {
 		if err := srv.do("POST", "/realms", map[string]string{"name": name}, &r); err != nil {
 			return err
 		}
-		fmt.Printf("made “%s”; work in it with: realm use %s\n", r.Name, quoteArg(r.Name))
+		fmt.Printf("made “%s” (realm use %s)\n", r.Name, quoteArg(r.Name))
 		return nil
 	case "rename", "mv":
 		if len(args) < 2 {
@@ -593,7 +591,7 @@ func (c *Client) realms(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := confirm(fmt.Sprintf("Delete “%s” and its %d item%s? Its links stop working too.", r.Name, r.Count, plural(int(r.Count))), *yes); err != nil {
+		if err := confirm(fmt.Sprintf("Delete “%s” and its %d item%s?", r.Name, r.Count, plural(int(r.Count))), *yes); err != nil {
 			return err
 		}
 		if err := srv.do("DELETE", "/realms/"+url.PathEscape(r.ID), nil, nil); err != nil {
@@ -611,7 +609,7 @@ func (c *Client) realms(args []string) error {
 
 func (c *Client) use(args []string) error {
 	if c.server == "" {
-		return errors.New("a share link is one realm; realm use is for your own server")
+		return errors.New("realm use needs realm login, not a link")
 	}
 	if len(args) == 0 {
 		return errors.New("usage: realm use <realm>")
@@ -642,7 +640,7 @@ func confirm(question string, yes bool) error {
 		return nil
 	}
 	if !isTerminal(os.Stdin) {
-		return errors.New("this asks before deleting; add -y to go ahead")
+		return errors.New("add -y to confirm")
 	}
 	fmt.Fprint(os.Stderr, question, " [y/N] ")
 	var answer string
@@ -650,7 +648,7 @@ func confirm(question string, yes bool) error {
 	if a := strings.ToLower(strings.TrimSpace(answer)); a == "y" || a == "yes" {
 		return nil
 	}
-	return errors.New("left as it was")
+	return errors.New("cancelled")
 }
 
 // ---------- commands ----------
@@ -961,9 +959,9 @@ func (c *Client) rm(args []string) error {
 		}
 		items = append(items, it)
 	}
-	q := fmt.Sprintf("Delete %d items? Links that share only them stop working.", len(items))
+	q := fmt.Sprintf("Delete %d items?", len(items))
 	if len(items) == 1 {
-		q = "Delete " + describe(items[0]) + "? Links that share only it stop working."
+		q = "Delete " + describe(items[0]) + "?"
 	}
 	if err := confirm(q, *yes); err != nil {
 		return err
@@ -1069,9 +1067,9 @@ func (c *Client) revoke(args []string) error {
 	if fs.NArg() == 0 {
 		return errors.New("usage: realm revoke <token|url>... [-y]")
 	}
-	q := "Revoke this link? Anyone using it loses access straight away."
+	q := "Revoke link?"
 	if fs.NArg() > 1 {
-		q = fmt.Sprintf("Revoke %d links? Anyone using them loses access straight away.", fs.NArg())
+		q = fmt.Sprintf("Revoke %d links?", fs.NArg())
 	}
 	if err := confirm(q, *yes); err != nil {
 		return err
