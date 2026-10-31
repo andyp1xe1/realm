@@ -90,14 +90,14 @@ class DomainsTest {
         assertTrue(c.routes.none { it.startsWith("DELETE") }, c.routes.toString())
     }
 
-    /** One account whose realm worker has [domains] and its workers.dev address [workersDev]. */
+    /** Jo's account as recorded, its realm worker on [domains] and its workers.dev address [workersDev]. */
     private fun worker(domains: String, workersDev: Boolean) = FakeClouds { route, _ ->
         when (route) {
-            "GET $CF/accounts" -> cf("""[{"id":"a1","name":"Jo"}]""")
-            "GET $CF/accounts/a1/workers/scripts" -> cf("""[{"id":"realm"}]""")
             "GET $CF/accounts/a1/workers/domains" -> cf(domains)
-            "GET $CF/accounts/a1/workers/scripts/realm/subdomain" -> cf("""{"enabled":$workersDev}""")
-            "GET $CF/accounts/a1/workers/subdomain" -> cf("""{"subdomain":"jo"}""")
+
+            "GET $CF/accounts/a1/workers/scripts/realm/subdomain" ->
+                if (workersDev) null else cf("""{"enabled":false,"previews_enabled":true}""")
+
             else -> null
         }
     }
@@ -111,7 +111,10 @@ class DomainsTest {
 
     @Test
     fun aWorkerWithoutACustomDomainIsFoundOnWorkersDev() = runTest {
-        assertEquals("https://realm.jo.workers.dev", Cloudflare.workers("t", worker("[]", workersDev = true).engine).single().origin)
+        // Cloudflare's own replies throughout, null errors on the custom domains and all.
+        val w = Cloudflare.workers("t", FakeClouds { _, _ -> null }.engine).single()
+        assertEquals("https://realm.jo.workers.dev", w.origin)
+        assertEquals("Jo's account", w.accountName)
     }
 
     @Test
@@ -135,5 +138,14 @@ class DomainsTest {
         val e = assertFailsWith<ApiException> { c.api().accounts() }
         assertEquals("Cloudflare sent something odd (HTTP 200)", e.message)
         assertTrue("errors" in e.cause?.message.orEmpty(), e.cause?.message)
+    }
+
+    @Test
+    fun onlyActiveDomainsAreOffered() = runTest {
+        val c = FakeClouds { route, _ ->
+            val zones = """[{"id":"z1","name":"jo.dev","status":"active"},{"id":"z2","name":"new.dev","status":"pending"}]"""
+            if (route == "GET $CF/zones") cf(zones) else null
+        }
+        assertEquals(listOf("jo.dev"), c.api().zones(ACCOUNT).map { it.name })
     }
 }

@@ -16,8 +16,9 @@ class Seen(val route: String, val url: Url, val headers: Map<String, String?>, v
 }
 
 /**
- * Stand-ins for Cloudflare, GitHub and a deployed worker at once, routed by "METHOD host/path". A route
- * nobody answers is a Cloudflare 404, so a test sees the call it didn't expect.
+ * Stand-ins for Cloudflare, GitHub and a deployed worker at once, routed by "METHOD host/path". Reads a test
+ * leaves alone get Cloudflare's [Recorded] answers about Jo's account; any other route nobody answers is a
+ * Cloudflare 404, so a test sees the call it didn't expect.
  */
 class FakeClouds(private val answer: MockRequestHandleScope.(route: String, seen: Seen) -> HttpResponseData?) {
     val seen = mutableListOf<Seen>()
@@ -29,7 +30,7 @@ class FakeClouds(private val answer: MockRequestHandleScope.(route: String, seen
             req.body.toByteArray(),
         )
         seen += s
-        answer(s.route, s) ?: cfError(HttpStatusCode.NotFound, 7003, "No route for ${s.route}")
+        answer(s.route, s) ?: recorded(s.route)?.let { json(it) } ?: cfError(HttpStatusCode.NotFound, 7003, "No route for ${s.route}")
     }
 
     /** The routes called, in order, without the Cloudflare API's prefix. */
@@ -38,14 +39,30 @@ class FakeClouds(private val answer: MockRequestHandleScope.(route: String, seen
     fun api() = CloudflareApi(Bearer { "cf-token" }, engine)
 }
 
+/** What Cloudflare reads on Jo's account answer, as it really answered them. */
+private fun recorded(route: String): String? = when (route) {
+    "GET $CF/accounts" -> Recorded.ACCOUNTS
+    "GET $CF/accounts/a1/workers/scripts" -> Recorded.SCRIPTS
+    "GET $CF/accounts/a1/workers/domains" -> Recorded.DOMAINS
+    "GET $CF/accounts/a1/workers/subdomain" -> Recorded.SUBDOMAIN
+    "GET $CF/accounts/a1/workers/scripts/realm/subdomain" -> Recorded.SCRIPT_SUBDOMAIN
+    "GET $CF/accounts/a1/workers/scripts/realm/secrets" -> Recorded.SECRETS
+    "GET $CF/accounts/a1/r2/buckets" -> Recorded.BUCKETS
+    "GET $CF/accounts/a1/d1/database" -> Recorded.D1
+    "GET $CF/zones" -> Recorded.ZONES
+    else -> null
+}
+
+/** A Cloudflare success with [result], in the envelope most of its endpoints send ([Recorded.SUBDOMAIN]). */
 fun MockRequestHandleScope.cf(result: String) = respond(
-    """{"success":true,"errors":[],"messages":[],"result":$result}""",
+    """{"result":$result,"success":true,"errors":[],"messages":[]}""",
     HttpStatusCode.OK,
     headersOf(HttpHeaders.ContentType, "application/json"),
 )
 
+/** A Cloudflare refusal, in the envelope it really sends them in ([Recorded.NO_SUCH_WORKER]). */
 fun MockRequestHandleScope.cfError(status: HttpStatusCode, code: Int, message: String) = respond(
-    """{"success":false,"errors":[{"code":$code,"message":"$message"}],"messages":[],"result":null}""",
+    """{"result":null,"success":false,"errors":[{"code":$code,"message":"$message"}],"messages":[]}""",
     status,
     headersOf(HttpHeaders.ContentType, "application/json"),
 )

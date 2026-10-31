@@ -75,6 +75,19 @@ class ReleaseTest {
     }
 
     @Test
+    fun readsGitHubsOwnReleaseList() = runTest {
+        val github = FakeClouds { route, _ ->
+            when {
+                route == "GET $gh" -> json(RecordedGitHub.RELEASES)
+                route == "GET $dl/v0.1.0/worker.json" -> asset(manifest(3))
+                route == "GET $dl/v0.1.0/worker.js" -> asset("abc")
+                else -> null
+            }
+        }
+        assertEquals(Semver(0, 1, 0), latestRelease(github.engine).tag)
+    }
+
+    @Test
     fun onlyReleasesNeedingANewerAppSaySo() = runTest {
         val gh = github(listOf(release("v2.0.0")), mapOf("v2.0.0" to manifest(4)))
         val e = assertFailsWith<NoRelease> { latestRelease(gh.engine) }

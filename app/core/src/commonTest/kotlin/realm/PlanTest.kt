@@ -11,7 +11,7 @@ class PlanTest {
     private val oldOnly = """[{"uuid":"u1","name":"realm-old"}]"""
 
     /**
-     * An account with R2 bucket "realm", D1 databases whose names only contain "realm", and [script]. [info]
+     * Jo's account as recorded, with D1 databases whose names only contain "realm", and [script]. [info]
      * is what the worker answers its owner, given whether it has been told its account; null turns them away.
      */
     private fun account(script: Boolean, info: (claimed: Boolean) -> String? = { null }): FakeClouds {
@@ -32,19 +32,9 @@ class PlanTest {
     }
 
     private fun MockRequestHandleScope.answer(route: String, seen: Seen, script: Boolean, info: String?) = when (route) {
-        "GET $CF/accounts/a1/workers/subdomain" -> cf("""{"subdomain":"jo"}""")
-
-        "GET $CF/accounts/a1/workers/domains" -> cf("[]")
-
-        "GET $CF/accounts/a1/workers/scripts" -> cf(if (script) """[{"id":"other"},{"id":"realm"}]""" else """[{"id":"other"}]""")
-
-        "GET $CF/accounts/a1/workers/scripts/realm/subdomain" -> cf("""{"enabled":true,"previews_enabled":false}""")
-
-        "GET $CF/accounts/a1/r2/buckets" -> cf("""{"buckets":[{"name":"photos"},{"name":"realm"}]}""")
+        "GET $CF/accounts/a1/workers/scripts" -> if (script) null else cf("""[{"id":"notes"}]""")
 
         "GET $CF/accounts/a1/d1/database" -> cf(if (seen.url.parameters["name"] == "realm") oldOnly else "[]")
-
-        "GET $CF/zones" -> cf("""[{"id":"z1","name":"jo.dev","status":"active"},{"id":"z2","name":"new.dev","status":"pending"}]""")
 
         "GET realm.jo.workers.dev/api/info" ->
             info?.let { json(it) } ?: json("""{"error":"bad token"}""", HttpStatusCode.Unauthorized)
@@ -61,7 +51,7 @@ class PlanTest {
         assertEquals(listOf(Resource.Database("realm"), Resource.Script("realm")), plan.create)
         assertEquals(listOf(Resource.Bucket("realm")), plan.reuse)
         assertEquals("jo", plan.found.subdomain)
-        assertEquals(listOf("jo.dev"), plan.found.zones.map { it.name })
+        assertEquals(listOf("jo.blog", "jo.dev"), plan.found.zones.map { it.name })
     }
 
     @Test

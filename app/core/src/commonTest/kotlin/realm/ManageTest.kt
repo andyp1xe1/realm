@@ -14,25 +14,15 @@ class ManageTest {
     private val dl = "github.com/andyp1xe1/realm/releases/download"
 
     /**
-     * Jo's account with the realm worker at version [worker], on [domains] and on workers.dev if [workersDev],
+     * Jo's account as recorded, with the realm worker at version [worker], on [domains] and on workers.dev if [workersDev],
      * and GitHub with releases of the given API versions, newest first.
      */
     private fun account(worker: Int = 2, domains: String = "[]", workersDev: Boolean = true, vararg releases: Pair<String, Int>) =
         FakeClouds { route, _ ->
             when {
-                route == "GET $CF/accounts/a1/workers/subdomain" -> cf("""{"subdomain":"jo"}""")
-
                 route == "GET $CF/accounts/a1/workers/domains" -> cf(domains)
 
-                route == "GET $CF/accounts/a1/workers/scripts" -> cf("""[{"id":"realm"}]""")
-
-                route == "GET $CF/accounts/a1/workers/scripts/realm/subdomain" -> cf("""{"enabled":$workersDev}""")
-
-                route == "GET $CF/accounts/a1/r2/buckets" -> cf("""{"buckets":[{"name":"realm"}]}""")
-
-                route == "GET $CF/accounts/a1/d1/database" -> cf("""[{"uuid":"db1","name":"realm"}]""")
-
-                route == "GET $CF/zones" -> cf("""[{"id":"z1","name":"jo.dev","status":"active"}]""")
+                route == "GET $CF/accounts/a1/workers/scripts/realm/subdomain" -> if (workersDev) null else cf("""{"enabled":false}""")
 
                 route == "DELETE $CF/accounts/a1/workers/domains/d1" -> cf("null")
 
@@ -61,7 +51,7 @@ class ManageTest {
         val a = account(domains = "[$notes]").api().addresses(ACCOUNT)
 
         assertEquals(listOf("https://realm.jo.workers.dev", "https://notes.jo.dev"), a.origins)
-        assertEquals(listOf("jo.dev"), a.zones.map { it.name })
+        assertEquals(listOf("jo.blog", "jo.dev"), a.zones.map { it.name })
     }
 
     @Test
