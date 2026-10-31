@@ -69,6 +69,7 @@ type Realm struct {
 
 // Info is what a server or link says about itself; asking never spends a link's use.
 type Info struct {
+	Fork      string  `json:"fork"` // GitHub owner/repo of a fork; empty for realm itself
 	Version   int     `json:"version"`
 	Scope     string  `json:"scope"`
 	Realm     *Realm  `json:"realm"`
@@ -99,7 +100,9 @@ type Client struct {
 	http   *http.Client
 }
 
-// workerVersion is the worker this CLI is written against; an older one lacks things it uses.
+// workerFork and workerVersion are the worker this CLI is written against: the GitHub owner/repo of a fork,
+// empty for realm itself, and its API version. An older one lacks things it uses.
+const workerFork = ""
 const workerVersion = 3
 
 const partSize = 32 << 20
@@ -242,7 +245,7 @@ func login(args []string) error {
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
-	warnOld(info)
+	warnMismatch(info)
 	return c.status()
 }
 
@@ -259,7 +262,7 @@ func connect(args []string) error {
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
-	warnOld(info)
+	warnMismatch(info)
 	return c.status()
 }
 
@@ -275,9 +278,18 @@ func logout() error {
 	return err
 }
 
-func warnOld(info Info) {
-	if info.Version < workerVersion {
+func warnMismatch(info Info) {
+	switch {
+	case info.Fork != workerFork:
+		fork := info.Fork
+		if fork == "" {
+			fork = "realm"
+		}
+		fmt.Fprintf(os.Stderr, "server runs %s v%d, not the worker this CLI is for: some things may not work\n", fork, info.Version)
+	case info.Version < workerVersion:
 		fmt.Fprintf(os.Stderr, "worker v%d is older than this CLI (v%d): redeploy it\n", info.Version, workerVersion)
+	case info.Version > workerVersion:
+		fmt.Fprintf(os.Stderr, "worker v%d is newer than this CLI (v%d): update the CLI\n", info.Version, workerVersion)
 	}
 }
 

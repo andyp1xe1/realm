@@ -138,7 +138,7 @@ func loginCloudflare() error {
 		}
 		return err
 	}
-	warnOld(info)
+	warnMismatch(info)
 	return c.status()
 }
 
