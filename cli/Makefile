@@ -1,7 +1,7 @@
 # `make` builds for this machine; `make dist` cross-compiles static binaries into dist/.
 TARGETS = linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/amd64 android/arm64
 
-realm: main.go
+realm: *.go
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o realm .
 
 dist:

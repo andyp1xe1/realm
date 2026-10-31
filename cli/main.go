@@ -21,7 +21,8 @@ import (
 
 const usage = `realm — dump notes and files from anywhere
 
-  realm login <url> <token>       sign in to your own server
+  realm login                     log in with Cloudflare and find your realm
+  realm login <url> <token>       sign in to your own server with its owner token
   realm connect <link>            use a share link someone sent you
   realm logout                    forget the saved server or link
   realm status                    where you're connected, which realm, what you can do
@@ -185,6 +186,8 @@ type config struct {
 	URL   string `json:"url"`             // the server's address, or a share link
 	Token string `json:"token,omitempty"` // owner token; none for a share link
 	Realm string `json:"realm,omitempty"` // id of the realm in use; empty = the first one
+
+	Cloudflare *cfAuth `json:"cloudflare,omitempty"` // a Cloudflare login, for deploying and updating
 }
 
 func configPath() string {
@@ -217,8 +220,8 @@ func isLink(s string) bool {
 }
 
 func login(args []string) error {
-	if len(args) < 1 {
-		return errors.New("usage: realm login <url> <token>")
+	if len(args) == 0 || args[0] == "--cloudflare" {
+		return loginCloudflare()
 	}
 	if isLink(args[0]) {
 		return errors.New("that's a share link: use `realm connect <link>`")
