@@ -1,6 +1,7 @@
 package realm.ui
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,6 +43,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
@@ -93,15 +96,25 @@ fun ShareButton(expanded: Boolean = false, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val pressed by interaction.collectIsPressedAsState()
+    val active = hovered || pressed
     val badge = 24.dp
-    val step by animateDpAsState(if (expanded || hovered || pressed) badge + 4.dp else badge - 10.dp)
+    // Stacked fans out on hover; already fanned out (the empty state) spreads a little further.
+    val step by animateDpAsState(
+        when {
+            expanded && active -> badge + 8.dp
+            expanded || active -> badge + 4.dp
+            else -> badge - 10.dp
+        },
+    )
+    val pill by animateColorAsState(if (active) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer)
 
     Box(
         Modifier
             .padding(horizontal = 4.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .background(pill)
             .hoverable(interaction)
+            .pointerHoverIcon(PointerIcon.Hand)
             .clickable(interaction, indication = null, onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 5.dp)
             .width(badge + step * (AgentIcons.size - 1))
@@ -115,7 +128,7 @@ fun ShareButton(expanded: Boolean = false, onClick: () -> Unit) {
                     .size(badge)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                    .border(2.dp, MaterialTheme.colorScheme.surfaceContainer, CircleShape),
+                    .border(2.dp, pill, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, null, Modifier.size(14.dp), tint = if (branded) Color.Unspecified else MaterialTheme.colorScheme.onSurface)

@@ -322,6 +322,18 @@ fun main(args: Array<String>) {
             }
         }
     }
+    // Hovered: the pointer over the stacked pill, and over the already fanned-out one.
+    for ((name, expanded) in listOf("agents-hover" to false, "agents-hover-expanded" to true)) {
+        val scene = ImageComposeScene(200 * 2, 50 * 2, Density(2f)) {
+            RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Box(Modifier.padding(8.dp)) { ShareButton(expanded) {} } } }
+        }
+        scene.render(0)
+        scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Enter, androidx.compose.ui.geometry.Offset(60f, 40f))
+        scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move, androidx.compose.ui.geometry.Offset(62f, 40f))
+        for (f in 1..40) scene.render(f * 16_000_000L)
+        File(out, "$name.png").writeBytes(scene.render(700_000_000L).encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        scene.close()
+    }
     shot("agents", 200, 80) {
         androidx.compose.foundation.layout.Column(Modifier.padding(8.dp)) { ShareButton {}; ShareButton(expanded = true) {} }
     }
