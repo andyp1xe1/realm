@@ -104,11 +104,11 @@ private fun ColumnScope.Title(text: String, body: String? = null) {
 }
 
 @Composable
-private fun Choice(title: String, detail: String, onClick: () -> Unit) {
+private fun Choice(title: String, detail: String?, onClick: () -> Unit) {
     TextButton(onClick = onClick, Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth()) {
             Text(title, color = MaterialTheme.colorScheme.onSurface)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -136,7 +136,12 @@ private fun ColumnScope.PickWorker(l: Login.PickWorker) {
 private fun ColumnScope.PickAccount(l: Login.PickAccount, cloudflare: CloudflareSetup) {
     Title("Deploy realm", "There's no realm worker on your Cloudflare accounts yet. Which one should get it?")
     Spacer(Modifier.height(12.dp))
-    l.accounts.forEach { a -> Choice(a.name.ifBlank { a.id }, a.id) { cloudflare.deployTo(a) } }
+    // Accounts go by their names; an id only tells apart two with the same one.
+    l.accounts.forEach { a ->
+        val title = a.name.ifBlank { a.id }
+        val id = a.id.takeIf { title != a.id && l.accounts.count { it.name == a.name } > 1 }
+        Choice(title, id) { cloudflare.deployTo(a) }
+    }
 }
 
 /** The plan is being worked out: its place stays blank, under a thin bar, until it fades in. */

@@ -73,7 +73,7 @@ internal class FakeCloud(var worker: String? = null, val r2: Boolean = true, val
                     ) {
                         """[{"id":"a1","name":"Jo's account"}]"""
                     } else {
-                        """[{"id":"a1","name":"Jo's account"},{"id":"a2","name":"Studio"}]"""
+                        """[{"id":"a1","name":"Jo's account"},{"id":"a2","name":"Studio"},{"id":"a3","name":"Studio"}]"""
                     },
                 )
 
@@ -248,7 +248,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
  * deploy-N: logging in finds no worker, the plan fades in, Deploy runs its steps, and the app signs in.
  * existing-N: logging in finds a worker and signs in to it, straight from setup into realm/Main.
  * conflict-N: the same onto a domain of the account's, whose A record is shown and replaced. r2-off: the plan
- * on an account without R2. pick-account: a login with two accounts and no worker.
+ * on an account without R2. pick-account: a login with three accounts, two named alike, and no worker.
  */
 internal fun deploying() {
     run {
@@ -303,7 +303,7 @@ internal fun deploying() {
         film.close()
     }
     run {
-        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud(accounts = 2).engine)
+        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud(accounts = 3).engine)
         val film = Film(home)
         home.cloudflare.logIn()
         film.until { home.cloudflare.login is Login.PickAccount }
