@@ -64,8 +64,10 @@ suspend fun CloudflareApi.attachDomain(account: Account, choice: DomainChoice, r
     return attach()?.let { DomainOutcome.Attached(it) } ?: DomainOutcome.Conflict(choice, dnsRecords(choice))
 }
 
-/** Takes the realm worker off [domain]. */
+/** Takes the realm worker off [domain], unless it's the last address the worker answers on: then [LastAddress]. */
 suspend fun CloudflareApi.removeDomain(account: Account, domain: Domain) {
+    val left = addresses(account).origins - "https://${domain.hostname}"
+    if (left.isEmpty()) throw LastAddress(domain.hostname)
     call<JsonElement?>(HttpMethod.Delete, "/accounts/${account.id}/workers/domains/${domain.id}")
 }
 
