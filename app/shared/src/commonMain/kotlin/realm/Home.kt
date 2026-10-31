@@ -264,6 +264,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         val s = try {
             signInWithToken(url, token, platform.name, engine)
         } catch (e: ApiException) {
+            logFailure("Signing in with a token", e)
             return e.message
         }
         signedIn(s)

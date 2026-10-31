@@ -131,7 +131,7 @@ private suspend fun <T> inWords(block: suspend () -> T): T = try {
 } catch (e: CancellationException) {
     throw e
 } catch (e: Exception) {
-    throw ApiException(explain(e), (e as? ApiException)?.status)
+    throw ApiException(explain(e), (e as? ApiException)?.status, e)
 }
 
 /** Runs [block] with this API, closing it if [block] fails, as nothing else will hold it then. */

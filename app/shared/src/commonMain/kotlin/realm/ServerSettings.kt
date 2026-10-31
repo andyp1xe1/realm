@@ -34,6 +34,7 @@ class ServerSettings internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                logFailure("Looking at the server", e)
                 home.message = explain(e)
                 return@launch
             }
@@ -64,6 +65,7 @@ class ServerSettings internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                logFailure("Checking for updates", e)
                 Check.Failed(explain(e))
             }
             edit { it.copy(check = check) }
@@ -123,6 +125,7 @@ class ServerSettings internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                logFailure("Switching to $origin", e)
                 edit { it.copy(task = AddressTask.Failed(explain(e))) }
             }
         }
@@ -145,6 +148,7 @@ class ServerSettings internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                logFailure("Changing the server's addresses", e)
                 edit { it.copy(task = AddressTask.Failed(explain(e))) }
             }
         }

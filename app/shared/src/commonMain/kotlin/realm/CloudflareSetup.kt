@@ -87,6 +87,7 @@ class CloudflareSetup internal constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            logFailure("Working out a deploy to ${account.id}", e)
             Login.Failed(explain(e))
         }
     }
@@ -108,6 +109,7 @@ class CloudflareSetup internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                logFailure("Deploying to ${plan.found.account.id}", e)
                 login = Login.Confirm(confirm.session, plan, choices, e as? ApiException ?: ApiException(explain(e)))
                 return@start
             }
@@ -149,6 +151,7 @@ class CloudflareSetup internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                logFailure("Putting realm on ${asked.conflict.choice.hostname}", e)
                 login = Login.Replace(asked.session, asked.plan, asked.deployed, asked.conflict, asked.steps, ApiException(explain(e)))
             }
         }
@@ -214,8 +217,9 @@ class CloudflareSetup internal constructor(
                 update = ServerUpdate(info.version, latest, canDeploy).takeIf { offersUpdate(info, latest) }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 // no notice: GitHub or the server can't say, and it's asked again next time
+                logFailure("Checking for a newer worker", e)
             }
         }
     }
@@ -238,9 +242,11 @@ class CloudflareSetup internal constructor(
             } catch (e: CancellationException) {
                 // Cancelled from here, by starting over or putting the sheet away; anything else stopped it and says why.
                 if (!isActive) throw e
+                logFailure("Logging in with Cloudflare", e)
                 login = null
                 home.message = "Logging in stopped: ${e.message}"
             } catch (e: Exception) {
+                logFailure("Logging in with Cloudflare", e)
                 login = null
                 home.message = explain(e)
             }

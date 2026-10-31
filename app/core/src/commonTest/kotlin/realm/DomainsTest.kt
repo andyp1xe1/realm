@@ -128,4 +128,12 @@ class DomainsTest {
         assertEquals(409, e.status)
         assertEquals("The bucket you tried to create already exists", e.message)
     }
+
+    @Test
+    fun aReplyThatDoesNotParseKeepsWhatDidNot() = runTest {
+        val c = FakeClouds { _, _ -> json("""{"success":true,"errors":"none","messages":[],"result":[]}""") }
+        val e = assertFailsWith<ApiException> { c.api().accounts() }
+        assertEquals("Cloudflare sent something odd (HTTP 200)", e.message)
+        assertTrue("errors" in e.cause?.message.orEmpty(), e.cause?.message)
+    }
 }

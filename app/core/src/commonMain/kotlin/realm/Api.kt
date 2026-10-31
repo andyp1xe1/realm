@@ -100,8 +100,11 @@ private data class NewLink(
     @SerialName("max_bytes") val maxBytes: Long? = null,
 )
 
-/** What went wrong, in words for the user. [status] is the HTTP status when a server said so. */
-open class ApiException(message: String, val status: Int? = null) : Exception(message)
+/**
+ * What went wrong, in words for the user. [status] is the HTTP status when a server said so; [cause] is what
+ * went wrong underneath, for the log.
+ */
+open class ApiException(message: String, val status: Int? = null, cause: Throwable? = null) : Exception(message, cause)
 
 /** Where an owner's token comes from: a fixed owner token, or a Cloudflare login that renews itself. */
 fun interface Bearer {

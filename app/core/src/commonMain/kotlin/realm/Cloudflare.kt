@@ -141,8 +141,9 @@ object Cloudflare {
         val res = try {
             http.submitForm(TOKEN, parameters { form.forEach { (k, v) -> append(k, v) } })
         } catch (e: Exception) {
-            throw ApiException("Can't reach Cloudflare")
+            throw ApiException("Can't reach Cloudflare", cause = e)
         }
+        // No cause: what didn't parse quotes the reply, and that holds the tokens.
         val t = runCatching {
             res.body<TokenReply>()
         }.getOrElse { throw ApiException("Cloudflare sent something odd (HTTP ${res.status.value})") }

@@ -89,7 +89,7 @@ suspend fun latestRelease(engine: HttpClientEngine? = null): Release = client(en
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            throw ApiException("Can't reach GitHub")
+            throw ApiException("Can't reach GitHub", cause = e)
         }
         if (!res.status.isSuccess()) throw ApiException("GitHub said no (HTTP ${res.status.value})", res.status.value)
         return res
@@ -99,7 +99,7 @@ suspend fun latestRelease(engine: HttpClientEngine? = null): Release = client(en
         .let {
             runCatching {
                 cloudflareJson.decodeFromString<List<GitHubRelease>>(it)
-            }.getOrElse { throw ApiException("GitHub sent something odd") }
+            }.getOrElse { throw ApiException("GitHub sent something odd", cause = it) }
         }
         .filter { !it.draft && !it.prerelease }
         .mapNotNull { r -> Semver.parse(r.tag)?.let { it to r } }

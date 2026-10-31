@@ -117,9 +117,9 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
         return try {
             cloudflareJson.decodeFromJsonElement(result ?: JsonNull)
         } catch (e: SerializationException) {
-            throw ApiException("Cloudflare sent something odd: ${e.message}")
+            throw odd("${method.value} $path", e)
         } catch (e: IllegalArgumentException) {
-            throw ApiException("Cloudflare sent something odd: ${e.message}")
+            throw odd("${method.value} $path", e)
         }
     }
 
@@ -136,11 +136,11 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
         } catch (e: CloudflareRejected) {
             throw e
         } catch (e: Exception) {
-            throw ApiException("Can't reach Cloudflare")
+            throw ApiException("Can't reach Cloudflare", cause = e)
         }
         val env = runCatching {
             res.body<Envelope>()
-        }.getOrElse { throw ApiException("Cloudflare sent something odd (HTTP ${res.status.value})", res.status.value) }
+        }.getOrElse { throw odd("${method.value} $path", it, res.status.value) }
         if (!env.success) {
             throw CloudflareError(
                 env.errors.orEmpty().joinToString("; ") { it.message }.ifBlank { "Cloudflare said no (HTTP ${res.status.value})" },
@@ -163,6 +163,12 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
     private data class Secret(val name: String, val text: String? = null, val type: String = "secret_text")
 
     override fun close() = http.close()
+
+    /** Cloudflare's reply to [request] didn't parse: logged with [cause], what didn't, so a mismatch with its real replies shows. */
+    internal fun odd(request: String, cause: Throwable, status: Int? = null): ApiException {
+        logFailure("Reading Cloudflare's reply to $request", cause)
+        return ApiException("Cloudflare sent something odd" + (status?.let { " (HTTP $it)" } ?: ""), status, cause)
+    }
 
     @Serializable
     internal data class Script(val id: String)
