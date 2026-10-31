@@ -82,6 +82,7 @@ import realm.Incoming
 import realm.Item
 import realm.Model
 import realm.Space
+import realm.isLink as isLinkUrl
 
 /** Signed in: a name makes a realm, a share link connects. Otherwise only links. */
 @Composable
@@ -103,7 +104,7 @@ internal fun AddSheet(home: Home, onClose: () -> Unit) {
         var error by remember { mutableStateOf<String?>(null) }
         var busy by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
-        val isLink = "/s/" in text
+        val isLink = isLinkUrl(text)
 
         fun go() {
             val t = text.trim()
@@ -114,7 +115,7 @@ internal fun AddSheet(home: Home, onClose: () -> Unit) {
             }
             busy = true
             scope.launch {
-                error = home.connect(if (t.startsWith("http")) t else "https://$t")
+                error = home.connect(t)
                 busy = false
                 if (error == null) onClose()
             }

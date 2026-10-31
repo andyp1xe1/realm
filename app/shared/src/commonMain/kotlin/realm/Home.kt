@@ -84,16 +84,13 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
 
     init {
         migratePrefs()
-        val origin = prefs.get("server")
-        val token = prefs.get("token")
-        val login = prefs.get("cloudflare")?.let { runCatching { JSON.decodeFromString<CloudflareLogin>(it) }.getOrNull() }
-        val bearer = when {
-            token != null -> Bearer { token }
-            login != null -> cloudflare(login).also { session = it }
-            else -> null
-        }
-        if (origin != null && bearer != null) {
-            server = Api.server(origin, bearer, platform.name)
+        val owner = prefs.owner()
+        if (owner != null) {
+            val bearer = when (owner) {
+                is Connection.ByToken -> Bearer { owner.token }
+                is Connection.ByCloudflare -> cloudflare(owner).also { session = it }
+            }
+            server = Api.server(owner.server, bearer, platform.name)
             // Last known realms, so the overview shows straight away and works offline.
             realms.addAll(prefs.get("realms")?.let { runCatching { JSON.decodeFromString<List<Realm>>(it) }.getOrNull() }.orEmpty())
         }
@@ -249,29 +246,12 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
             previous?.cancelAndJoin()
             loggingIn = true
             try {
-                val login = Cloudflare.logIn(platform)
-                val found = Cloudflare.workers(login.access)
-                val worker = when (found.size) {
-                    0 -> throw ApiException("There's no realm worker on that Cloudflare account. Deploy it first, then log in.")
-                    1 -> found[0]
-                    else -> askWhich(found) ?: return@launch
-                }
-                // The worker takes a Cloudflare login as its owner's once it knows which account it's on.
-                Cloudflare.claim(login.access, worker)
-                val s = cloudflare(login.copy(account = worker.account))
-                val api = Api.server(worker.origin, s, platform.name)
-                val (info, list) = try {
-                    Cloudflare.checkOwner(api) to api.realms()
-                } catch (e: Exception) {
-                    api.close()
-                    throw e
-                }
+                val s = logInWithCloudflare(platform, platform.name, ::askWhich) { cloudflare(it) } ?: return@launch
                 signOut()
-                session = s
-                prefs.set("server", worker.origin)
-                prefs.set("cloudflare", JSON.encodeToString(s.login))
-                adopt(api, list)
-                message = Api.mismatch(info)
+                session = s.session
+                prefs.saveOwner(s.connection)
+                adopt(s.api, s.realms)
+                message = Api.mismatch(s.info)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -298,13 +278,13 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         }
     }
 
-    /** [login] as the owner's token, keeping each renewal while it's the one signed in, and signing out once it's turned down. */
-    private fun cloudflare(login: CloudflareLogin): CloudflareSession {
+    /** [owner]'s login as the owner's token, keeping each renewal while it's the one signed in, and signing out once it's turned down. */
+    private fun cloudflare(owner: Connection.ByCloudflare): CloudflareSession {
         lateinit var s: CloudflareSession
-        s = CloudflareSession(login) { next ->
+        s = CloudflareSession(owner.login) { next ->
             if (session !== s) return@CloudflareSession
             if (next != null) {
-                prefs.set("cloudflare", JSON.encodeToString(next))
+                prefs.saveOwner(owner.copy(login = next))
             } else {
                 scope.launch {
                     if (session !== s) return@launch
@@ -316,25 +296,17 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         return s
     }
 
-    /** Signs in to your own server; returns an error message or null. */
-    suspend fun signIn(origin: String, token: String): String? {
-        val api = Api.server(origin, Bearer { token }, platform.name)
-        val (info, list) = try {
-            val info = api.info()
-            if (info.scope != "owner") error("not an owner token")
-            info to api.realms()
-        } catch (e: CancellationException) {
-            api.close()
-            throw e
-        } catch (e: Exception) {
-            api.close()
-            return explain(e)
+    /** Signs in to your own server at [url], as typed; returns an error message or null. */
+    suspend fun signIn(url: String, token: String): String? {
+        val s = try {
+            signInWithToken(url, token, platform.name)
+        } catch (e: ApiException) {
+            return e.message
         }
         signOut()
-        prefs.set("server", origin)
-        prefs.set("token", token)
-        adopt(api, list)
-        message = Api.mismatch(info)
+        prefs.saveOwner(s.connection)
+        adopt(s.api, s.realms)
+        message = Api.mismatch(s.info)
         return null
     }
 
@@ -357,34 +329,29 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         server = null
         session?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
         session = null
-        listOf("server", "token", "cloudflare", "realms").forEach { prefs.set(it, null) }
+        prefs.saveOwner(null)
+        prefs.set("realms", null)
         if (open == null) reopen()
     }
 
-    /** Adds a share link as a tile and opens it; returns an error message or null. */
-    suspend fun connect(url: String): String? {
-        val u = url.trim().trimEnd('/')
-        if ("/s/" !in u) return "That's not a share link"
-        shared.firstOrNull { it.url == u }?.let {
+    /** Adds a share link, as typed or pasted, as a tile and opens it; returns an error message or null. */
+    suspend fun connect(link: String): String? {
+        linkUrl(link)?.let { u -> shared.firstOrNull { it.url == u } }?.let {
             open(it)
             return null
         }
-        val api = Api(u, null, platform.name)
-        val info = try {
-            api.info()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            api.close()
-            return explain(e)
+        val c = try {
+            connectLink(link, platform.name)
+        } catch (e: ApiException) {
+            return e.message
         }
-        apis[sharedKey(u)] = api
-        val space = Space.Shared(u, info, null, api)
-        message = Api.mismatch(info)
+        apis[sharedKey(c.url)] = c.api
+        val space = Space.Shared(c.url, c.info, null, c.api)
+        message = Api.mismatch(c.info)
         shared += space
         saveLinks()
         arrive(space)
-        if (space.canRead) runCatching { api.list(limit = PREVIEW).items }.onSuccess { previews[space.key] = it }
+        if (space.canRead) runCatching { c.api.list(limit = PREVIEW).items }.onSuccess { previews[space.key] = it }
         return null
     }
 
@@ -472,16 +439,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope) {
         apis.remove(key)?.close()
         models.remove(key)
         previews.remove(key)
-    }
-
-    /** Error messages that say what to do. */
-    private fun explain(e: Exception): String = when (e.message) {
-        // A worker from before realms has no /info.
-        "not found" -> "That server needs updating: redeploy the worker."
-
-        "bad token" -> "That token doesn't work for this server."
-
-        else -> e.message ?: "Can't reach the server"
     }
 
     companion object {

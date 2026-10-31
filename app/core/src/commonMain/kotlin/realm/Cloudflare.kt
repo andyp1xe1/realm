@@ -28,6 +28,15 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlin.time.Clock
 
+/** The browser, for logins that come back to localhost. Implemented by each app's Platform. */
+interface Browser {
+    /**
+     * Opens [url] in the browser and waits for it to come back to http://localhost:[port][path], as an OAuth
+     * login does. Returns the query parameters it came back with.
+     */
+    suspend fun authorize(url: String, port: Int, path: String): Map<String, String>
+}
+
 /** A Cloudflare login, kept the way the CLI keeps it. */
 @Serializable
 data class CloudflareLogin(

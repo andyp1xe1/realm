@@ -92,6 +92,7 @@ import realm.Filter
 import realm.Home
 import realm.Model
 import realm.Platform
+import realm.isLink as isLinkUrl
 
 @Composable
 fun App(platform: Platform, modifier: Modifier = Modifier) {
@@ -374,15 +375,14 @@ fun SignInForm(home: Home, modifier: Modifier = Modifier, linksOnly: Boolean = f
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val isLink = linksOnly || "/s/" in url
+    val isLink = linksOnly || isLinkUrl(url)
 
     fun go() {
         if (url.isBlank() || busy || (!isLink && token.isBlank())) return
         busy = true
         error = null
         scope.launch {
-            val u = url.trim().let { if (it.startsWith("http")) it else "https://$it" }
-            error = if (isLink) home.connect(u) else home.signIn(u, token.trim())
+            error = if (isLink) home.connect(url) else home.signIn(url, token.trim())
             busy = false
             if (error == null) onDone()
         }

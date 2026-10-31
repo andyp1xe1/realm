@@ -422,23 +422,3 @@ internal suspend fun imageBytes(platform: Platform, api: Api, id: String, downlo
     withContext(Dispatchers.IO) { platform.cacheImage(key, bytes) }
     return bytes
 }
-
-fun ttlLabel(seconds: Long): String = when {
-    seconds < 3600 -> "${seconds / 60}m"
-    seconds < 86400 -> "${seconds / 3600}h"
-    else -> "${seconds / 86400}d"
-}
-
-fun humanSize(n: Long?): String {
-    if (n == null) return ""
-    var f = n.toDouble()
-    val units = listOf("B", "KB", "MB", "GB", "TB")
-    var i = 0
-    while (f >= 1024 && i < units.lastIndex) {
-        f /= 1024
-        i++
-    }
-    if (i == 0) return "$n B"
-    val r = (f * 10).toLong()
-    return "${r / 10}.${r % 10} ${units[i]}"
-}
