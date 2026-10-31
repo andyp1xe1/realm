@@ -100,8 +100,8 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp) 
         if (state.firstVisibleItemIndex < 4) state.animateScrollToItem(0)
     }
 
-    // Known to be empty, not just not loaded yet.
-    if (model.items.isEmpty() && model.pending.isEmpty() && !model.loading && model.loaded) {
+    // Known to be empty, not just not loaded yet. Stays up through a reload, so it doesn't blink out and back.
+    if (model.items.isEmpty() && model.pending.isEmpty() && model.loaded) {
         Box(modifier.fillMaxSize().padding(bottom = bottomPadding), contentAlignment = Alignment.Center) {
             when {
                 !model.canRead -> Text("This link can only add things. Dump away.", color = MaterialTheme.colorScheme.onSurfaceVariant)

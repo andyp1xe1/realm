@@ -133,7 +133,18 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     /** Pull in anything dumped from other devices since the newest item we have. */
     suspend fun poll() {
         if (filtering || loading || !canRead) return
-        val newest = items.firstOrNull() ?: return refresh()
+        val newest = items.firstOrNull()
+        if (newest == null) {
+            // Empty so far: ask quietly, without the loading state, so an empty page doesn't flicker every poll.
+            runCatching { api.list() }.onSuccess { page ->
+                if (items.isEmpty() && !filtering) {
+                    items.addAll(page.items)
+                    next = page.next
+                    loaded = true
+                }
+            }
+            return
+        }
         // Ids are time-prefixed; re-ask for the last minute so items that landed slightly out of order aren't missed.
         val cursor = (newest.created - 60_000).coerceAtLeast(0).toString(36).padStart(9, '0')
         runCatching { api.list(after = cursor, limit = 100) }.onSuccess { page ->
