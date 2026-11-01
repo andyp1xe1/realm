@@ -93,7 +93,8 @@ fun TopBar(
 private fun RowScope.BarItem(visible: Boolean, content: @Composable () -> Unit) {
     AnimatedVisibility(
         visible,
-        enter = fadeIn(tween(TAB_ZOOM_MILLIS)) + expandHorizontally(tween(TAB_ZOOM_MILLIS)),
+        enter = fadeIn(tween(TAB_ZOOM_MILLIS)) +
+            expandHorizontally(tween(TAB_ZOOM_MILLIS)), // grows: bar items, with the zoom (approved by PENDING, until 2026-11-15)
         exit = fadeOut(tween(TAB_ZOOM_MILLIS)) + shrinkHorizontally(tween(TAB_ZOOM_MILLIS)),
     ) { content() }
 }

@@ -57,6 +57,7 @@ if [ ${#kt[@]} -gt 0 ]; then
   for f in "${kt[@]}"; do
     case "$f" in */src/test/*) ;; *) .githooks/placeholders "${f#"$root"/}" <"$f" || fail=1 ;; esac
     case "$f" in */app/core/*) .githooks/core-free "${f#"$root"/}" <"$f" || fail=1 ;; esac
+    case "$f" in */src/test/* | */src/*Test/*) ;; */app/shared/*) .githooks/grows "${f#"$root"/}" <"$f" || fail=1 ;; esac
   done
 fi
 

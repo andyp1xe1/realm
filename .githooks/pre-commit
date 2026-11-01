@@ -49,6 +49,7 @@ if [ -n "$kt" ]; then
       { echo "$f: ktlint -F $f fixes the formatting; the rest needs a hand"; fail=1; }
     case "$f" in */src/test/*) ;; *) git show ":$f" | .githooks/placeholders "$f" || fail=1 ;; esac
     case "$f" in app/core/*) git show ":$f" | .githooks/core-free "$f" || fail=1 ;; esac
+    case "$f" in */src/test/* | */src/*Test/*) ;; app/shared/*) git show ":$f" | .githooks/grows "$f" || fail=1 ;; esac
   done
 fi
 

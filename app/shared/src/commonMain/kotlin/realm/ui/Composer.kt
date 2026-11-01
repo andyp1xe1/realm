@@ -243,7 +243,7 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                     }
                 } else {
                     // Compact changes (recording, attachments, the editing label) grow upward from the bottom edge.
-                    Modifier.animateContentSize(alignment = Alignment.BottomCenter).onSizeChanged { compactPx = it.height }
+                    Modifier.growUpward().onSizeChanged { compactPx = it.height }
                 },
             )
             .fillMaxWidth()
@@ -457,3 +457,7 @@ private fun StagedTile(file: LocalFile, platform: Platform, onRemove: () -> Unit
         )
     }
 }
+
+/** The compact composer, as what's in it changes, keeping its bottom edge. */
+private fun Modifier.growUpward() =
+    animateContentSize(alignment = Alignment.BottomCenter) // grows: what you add to it (approved by PENDING, until 2026-11-15)

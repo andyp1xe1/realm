@@ -262,7 +262,7 @@ private fun ColumnScope.Where(subdomain: String?, zones: List<Zone>, choices: Ch
     // The subdomain opens out under the chips, as the sheet grows to fit it.
     AnimatedVisibility(
         domain != null,
-        enter = fadeIn(tween(STEP_MILLIS)) + expandVertically(tween(STEP_MILLIS), expandFrom = Alignment.Top),
+        enter = opening(),
         exit = fadeOut(tween(STEP_MILLIS)) + shrinkVertically(tween(STEP_MILLIS), shrinkTowards = Alignment.Top),
     ) {
         val shown = DomainChoice(zone ?: return@AnimatedVisibility, name)
@@ -344,7 +344,7 @@ private fun ColumnScope.Deploying(l: Login.Deploying) {
             val shown = remember { MutableTransitionState(false).apply { targetState = true } }
             AnimatedVisibility(
                 shown,
-                enter = fadeIn(tween(STEP_MILLIS)) + expandVertically(tween(STEP_MILLIS), expandFrom = Alignment.Top),
+                enter = opening(),
             ) {
                 Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
@@ -392,3 +392,7 @@ private fun ColumnScope.Replace(l: Login.Replace) {
         TextButton(onClick = { l.answer(true) }) { Text("Delete them", color = MaterialTheme.colorScheme.error) }
     }
 }
+
+/** Fading in and opening out downward, the sheet growing to fit: for a deploy's next step, and the field a pick opens. */
+private fun opening() = fadeIn(tween(STEP_MILLIS)) +
+    expandVertically(tween(STEP_MILLIS), Alignment.Top) // grows: deploy steps, subdomain field (approved by PENDING, until 2026-11-15)
