@@ -19,6 +19,7 @@ import realm.Prefs
 import realm.Recording
 import realm.jvm.Dates
 import realm.jvm.DiskCache
+import realm.jvm.FileStore
 import realm.jvm.JFile
 import realm.jvm.awaitRedirect
 import realm.jvm.download
@@ -175,6 +176,7 @@ class DesktopPlatform : Platform {
     }
 
     private val imageCache = DiskCache(File(cacheHome(), "images"), 300L * 1024 * 1024)
+    override val cache = FileStore(File(cacheHome(), "data"))
     override fun cachedImage(key: String) = imageCache.get(key)
     override fun cacheImage(key: String, bytes: ByteArray) = imageCache.put(key, bytes)
 

@@ -9,6 +9,12 @@ interface Platform : Browser {
     val name: String
     val prefs: Prefs
 
+    /**
+     * Strings kept on disk between runs, by key, as [prefs] are, for fetched data too big for prefs (each feed's
+     * first page, the tiles' previews), so the app shows it at once the next time. The system may clear it.
+     */
+    val cache: Prefs
+
     /** Files/text arriving from outside: Android share sheet, desktop drag & drop. */
     val incoming: Flow<Incoming>
 

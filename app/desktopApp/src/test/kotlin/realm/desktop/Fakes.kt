@@ -57,18 +57,25 @@ import kotlin.math.sin
 
 internal val real by lazy { DesktopPlatform() }
 
-internal class FakePlatform(vararg prefs: Pair<String, String>) : Platform {
-    override val name = "desktop"
-    private val map = mutableMapOf<String, String?>(*prefs)
-    override val prefs = object : Prefs {
-        override fun get(key: String) = map[key]
-        override fun set(key: String, value: String?) {
-            map[key] = value
-        }
+/** Prefs, or the cache, kept in [map]: by a [FakePlatform], or handed to the next run's. */
+internal class MapPrefs(val map: MutableMap<String, String> = mutableMapOf()) : Prefs {
+    override fun get(key: String) = map[key]
+    override fun set(key: String, value: String?) {
+        if (value == null) map.remove(key) else map[key] = value
     }
+}
+
+/** A platform with [prefs] to start from, and [cached], the cache a run before kept, as [kept] and [stored] give them. */
+internal class FakePlatform(vararg prefs: Pair<String, String>, cached: Map<String, String> = emptyMap()) : Platform {
+    override val name = "desktop"
+    override val prefs = MapPrefs(mutableMapOf(*prefs))
+    override val cache = MapPrefs(cached.toMutableMap())
 
     /** What's kept in prefs, to start the next run from. */
-    fun kept(): List<Pair<String, String>> = map.mapNotNull { (k, v) -> v?.let { k to it } }
+    fun kept(): List<Pair<String, String>> = prefs.map.toList()
+
+    /** What's kept in the cache, for the next run. */
+    fun stored(): Map<String, String> = cache.map.toMap()
     override val incoming = emptyFlow<realm.Incoming>()
     override val isForeground = false
     override val canTakePhoto = true

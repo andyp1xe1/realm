@@ -13,14 +13,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FetchedTest {
-    private class MapPrefs : Prefs {
-        val map = mutableMapOf<String, String>()
-        override fun get(key: String) = map[key]
-        override fun set(key: String, value: String?) {
-            if (value == null) map.remove(key) else map[key] = value
-        }
-    }
-
     private val prefs = MapPrefs()
     private val cache = Remembered(prefs, "realms", ListSerializer(Realm.serializer()))
     private val main = listOf(Realm("main", "Main"))

@@ -38,6 +38,7 @@ import realm.Prefs
 import realm.Recording
 import realm.jvm.Dates
 import realm.jvm.DiskCache
+import realm.jvm.FileStore
 import realm.jvm.JFile
 import realm.jvm.StreamReader
 import realm.jvm.awaitRedirect
@@ -179,6 +180,7 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
 
     // Android may clear its cache dir when space runs low, which is fine for this.
     private val imageCache = DiskCache(File(activity.cacheDir, "images"), 150L * 1024 * 1024)
+    override val cache = FileStore(File(activity.cacheDir, "data"))
     override fun cachedImage(key: String) = imageCache.get(key)
     override fun cacheImage(key: String, bytes: ByteArray) = imageCache.put(key, bytes)
 

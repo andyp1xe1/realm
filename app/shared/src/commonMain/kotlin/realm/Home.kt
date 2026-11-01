@@ -2,7 +2,6 @@ package realm
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
@@ -10,11 +9,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlin.time.Duration.Companion.seconds
@@ -71,11 +68,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     private val apis = mutableMapOf<String, Api>()
     private val models = mutableMapOf<String, Model>()
 
-    /** The latest few items of each space, by key, as last fetched for the tiles. */
-    val previews = mutableStateMapOf<String, List<Item>>()
-    private val thumbs = mutableStateMapOf<String, ImageBitmap>()
-    private val thumbLoading = mutableSetOf<String>()
-    private val thumbOrder = ArrayDeque<String>()
+    /** What each tile shows: its space's latest items, kept between runs, and their pictures. */
+    val tiles = Tiles(platform)
+    val previews get() = tiles.previews
     private var lastRefresh: TimeSource.Monotonic.ValueTimeMark? = null
 
     /** The Cloudflare login the server is signed in with, if it is. */
@@ -105,9 +100,11 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
                 serverSettings.refresh() // so settings opens on it, the last known shown meanwhile
             }
         }
+        // Each link as it last said it was, until it says again.
         knownLinks.get()?.forEach { url ->
-            shared += Space.Shared(url, null, null, linkApi(url))
+            shared += Space.Shared(url, linkInfo(url).get(), null, linkApi(url))
         }
+        tiles.restore(spaces.map { it.key })
         openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
         refresh()
     }
@@ -146,16 +143,14 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             } finally {
                 loading = false
             }
-            spaces.filter { it.canRead }.forEach { sp ->
-                launch { runCatching { sp.api.list(limit = PREVIEW).items }.onSuccess { previews[sp.key] = it } }
-            }
+            spaces.filter { it.canRead }.forEach { sp -> launch { tiles.fetch(sp) } }
         }
     }
 
     private suspend fun loadRealms(s: Api) {
         try {
             val list = s.realms()
-            if (server !== s) return // signed out meanwhile
+            if (server !== s || realms.toList() == list) return // signed out meanwhile, or nothing changed
             realms.clear()
             realms.addAll(list)
             knownRealms.set(list)
@@ -167,50 +162,33 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         }
     }
 
+    /** Asks [url] what it is; its tile changes only if the answer differs, and the answer is kept for next time. */
     private suspend fun updateShared(url: String) {
         val api = linkApi(url)
-        val next = try {
-            Space.Shared(url, api.info(), null, api)
+        val was = shared.firstOrNull { it.url == url }
+        val (info, error) = try {
+            api.info() to null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Space.Shared(url, shared.firstOrNull { it.url == url }?.info, explain(e), api)
+            was?.info to explain(e)
         }
         val i = shared.indexOfFirst { it.url == url }
-        if (i >= 0) shared[i] = next
+        if (was == null || i < 0 || (was.info == info && was.error == error)) return
+        shared[i] = Space.Shared(url, info, error, api)
+        if (error == null) linkInfo(url).set(info)
     }
 
     /** The latest items of a space, for its tile. An open feed knows better than the last fetch. */
     fun preview(space: Space): List<Item> =
-        models[space.key]?.items?.takeIf { it.isNotEmpty() }?.take(PREVIEW) ?: previews[space.key].orEmpty()
+        models[space.key]?.items?.takeIf { it.isNotEmpty() }?.take(Tiles.PREVIEW) ?: previews[space.key].orEmpty()
 
     /** Known to have nothing in it: fetched and empty, not just not fetched yet. */
     fun isEmpty(space: Space): Boolean =
         preview(space).isEmpty() && (previews[space.key] != null || (space is Space.Own && space.realm.count == 0L))
 
-    fun thumb(id: String): ImageBitmap? = thumbs[id]
-
     /** An image for a tile: the open feed's copy if it has one, else the tile's own. */
-    fun image(space: Space, item: Item): ImageBitmap? = models[space.key]?.image(item.id) ?: thumbs[item.id]
-
-    suspend fun loadThumb(space: Space, item: Item) {
-        if (item.id in thumbs || item.id in thumbLoading || (item.size ?: 0) > Model.MAX_INLINE_IMAGE) return
-        thumbLoading += item.id
-        try {
-            // A use-limited link only shows what's already on disk: a download would spend a use.
-            val bytes = imageBytes(platform, space.api, item.id, download = !space.limited) ?: return
-            withContext(Dispatchers.Default) { platform.decodeImage(bytes, 480) }?.let { bmp ->
-                thumbs[item.id] = bmp
-                thumbOrder.addLast(item.id)
-                while (thumbOrder.size > 120) thumbs.remove(thumbOrder.removeFirst()) // the disk has the rest
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-        } finally {
-            thumbLoading -= item.id
-        }
-    }
+    fun image(space: Space, item: Item): ImageBitmap? = models[space.key]?.image(item.id) ?: tiles.thumb(item.id)
 
     // ---------- opening ----------
 
@@ -342,7 +320,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
      * [switching] to another address of the same server keeps the login and settings' view of it.
      */
     private fun leave(switching: Boolean, ending: Boolean = !switching) {
-        realms.forEach { forget(ownKey(it.id)) }
+        // What was kept of each realm goes with the server, unless it's the same server at another address.
+        realms.forEach { forget(ownKey(it.id), drop = !switching) }
         realms.clear()
         server?.close()
         server = null
@@ -372,8 +351,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         message = Api.mismatch(c.info)
         shared += space
         saveLinks()
+        linkInfo(c.url).set(c.info)
         arrive(space)
-        if (space.canRead) runCatching { c.api.list(limit = PREVIEW).items }.onSuccess { previews[space.key] = it }
+        if (space.canRead) tiles.fetch(space)
         return null
     }
 
@@ -383,7 +363,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             delay(TILE_LEAVE_MILLIS) // let the tile fade out first
             shared.removeAll { it.key == space.key }
             leaving -= space.key
-            forget(space.key)
+            forget(space.key, drop = true)
+            linkInfo(space.url).set(null)
             saveLinks()
             if (open == null) reopen()
         }
@@ -434,7 +415,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
                     s.deleteRealm(realm.id)
                 }
                 realms.removeAll { it.id == realm.id }
-                forget(key)
+                forget(key, drop = true)
                 knownRealms.set(realms.toList())
                 if (open == null) reopen()
             } catch (e: Exception) {
@@ -457,17 +438,18 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     private fun linkApi(url: String) = apis.getOrPut(sharedKey(url)) { Api(url, null, platform.name, engine) }
 
-    private fun forget(key: String) {
+    /** What the link at [url] last said it is: its name, scope, expiry and uses left; nothing secret but the url. */
+    private fun linkInfo(url: String) = Remembered(platform.cache, "link-info/$url", Info.serializer())
+
+    /** Lets go of the space at [key]; [drop] forgets what was kept of it too, its tile. */
+    private fun forget(key: String, drop: Boolean) {
         apis.remove(key)?.close()
         models.remove(key)
-        previews.remove(key)
+        tiles.forget(key, drop)
     }
 
     companion object {
         /** How long a tile takes to fade away when deleted or removed. */
         const val TILE_LEAVE_MILLIS = 220L
-
-        /** Items fetched per tile: enough to fill a tall one; the oldest clip off the top. */
-        private const val PREVIEW = 8
     }
 }

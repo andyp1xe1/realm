@@ -260,28 +260,33 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(
-            space.name,
-            Modifier.padding(horizontal = 4.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            details(home, space),
-            Modifier.padding(horizontal = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = if (space is Space.Shared &&
-                space.error != null
-            ) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // Each line fades through to what a refresh found only if it's different, as the picture above does.
+        Changing(space.name) { name ->
+            Text(
+                name,
+                Modifier.padding(horizontal = 4.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Changing(details(home, space)) { details ->
+            Text(
+                details,
+                Modifier.padding(horizontal = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (space is Space.Shared &&
+                    space.error != null
+                ) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 
     if (space is Space.Own) {
@@ -356,30 +361,37 @@ private fun TilePreview(home: Home, space: Space, page: Dp) {
 
         else -> {
             val items = home.preview(space)
-            LaunchedEffect(items) { items.filter { it.kind == "image" }.forEach { home.loadThumb(space, it) } }
-            Miniature(page) {
-                Column(Modifier.fillMaxSize()) {
-                    // Pinned to the bottom like the feed, so what doesn't fit is the oldest, cut off at the top.
-                    Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                        // As on the page: the empty-realm art, centred above the composer.
-                        if (home.isEmpty(space)) EmptyRealm(Modifier.align(Alignment.Center), still = true)
-                        if (items.isNotEmpty()) {
-                            FeedPicture(
-                                items,
-                                home.platform,
-                                { home.image(space, it) },
-                                Modifier.align(Alignment.BottomStart).fillMaxWidth().wrapContentHeight(Alignment.Bottom, unbounded = true),
-                            )
-                        }
-                    }
-                    // Where the composer sits on the real page.
-                    if (space.canWrite) {
-                        Box(
-                            Modifier.fillMaxWidth().padding(8.dp).height(56.dp)
-                                .clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceContainer),
-                        )
-                    }
+            LaunchedEffect(items) { items.filter { it.kind == "image" }.forEach { home.tiles.loadThumb(space, it) } }
+            // Refreshed, a tile fades through to what it shows now only if that changed; the rest stay still.
+            Changing(items to home.isEmpty(space)) { (shown, empty) -> Preview(home, space, page, shown, empty) }
+        }
+    }
+}
+
+/** A tile's picture of [items], the latest of [space]'s feed, laid out as the page is, or the empty-realm art. */
+@Composable
+private fun Preview(home: Home, space: Space, page: Dp, items: List<Item>, empty: Boolean) {
+    Miniature(page) {
+        Column(Modifier.fillMaxSize()) {
+            // Pinned to the bottom like the feed, so what doesn't fit is the oldest, cut off at the top.
+            Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                // As on the page: the empty-realm art, centred above the composer.
+                if (empty) EmptyRealm(Modifier.align(Alignment.Center), still = true)
+                if (items.isNotEmpty()) {
+                    FeedPicture(
+                        items,
+                        home.platform,
+                        { home.image(space, it) },
+                        Modifier.align(Alignment.BottomStart).fillMaxWidth().wrapContentHeight(Alignment.Bottom, unbounded = true),
+                    )
                 }
+            }
+            // Where the composer sits on the real page.
+            if (space.canWrite) {
+                Box(
+                    Modifier.fillMaxWidth().padding(8.dp).height(56.dp)
+                        .clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceContainer),
+                )
             }
         }
     }

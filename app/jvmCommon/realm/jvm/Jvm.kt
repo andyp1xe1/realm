@@ -3,12 +3,14 @@ package realm.jvm
 
 import realm.ByteReader
 import realm.LocalFile
+import realm.Prefs
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLConnection
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -122,5 +124,37 @@ class DiskCache(private val dir: File, private val maxBytes: Long) {
             total -= f.length()
             f.delete()
         }
+    }
+}
+
+/**
+ * Strings kept as files in [dir], one per key: fetched data the app shows at once next time, too big for prefs.
+ * A file that can't be read or written is as if nothing were kept. Blocking, and small enough for the UI thread.
+ */
+class FileStore(private val dir: File) : Prefs {
+    override fun get(key: String): String? = runCatching { file(key).takeIf { it.isFile }?.readText() }.getOrNull()
+
+    override fun set(key: String, value: String?) {
+        runCatching {
+            val f = file(key)
+            if (value == null) {
+                f.delete()
+                return
+            }
+            dir.mkdirs()
+            val part = File(dir, f.name + ".part")
+            part.writeText(value)
+            // Whole or not at all: a reader never sees half a file. Windows won't rename over a file that's there.
+            if (!part.renameTo(f)) {
+                f.delete()
+                if (!part.renameTo(f)) part.delete()
+            }
+        }
+    }
+
+    /** A name that's safe on every file system: the key's letters and digits, then a hash that tells keys apart. */
+    private fun file(key: String): File {
+        val hash = MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
+        return File(dir, key.map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").take(60) + "-" + hash)
     }
 }

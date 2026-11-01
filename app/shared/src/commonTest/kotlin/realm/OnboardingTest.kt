@@ -1,6 +1,5 @@
 package realm
 
-import androidx.compose.ui.graphics.ImageBitmap
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -10,7 +9,6 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -25,34 +23,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OnboardingTest {
-    private class MapPrefs(vararg entries: Pair<String, String>) : Prefs {
-        val map = mutableMapOf(*entries)
-        override fun get(key: String) = map[key]
-        override fun set(key: String, value: String?) {
-            if (value == null) map.remove(key) else map[key] = value
-        }
-    }
-
-    private class TestPlatform(override val prefs: Prefs) : Platform {
-        override val name = "test"
-        override val incoming = emptyFlow<Incoming>()
-        override val isForeground = false
-        override val canTakePhoto = false
-        override suspend fun pickFiles() = emptyList<LocalFile>()
-        override suspend fun takePhoto(): LocalFile? = null
-        override suspend fun startRecording(): Recording? = null
-        override fun clipboardFiles() = emptyList<LocalFile>()
-        override fun copyText(text: String) {}
-        override suspend fun save(url: String, auth: String?, name: String) = ""
-        override suspend fun open(url: String, auth: String?, name: String) {}
-        override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = null
-        override fun cachedImage(key: String): ByteArray? = null
-        override fun cacheImage(key: String, bytes: ByteArray) {}
-        override fun formatTime(epochMs: Long) = ""
-        override fun formatDay(epochMs: Long) = ""
-        override suspend fun authorize(url: String, port: Int, path: String) = error("no browser in tests")
-    }
-
     /** A login with no refresh token, so nothing renews it or ends it over the network. */
     private val login = CloudflareLogin("cf", null, Cloudflare.now() + 3600)
     private val kept = "cloudflare" to """{"access":"cf","expires":${login.expires},"account":"a1"}"""
