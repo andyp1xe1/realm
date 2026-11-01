@@ -36,6 +36,18 @@ class CloudflareError(message: String, status: Int, val codes: List<Int>) : ApiE
 @Serializable
 data class Account(val id: String, val name: String = "")
 
+/** Whether realm runs on an account. */
+sealed interface RealmOn {
+    /** It does, as [worker], answering at its origin. */
+    data class Running(val worker: Worker) : RealmOn
+
+    /** There's no realm worker on it yet: deploy one. */
+    data object None : RealmOn
+
+    /** There's a realm worker, but nothing can reach it: [why] says what to turn on. */
+    data class NoAddress(val why: String) : RealmOn
+}
+
 /** A domain on a Cloudflare account, to put the worker on. */
 @Serializable
 data class Zone(val id: String, val name: String, val status: String = "active")
@@ -64,11 +76,19 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
     /** The accounts the login was given on the consent screen. */
     suspend fun accounts(): List<Account> = call(HttpMethod.Get, "/accounts")
 
-    /** The accounts that have a realm worker, and where each answers. */
-    suspend fun workers(): List<Worker> {
-        val accounts = accounts()
-        if (accounts.isEmpty()) throw ApiException("No Cloudflare account was picked on the consent screen")
-        return accounts.mapNotNull { acc -> if (hasScript(acc)) Worker(acc.id, acc.name, origin(acc)) else null }
+    /**
+     * Whether realm runs on [account], and where it answers: a custom domain if it has one, else workers.dev.
+     * Changes nothing.
+     */
+    suspend fun realmOn(account: Account): RealmOn {
+        if (!hasScript(account)) return RealmOn.None
+        return try {
+            RealmOn.Running(Worker(account.id, account.name, origin(account)))
+        } catch (e: CloudflareError) {
+            throw e
+        } catch (e: ApiException) {
+            RealmOn.NoAddress(e.message.orEmpty())
+        }
     }
 
     internal suspend fun hasScript(account: Account): Boolean =
@@ -84,7 +104,7 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
     suspend fun subdomain(account: Account): String? = try {
         call<Subdomain>(HttpMethod.Get, "/accounts/${account.id}/workers/subdomain").subdomain
     } catch (e: CloudflareError) {
-        // Unverified: an account without one is believed to answer 10007 (or a 404).
+        // Verified: an account without one answers 404 with 10007.
         if (NO_SUBDOMAIN in e.codes || e.status == 404) null else throw e
     }
 
@@ -189,7 +209,7 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
     internal companion object {
         const val API = "https://api.cloudflare.com/client/v4"
 
-        /** Unverified: what an account without a workers.dev subdomain is believed to answer. */
+        /** What an account without a workers.dev subdomain answers, with HTTP 404 (verified, [Recorded] NO_SUBDOMAIN). */
         const val NO_SUBDOMAIN = 10007
 
         fun workersDev(subdomain: String) = "https://${Cloudflare.WORKER}.$subdomain.workers.dev"

@@ -401,6 +401,16 @@ object Recorded {
 }
 """
 
+    /** GET /accounts/a1/r2/buckets on an account that hasn't turned R2 on, HTTP 403. */
+    const val R2_OFF = """
+{"success":false,"errors":[{"code":10042,"message":"Please enable R2 through the Cloudflare Dashboard."}],"messages":[],"result":null}
+"""
+
+    /** GET /accounts/a1/workers/subdomain on an account that has no workers.dev subdomain, HTTP 404. */
+    const val NO_SUBDOMAIN = """
+{"result":null,"success":false,"errors":[{"code":10007,"message":"You do not have a workers.dev subdomain. Please go to https://dash.cloudflare.com/?to=/:account/workers/workers-and-pages. Opening the Workers & Pages landing page for the first time will create a workers.dev subdomain automatically."}],"messages":[]}
+"""
+
     /** GET /accounts/a1/workers/scripts/<none>/subdomain, HTTP 404: the shape of every refusal. */
     const val NO_SUCH_WORKER = """
 {

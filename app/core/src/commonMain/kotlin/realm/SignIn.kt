@@ -5,7 +5,10 @@ package realm
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
 
-/** What logging in with Cloudflare came to: signed in, or logged in with no realm worker to sign in to yet. */
+/**
+ * What logging in with Cloudflare came to: signed in to the realm on its one account, logged in to one account
+ * with no realm yet, or logged in to several, for the user to choose from.
+ */
 sealed interface LoggedIn
 
 /**
@@ -16,10 +19,17 @@ class SignedIn(val api: Api, val info: Info, val realms: List<Realm>, val connec
     LoggedIn
 
 /**
- * Logged in with Cloudflare, but none of [accounts], the ones picked on the consent screen, has a realm
- * worker yet. [login] still works: deploy one with it, then [signInWithCloudflare], with no second consent.
+ * Logged in with Cloudflare to one account, [login.account][CloudflareLogin.account], with no realm worker
+ * on it yet. [login] still works: keep it as a [Connection.LoginOnly], check the [requirements], deploy, then
+ * [signInWithCloudflare], with no second consent.
  */
-class NoWorker(val login: CloudflareLogin, val accounts: List<Account>) : LoggedIn
+class NoWorker(val login: CloudflareLogin, val account: Account) : LoggedIn
+
+/**
+ * Logged in with Cloudflare to several [accounts], the ones picked on the consent screen: the user chooses
+ * which, whether realm runs there ([CloudflareApi.realmOn]) or not. [login] is for none of them yet.
+ */
+class SeveralAccounts(val login: CloudflareLogin, val accounts: List<Account>) : LoggedIn
 
 /** A share link connected to: [url] as it's saved, and what the link says about itself. */
 class Connected(val url: String, val api: Api, val info: Info)
@@ -65,29 +75,64 @@ suspend fun signInWithToken(server: String, token: String, source: String, engin
 }
 
 /**
- * Logs in with Cloudflare in the browser and signs in to the realm worker on that account, as `realm login`
- * does: no URL or token to copy, the login is the owner's token. With realm workers on more than one
- * account, [choose] picks one; null from it gives up, and so does this. With none, it's [NoWorker], to
- * deploy one. [session] makes the connection's login a bearer that keeps its renewals, as the caller saves
- * them. [engine] is the platform's own unless one is given, as previews do.
+ * Logs in with Cloudflare in the browser, as `realm login` does: no URL or token to copy, the login is the
+ * owner's token. With one account, signs in to the realm worker there, or is [NoWorker] when there's none;
+ * with several, it's [SeveralAccounts], for the user to choose, whichever of them realm runs on. [session]
+ * makes the connection's login a bearer that keeps its renewals, as the caller saves them. [engine] is the
+ * platform's own unless one is given, as previews do.
  */
 suspend fun logInWithCloudflare(
     browser: Browser,
     source: String,
-    choose: suspend (List<Worker>) -> Worker?,
     session: (Connection.ByCloudflare) -> CloudflareSession = { CloudflareSession(it.login) {} },
     engine: HttpClientEngine? = null,
-): LoggedIn? = inWords {
+): LoggedIn = inWords {
     val login = Cloudflare.logIn(browser, engine)
-    val found = Cloudflare.workers(login.access, engine)
-    val worker = when (found.size) {
-        0 -> return@inWords NoWorker(login, CloudflareApi(Bearer { login.access }, engine).use { it.accounts() })
-        1 -> found[0]
-        else -> choose(found) ?: return@inWords null
+    val accounts = CloudflareApi(Bearer { login.access }, engine).use { it.accounts() }
+    val only = when (accounts.size) {
+        0 -> throw ApiException("No Cloudflare account was picked on the consent screen")
+        1 -> accounts[0]
+        else -> return@inWords SeveralAccounts(login, accounts)
     }
+    val worker = when (val on = CloudflareApi(Bearer { login.access }, engine).use { it.realmOn(only) }) {
+        RealmOn.None -> return@inWords NoWorker(login.copy(account = only.id), only)
+        is RealmOn.NoAddress -> throw ApiException(on.why)
+        is RealmOn.Running -> on.worker
+    }
+    signInTo(worker, CloudflareSession(login) {}, source, session, engine)
+}
+
+/**
+ * Signs in to the realm worker on [account] with [login], the Cloudflare login as it renews itself, as logging
+ * in does once it has found it: one chosen from several accounts, or deployed since, say. [session] is as for
+ * [logInWithCloudflare].
+ */
+suspend fun signInOn(
+    account: Account,
+    login: CloudflareSession,
+    source: String,
+    session: (Connection.ByCloudflare) -> CloudflareSession = { CloudflareSession(it.login) {} },
+    engine: HttpClientEngine? = null,
+): SignedIn = inWords {
+    val worker = when (val on = CloudflareApi(login, engine).use { it.realmOn(account) }) {
+        is RealmOn.Running -> on.worker
+        is RealmOn.NoAddress -> throw ApiException(on.why)
+        RealmOn.None -> throw ApiException("There's no realm worker on ${account.name.ifBlank { account.id }}.")
+    }
+    signInTo(worker, login, source, session, engine)
+}
+
+/** Tells [worker] which account it runs on, if it doesn't know yet, then signs in to it with [login] as its owner's. */
+private suspend fun signInTo(
+    worker: Worker,
+    login: CloudflareSession,
+    source: String,
+    session: (Connection.ByCloudflare) -> CloudflareSession,
+    engine: HttpClientEngine?,
+): SignedIn {
     // The worker takes a Cloudflare login as its owner's once it knows which account it's on.
-    Cloudflare.claim(login.access, worker, engine)
-    signInWithCloudflare(worker.origin, login.copy(account = worker.account), source, session, engine)
+    CloudflareApi(login, engine).use { it.claim(worker.account) }
+    return signInWithCloudflare(worker.origin, login.login.copy(account = worker.account), source, session, engine)
 }
 
 /**

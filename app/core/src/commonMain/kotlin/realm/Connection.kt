@@ -20,8 +20,11 @@ interface Prefs {
 sealed interface Connection {
     val cloudflare: CloudflareLogin?
 
+    /** What the app keeps as yours: a server you own, or a Cloudflare login to deploy one with. */
+    sealed interface Own : Connection
+
     /** The owner of the server at [server], an origin like https://realm.you.workers.dev. */
-    sealed interface Owner : Connection {
+    sealed interface Owner : Own {
         val server: String
 
         /** The id of the realm in use; null is the first one, as the plain /api routes use. */
@@ -43,7 +46,7 @@ sealed interface Connection {
     data class Shared(val url: String, override val cloudflare: CloudflareLogin? = null) : Connection
 
     /** Logged in with Cloudflare, but connected to nothing yet: there was no realm worker on the account. */
-    data class LoginOnly(override val cloudflare: CloudflareLogin) : Connection
+    data class LoginOnly(override val cloudflare: CloudflareLogin) : Own
 
     companion object {
         @OptIn(ExperimentalSerializationApi::class)
@@ -113,19 +116,21 @@ private data class ConfigJson(
 )
 
 /**
- * The owner connection the app keeps, under the prefs keys it has always used: "server" and either "token"
- * or "cloudflare". Null when there's none, or what's there can't be read.
+ * The connection of your own the app keeps, under the prefs keys it has always used: "server" and either
+ * "token" or "cloudflare" for an owner, and "cloudflare" alone for a login with nothing deployed yet. Null
+ * when there's none, or what's there can't be read.
  */
-fun Prefs.owner(): Connection.Owner? {
-    val server = get("server") ?: return null
+fun Prefs.own(): Connection.Own? {
+    val server = get("server")
     val login = Remembered(this, "cloudflare", CloudflareLogin.serializer()).get()
+    if (server == null) return login?.let { Connection.LoginOnly(it) }
     return get("token")?.let { Connection.ByToken(server, it, cloudflare = login) }
         ?: login?.let { Connection.ByCloudflare(server, it) }
 }
 
-/** Keeps [owner] for [Prefs.owner] to find next time; null forgets it. */
-fun Prefs.saveOwner(owner: Connection.Owner?) {
-    set("server", owner?.server)
-    set("token", (owner as? Connection.ByToken)?.token)
-    Remembered(this, "cloudflare", CloudflareLogin.serializer()).set(owner?.cloudflare)
+/** Keeps [own] for [Prefs.own] to find next time; null forgets it. */
+fun Prefs.saveOwn(own: Connection.Own?) {
+    set("server", (own as? Connection.Owner)?.server)
+    set("token", (own as? Connection.ByToken)?.token)
+    Remembered(this, "cloudflare", CloudflareLogin.serializer()).set(own?.cloudflare)
 }

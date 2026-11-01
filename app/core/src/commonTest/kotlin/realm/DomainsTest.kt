@@ -105,22 +105,22 @@ class DomainsTest {
     @Test
     fun aWorkerIsFoundAtItsCustomDomainFirst() = runTest {
         val c = worker("[$attached]", workersDev = true)
-        assertEquals("https://notes.jo.dev", Cloudflare.workers("t", c.engine).single().origin)
+        assertEquals("https://notes.jo.dev", assertIs<RealmOn.Running>(c.api().realmOn(ACCOUNT)).worker.origin)
         assertEquals("realm", c.seen.single { it.route.endsWith("/workers/domains") }.url.parameters["service"])
     }
 
     @Test
     fun aWorkerWithoutACustomDomainIsFoundOnWorkersDev() = runTest {
         // Cloudflare's own replies throughout, null errors on the custom domains and all.
-        val w = Cloudflare.workers("t", FakeClouds { _, _ -> null }.engine).single()
+        val w = assertIs<RealmOn.Running>(FakeClouds { _, _ -> null }.api().realmOn(ACCOUNT)).worker
         assertEquals("https://realm.jo.workers.dev", w.origin)
         assertEquals("Jo's account", w.accountName)
     }
 
     @Test
     fun aWorkerWithNoAddressSaysSo() = runTest {
-        val e = assertFailsWith<ApiException> { Cloudflare.workers("t", worker("[]", workersDev = false).engine) }
-        assertTrue("workers.dev" in e.message!!, e.message)
+        val off = assertIs<RealmOn.NoAddress>(worker("[]", workersDev = false).api().realmOn(ACCOUNT))
+        assertTrue("workers.dev" in off.why, off.why)
     }
 
     @Test

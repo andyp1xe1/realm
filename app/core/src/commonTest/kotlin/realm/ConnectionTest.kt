@@ -87,14 +87,26 @@ class ConnectionTest {
     @Test
     fun theAppFindsItsOwnerUnderItsOldPrefsKeys() {
         val prefs = MapPrefs("server" to "https://realm.jo.dev", "token" to "t")
-        assertEquals(Connection.ByToken("https://realm.jo.dev", "t"), prefs.owner())
+        assertEquals(Connection.ByToken("https://realm.jo.dev", "t"), prefs.own())
 
         val cf = Connection.ByCloudflare("https://realm.jo.workers.dev", CloudflareLogin("acc", "ref", 5, "a1"))
-        prefs.saveOwner(cf)
-        assertEquals(cf, MapPrefs(*prefs.map.toList().toTypedArray()).owner())
+        prefs.saveOwn(cf)
+        assertEquals(cf, MapPrefs(*prefs.map.toList().toTypedArray()).own())
 
-        prefs.saveOwner(null)
-        assertNull(prefs.owner())
+        prefs.saveOwn(null)
+        assertNull(prefs.own())
+    }
+
+    @Test
+    fun aCloudflareLoginWithNothingDeployedIsKeptAndEndsWithSigningOut() {
+        val prefs = MapPrefs("server" to "https://realm.jo.dev", "token" to "t")
+        val only = Connection.LoginOnly(CloudflareLogin("acc", "ref", 5))
+        prefs.saveOwn(only)
+        assertEquals(only, MapPrefs(*prefs.map.toList().toTypedArray()).own())
+        assertNull(prefs.get("server")) // no longer signed in to the server it replaced
+
+        prefs.saveOwn(null)
+        assertNull(prefs.own())
     }
 }
 

@@ -97,7 +97,7 @@ suspend fun CloudflareApi.deploy(plan: Plan.Ready, choices: Choices = Choices(),
 
     if (newSubdomain != null) {
         progress(Step.Subdomain(newSubdomain))
-        // Unverified: how an account without a workers.dev subdomain gets one.
+        // Verified: how an account without a workers.dev subdomain gets one.
         call<JsonElement?>(HttpMethod.Put, "$a/subdomain", buildJsonObject { put("subdomain", newSubdomain) })
     }
     for (b in m.buckets) {

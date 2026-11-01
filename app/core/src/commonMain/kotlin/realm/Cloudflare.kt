@@ -38,7 +38,7 @@ data class CloudflareLogin(
 )
 
 /** A realm worker found on a Cloudflare account. */
-class Worker(val account: String, val accountName: String, val origin: String)
+data class Worker(val account: String, val accountName: String, val origin: String)
 
 /** Cloudflare turned the login down: the only way on is logging in again. */
 class CloudflareRejected : Exception("Your Cloudflare login has expired. Log in again.")
@@ -152,18 +152,6 @@ object Cloudflare {
             throw ApiException("Cloudflare didn't log you in: ${t.description ?: t.error}")
         }
         return CloudflareLogin(t.accessToken, t.refreshToken ?: keep, now() + t.expiresIn)
-    }
-
-    /**
-     * The accounts on [token]'s login that have a realm worker, and where each answers: a custom domain if it
-     * has one, else workers.dev. Logging in picks the accounts on the consent screen; usually that's one.
-     */
-    suspend fun workers(token: String, engine: HttpClientEngine? = null): List<Worker> =
-        CloudflareApi(Bearer { token }, engine).use { it.workers() }
-
-    /** Tells the worker which account it runs on, if it doesn't know yet: then Cloudflare logins are its owner. */
-    suspend fun claim(token: String, worker: Worker, engine: HttpClientEngine? = null) {
-        CloudflareApi(Bearer { token }, engine).use { it.claim(worker.account) }
     }
 
     /**

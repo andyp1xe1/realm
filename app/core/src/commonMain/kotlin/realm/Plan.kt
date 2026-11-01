@@ -200,10 +200,10 @@ internal suspend fun CloudflareApi.database(account: Account, name: String): D1?
 internal data class D1(val uuid: String, val name: String)
 
 @Serializable
-private data class BucketList(val buckets: List<Named> = emptyList())
+internal data class BucketList(val buckets: List<Named> = emptyList())
 
 @Serializable
-private data class Named(val name: String)
+internal data class Named(val name: String)
 
-/** Unverified: what R2 is believed to answer on an account that hasn't turned it on. */
+/** What R2 answers, with HTTP 403, on an account that hasn't turned it on (verified, [Recorded] R2_OFF). */
 internal const val R2_OFF = 10042
