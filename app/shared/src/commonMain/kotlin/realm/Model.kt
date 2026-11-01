@@ -36,10 +36,19 @@ class Pending(val key: Int, val text: String?, val file: LocalFile?, val caption
 
 /**
  * One realm's feed, as one tile of the [Home] overview sees it through [api]. Without [loadImages],
- * images only download when asked to, for links where every download spends a use.
+ * images only download when asked to, for links where every download spends a use. With [cache], it starts
+ * from the first page kept last time, known at once, and keeps it as it changes.
  */
-class Model(val platform: Platform, private val scope: CoroutineScope, val api: Api, private val loadImages: Boolean = true) {
-    val items = mutableStateListOf<Item>() // newest first
+class Model(
+    val platform: Platform,
+    private val scope: CoroutineScope,
+    val api: Api,
+    private val loadImages: Boolean = true,
+    private val cache: FeedCache? = null,
+) {
+    private val kept = cache?.first()
+
+    val items = mutableStateListOf<Item>().apply { kept?.let { addAll(it.items) } } // newest first
 
     /** The feed's scroll position, kept here so it survives a trip through the tab overview. */
     val listState = LazyListState()
@@ -59,8 +68,11 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     var loading by mutableStateOf(false)
         private set
 
-    /** The server has answered for the first page; until then (or if it can't be reached) an empty feed isn't known to be empty. */
-    var loaded by mutableStateOf(false)
+    /**
+     * The first page is known: the server has answered for it, or it was kept from last time. Until then (or
+     * if the server can't be reached) an empty feed isn't known to be empty.
+     */
+    var loaded by mutableStateOf(kept != null)
         private set
     var message by mutableStateOf<String?>(null)
     var editing by mutableStateOf<Item?>(null)
@@ -91,13 +103,14 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
     /** Known to have nothing in it yet (not loading, not a search, not a drop-only link): the empty state shows. */
     val isEmpty get() = loaded && canRead && !filtering && items.isEmpty() && pending.isEmpty()
 
-    private var next: String? = null
+    private var next: String? = kept?.next
     private var listJob: Job? = null
+
     private val uploads = Semaphore(2)
     private var pendingKeys = 0
 
-    /** Rows the feed has shown once; only new ones fade in. */
-    private val shown = HashSet<String>()
+    /** Rows the feed has shown once; only new ones fade in. What was kept shows at once, as it was. */
+    private val shown = kept?.items.orEmpty().mapTo(HashSet()) { it.id }
 
     /** True the first time the feed shows the row with [key]. */
     fun firstShown(key: String): Boolean = shown.add(key)
@@ -110,16 +123,23 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
 
     // ---------- feed ----------
 
+    /**
+     * Asks for the first page again, in place: rows that are the same stay as they are, and only a page that
+     * differs is shown, and kept.
+     */
     fun refresh() {
         listJob?.cancel()
         listJob = scope.launch {
             loading = true
             try {
-                val page = api.list(query, filter.kinds)
-                items.clear()
-                items.addAll(page.items)
+                val page = api.list(query, filter.kinds, limit = FeedCache.PAGE)
+                if (items.toList() != page.items) {
+                    items.clear()
+                    items.addAll(page.items)
+                }
                 next = page.next
                 loaded = true
+                keep()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
@@ -135,6 +155,11 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
                 loading = false
             }
         }
+    }
+
+    /** Keeps the first page as it stands for the next run: not a search's, which isn't the feed. */
+    private fun keep() {
+        if (!filtering && canRead) cache?.keepFirst(Page(items.toList(), next))
     }
 
     fun loadMore() {
@@ -168,6 +193,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
                     items.addAll(page.items)
                     next = page.next
                     loaded = true
+                    if (page.items.isNotEmpty()) keep()
                 }
             }
             return
@@ -175,7 +201,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
         // Ids are time-prefixed; re-ask for the last minute so items that landed slightly out of order aren't missed.
         val cursor = (newest.created - 60_000).coerceAtLeast(0).toString(36).padStart(9, '0')
         runCatching { api.list(after = cursor, limit = 100) }.onSuccess { page ->
+            val before = items.size
             page.items.forEach(::prepend)
+            if (items.size != before) keep()
         }
     }
 
@@ -255,6 +283,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
                     pending.remove(p)
                     prepend(item)
                 }
+                keep()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -281,6 +310,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
                 val updated = api.edit(item.id, text.ifBlank { null })
                 val i = items.indexOfFirst { it.id == item.id }
                 if (i >= 0) items[i] = updated
+                keep()
             } catch (e: Exception) {
                 fail(e)
             }
@@ -295,6 +325,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
         scope.launch {
             try {
                 api.delete(item.id)
+                keep()
             } catch (e: Exception) {
                 if (i >= 0) items.add(minOf(i, items.size), item)
                 fail(e)

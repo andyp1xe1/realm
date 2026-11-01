@@ -90,6 +90,12 @@ import kotlin.math.roundToInt
 /** Compact: one row under the feed. Expanded: covers the feed for writing; opened by hand or by long text. */
 private enum class Mode { Compact, Auto, Manual }
 
+/**
+ * The composer's height with only the field in it: its own padding, the card's, and a row of controls. The feed
+ * keeps this much room below it from the first frame, so it doesn't shift once the composer has measured itself.
+ */
+val ComposerHeight = 4.dp + 4.dp + ControlHeight + 4.dp + 8.dp
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) -> Unit = {}, onOpen: (Float) -> Unit = {}) {

@@ -245,7 +245,7 @@ fun Main(model: Model, title: String, modifier: Modifier = Modifier) {
             }
         }
 
-        var composerHeight by remember { mutableStateOf(72.dp) }
+        var composerHeight by remember { mutableStateOf(ComposerHeight) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             // The feed fades out as the editor opens over it, and back in as it closes.
             var editorOpen by remember { mutableFloatStateOf(0f) }

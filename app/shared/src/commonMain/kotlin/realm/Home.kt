@@ -227,7 +227,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         spaces.filter { it.canWrite }.singleOrNull()?.let(::open) // only one place it can go
     }
 
-    fun modelOf(space: Space): Model = models.getOrPut(space.key) { Model(platform, scope, space.api, loadImages = !space.limited) }
+    /** [space]'s feed, from its first page as kept last time, if it was. */
+    fun modelOf(space: Space): Model = models.getOrPut(space.key) {
+        Model(platform, scope, space.api, loadImages = !space.limited, FeedCache(platform.cache, space.key))
+    }
 
     // ---------- signing in and connecting ----------
 
@@ -441,11 +444,12 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** What the link at [url] last said it is: its name, scope, expiry and uses left; nothing secret but the url. */
     private fun linkInfo(url: String) = Remembered(platform.cache, "link-info/$url", Info.serializer())
 
-    /** Lets go of the space at [key]; [drop] forgets what was kept of it too, its tile. */
+    /** Lets go of the space at [key]; [drop] forgets what was kept of it too, its feed and its tile. */
     private fun forget(key: String, drop: Boolean) {
         apis.remove(key)?.close()
         models.remove(key)
         tiles.forget(key, drop)
+        if (drop) FeedCache(platform.cache, key).forget()
     }
 
     companion object {

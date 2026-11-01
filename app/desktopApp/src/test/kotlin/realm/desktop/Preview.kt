@@ -272,7 +272,7 @@ private fun create() {
 /** Same arrangement as the real screen: the composer floats over the bottom of the feed. */
 @Composable
 private fun Screen(m: Model) {
-    var h by remember { mutableStateOf(72.dp) }
+    var h by remember { mutableStateOf(realm.ui.ComposerHeight) }
     Box(Modifier.fillMaxSize()) {
         Feed(m, Modifier.fillMaxSize(), bottomPadding = h)
         Composer(m, Modifier.align(Alignment.BottomCenter), onCompactHeight = { h = it })
