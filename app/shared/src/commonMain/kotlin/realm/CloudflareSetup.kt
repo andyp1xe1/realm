@@ -32,6 +32,10 @@ class CloudflareSetup internal constructor(
     private var job: Job? = null
     private val updateChecks = UpdateChecks(home.platform.prefs, { latestRelease(engine) })
 
+    /** The tag of the newest release seen, like v1.2.0, kept from run to run; null before one was. */
+    var knownRelease by mutableStateOf(updateChecks.knownTag)
+        private set
+
     /**
      * Logs in with Cloudflare in the browser and signs in to the realm worker on that account, as `realm login`
      * does; with no worker there yet, offers to deploy one. Tapping again starts over.
@@ -180,7 +184,10 @@ class CloudflareSetup internal constructor(
                 val info = server.info()
                 val newer = updateChecks.newerFor(info, force)
                 if (home.server !== server) return@launch // signed out meanwhile
-                update = newer?.let { ServerUpdate(info.version, it, canDeploy) }
+                Snapshot.withMutableSnapshot {
+                    update = newer?.let { ServerUpdate(info.version, it, canDeploy) }
+                    knownRelease = updateChecks.knownTag
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -189,9 +196,6 @@ class CloudflareSetup internal constructor(
             }
         }
     }
-
-    /** The tag of the newest release last seen, like v1.2.0, if one was. */
-    internal fun knownRelease(): String? = updateChecks.knownTag
 
     internal fun signedOut() {
         update = null

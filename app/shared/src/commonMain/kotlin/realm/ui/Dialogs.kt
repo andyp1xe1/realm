@@ -62,10 +62,10 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit, modifier: Modifier = Modif
             ServerSection(home, onClose = onDismiss)
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = {
+                InlineButton("Sign out", {
                     home.signOut()
                     onDismiss()
-                }) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+                }, color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
         } else {

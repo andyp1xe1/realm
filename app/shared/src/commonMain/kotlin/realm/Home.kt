@@ -14,7 +14,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
@@ -59,6 +60,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     val serverSettings = ServerSettings(this, scope, engine)
 
     private val prefs = platform.prefs
+
+    /** The realms last fetched, so the overview shows straight away and works offline; and the share links added. */
+    private val knownRealms = Remembered(prefs, "realms", ListSerializer(Realm.serializer()))
+    private val knownLinks = Remembered(prefs, "links", ListSerializer(String.serializer()))
     private val apis = mutableMapOf<String, Api>()
     private val models = mutableMapOf<String, Model>()
 
@@ -90,10 +95,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
                 is Connection.ByCloudflare -> sessionFor(owner).also { session = it }
             }
             server = Api.server(owner.server, bearer, platform.name, engine)
-            // Last known realms, so the overview shows straight away and works offline.
-            realms.addAll(prefs.get("realms")?.let { runCatching { JSON.decodeFromString<List<Realm>>(it) }.getOrNull() }.orEmpty())
+            realms.addAll(knownRealms.get().orEmpty())
+            serverSettings.refresh() // so settings opens on it, the last known shown meanwhile
         }
-        prefs.get("links")?.let { runCatching { JSON.decodeFromString<List<String>>(it) }.getOrNull() }?.forEach { url ->
+        knownLinks.get()?.forEach { url ->
             shared += Space.Shared(url, null, null, linkApi(url))
         }
         openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
@@ -109,7 +114,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     private fun migratePrefs() {
         val url = prefs.get("url") ?: return
         if ("/s/" in url) {
-            prefs.set("links", JSON.encodeToString(listOf(url)))
+            knownLinks.set(listOf(url))
             prefs.set("token", null)
         } else {
             prefs.set("server", url)
@@ -146,7 +151,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             if (server !== s) return // signed out meanwhile
             realms.clear()
             realms.addAll(list)
-            prefs.set("realms", JSON.encodeToString(list))
+            knownRealms.set(list)
             if (open == null) reopen()
         } catch (e: CancellationException) {
             throw e
@@ -275,6 +280,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     internal fun signedIn(s: SignedIn) {
         signOut()
         adoptOwner(s)
+        serverSettings.refresh() // fetched now, not when settings opens
     }
 
     /** Talks to the same server at another address, with the same login: it isn't ended, as signing out would. */
@@ -313,7 +319,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
                 delay(10.seconds)
                 if (server !== api) return@launch
                 val list = runCatching { api.realms() }.getOrNull() ?: return@repeat
-                return@launch adopt(api, list)
+                adopt(api, list)
+                return@launch serverSettings.refresh()
             }
         }
     }
@@ -325,7 +332,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     private fun adopt(api: Api, list: List<Realm>) {
         server = api
         realms.addAll(list)
-        prefs.set("realms", JSON.encodeToString(list))
+        knownRealms.set(list)
         if (open == null) reopen()
         refresh(force = true)
     }
@@ -343,7 +350,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         cloudflare.signedOut()
         if (!switching) serverSettings.signedOut()
         prefs.saveOwner(null)
-        prefs.set("realms", null)
+        knownRealms.set(null)
         if (open == null) reopen()
     }
 
@@ -380,7 +387,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         }
     }
 
-    private fun saveLinks() = prefs.set("links", JSON.encodeToString(shared.map { it.url }))
+    private fun saveLinks() = knownLinks.set(shared.map { it.url })
 
     // ---------- realms ----------
 
@@ -390,7 +397,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             try {
                 val r = s.createRealm(name)
                 realms += r
-                prefs.set("realms", JSON.encodeToString(realms.toList()))
+                knownRealms.set(realms.toList())
                 val space = own(r)
                 modelOf(space).startEmpty() // brand new: nothing to ask the server for
                 arrive(space)
@@ -426,7 +433,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
                 }
                 realms.removeAll { it.id == realm.id }
                 forget(key)
-                prefs.set("realms", JSON.encodeToString(realms.toList()))
+                knownRealms.set(realms.toList())
                 if (open == null) reopen()
             } catch (e: Exception) {
                 message = explain(e) // the tile comes back
@@ -460,6 +467,5 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
         /** Items fetched per tile: enough to fill a tall one; the oldest clip off the top. */
         private const val PREVIEW = 8
-        private val JSON = Json { ignoreUnknownKeys = true }
     }
 }

@@ -8,7 +8,9 @@ import realm.AddressTask
 import realm.Check
 import realm.DomainChoice
 import realm.Home
+import realm.Loaded
 import realm.Zone
+import realm.value
 
 /** Signed in with Cloudflare to [cloud]'s worker, with settings open. */
 private fun settingsOver(cloud: FakeCloud): Pair<Home, Film> {
@@ -29,18 +31,18 @@ internal fun managing() {
     for ((name, worker) in listOf("manage-uptodate" to 3, "manage-update" to 2)) {
         val (home, film) = settingsOver(FakeCloud(worker = """{"version":$worker,"scope":"owner"}"""))
         val settings = home.serverSettings
-        film.roll(name, max = 200) { settings.panel != null }
+        film.roll(name, max = 200) { settings.facts.state is Loaded.Known }
         film.roll(name, max = 24)
         settings.checkForUpdates()
-        film.roll(name, max = 300) { settings.panel?.managed?.check is Check.Done }
+        film.roll(name, max = 300) { settings.check is Check.Done }
         film.roll(name, max = 30)
         film.close()
     }
 
     val (home, film) = settingsOver(FakeCloud(worker = """{"version":3,"scope":"owner"}"""))
     val settings = home.serverSettings
-    fun task() = settings.panel?.managed?.task
-    film.until { settings.panel != null }
+    fun task() = settings.task
+    film.until { settings.facts.state is Loaded.Known }
     val jo = Zone("z1", "jo.dev")
 
     settings.adding(true)
@@ -52,7 +54,7 @@ internal fun managing() {
     film.roll("manage-add", max = 300) { task() == null }
     film.roll("manage-add", max = 30)
 
-    val added = settings.panel!!.managed!!.addresses.domains.single()
+    val added = settings.facts.state.value!!.addresses!!.domains.single()
     settings.remove("https://${added.hostname}")
     film.roll("manage-remove", max = 30)
     settings.confirmRemove(agree = true)
@@ -67,13 +69,13 @@ internal fun managing() {
     // Every frame from here shows a whole section, and the address it shows in use is the one the app uses.
     var torn = 0
     fun look() {
-        val p = settings.panel
+        val p = settings.facts.state.value
         if (p == null || p.origin != home.server?.base?.removeSuffix("/api")) torn++
     }
     settings.use("https://notes.jo.dev")
     film.roll("manage-switch", max = 400) {
         look()
-        settings.panel?.origin == "https://notes.jo.dev"
+        settings.facts.state.value?.origin == "https://notes.jo.dev"
     }
     film.roll("manage-switch", max = 30) { false.also { look() } }
 
@@ -98,7 +100,7 @@ internal fun managing() {
     film.close()
     check(torn == 0) { "$torn frames showed no section, or another address in use than the app's" }
     check(home.server?.base == "https://realm.jo.workers.dev/api") { "the app stayed at ${home.server?.base}" }
-    check(settings.panel!!.managed!!.addresses.domains.isEmpty()) { "notes.jo.dev is still there" }
+    check(settings.facts.state.value!!.addresses!!.domains.isEmpty()) { "notes.jo.dev is still there" }
     println("signed in to ${home.server?.base}")
 
     // manage-token: signed in with a fixed owner token, there's no Cloudflare login to manage the server with.
@@ -106,7 +108,7 @@ internal fun managing() {
     val token =
         Home(FakePlatform("server" to "https://realm.jo.workers.dev", "token" to "t"), CoroutineScope(Dispatchers.Default), cloud.engine)
     Film(token, settings = true).apply {
-        until { token.serverSettings.panel != null && token.cloudflare.update != null }
+        until { token.serverSettings.facts.state is Loaded.Known && token.cloudflare.update != null }
         still("manage-token")
     }.close()
     println("${out.path}/manage-*.png")

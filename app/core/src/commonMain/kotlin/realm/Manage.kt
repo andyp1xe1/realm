@@ -3,11 +3,13 @@
 package realm
 
 import io.ktor.http.HttpMethod
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Where the realm worker on [account] answers, and the domains it could answer on too. */
+@Serializable
 data class Addresses(
     val account: Account,
     /** Its workers.dev address, like https://realm.jo.workers.dev, on or off; null when the account has no subdomain. */

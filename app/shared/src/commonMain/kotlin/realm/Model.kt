@@ -50,7 +50,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
 
     /** Text from outside (share sheet, drag & drop) for the composer to pick up. */
     var incomingText by mutableStateOf<String?>(null)
-    val links = mutableStateListOf<Link>()
+
+    /** The realm's active share links, for the owner; fetched as the realm opens, so the share sheet has them. */
+    val links = Fetched<List<Link>>(scope, "Looking at the share links") { message = it }
 
     var query by mutableStateOf("")
     var filter by mutableStateOf(Filter.All)
@@ -367,30 +369,17 @@ class Model(val platform: Platform, private val scope: CoroutineScope, val api: 
 
     // ---------- links ----------
 
-    fun loadLinks() {
-        scope.launch {
-            try {
-                val l = api.links()
-                // One swap, so an open share sheet never sees the list empty in between.
-                Snapshot.withMutableSnapshot {
-                    links.clear()
-                    links.addAll(l)
-                }
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
+    fun loadLinks() = links.refresh { api.links() }
 
     suspend fun createLink(scope: String, ttlSeconds: Long?, label: String?): Link? = try {
-        api.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { links.add(0, it) }
+        api.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { l -> links.update { listOf(l) + it } }
     } catch (e: Exception) {
         fail(e)
         null
     }
 
     fun revoke(link: Link) {
-        links.remove(link)
+        links.update { it - link }
         scope.launch {
             try {
                 api.revoke(link.token)

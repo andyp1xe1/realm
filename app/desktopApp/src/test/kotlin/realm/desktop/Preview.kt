@@ -417,20 +417,22 @@ fun main(args: Array<String>) {
             ShareButton(onClick = {}, expanded = true)
         }
     }
-    val sharing = Model(
-        FakePlatform(),
-        CoroutineScope(Dispatchers.Unconfined),
-        Api(
-            "https://realm.example.dev/api",
-            Bearer {
-                "t"
-            },
-            "desktop",
-        ),
-    ).apply {
+    val owned = Api("https://realm.example.dev/api", Bearer { "t" }, "desktop")
+    val sharing = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), owned).apply {
         val day = System.currentTimeMillis() + 86_400_000
-        links += realm.Link("a1", "full", url = "https://realm.example.dev/s/a1", expires = day)
-        links += realm.Link("b2", "read", label = "agent", url = "https://realm.example.dev/s/b2", expires = day, uses = 3)
+        links.set(
+            listOf(
+                realm.Link("a1", "full", url = "https://realm.example.dev/s/a1", expires = day),
+                realm.Link("b2", "read", label = "agent", url = "https://realm.example.dev/s/b2", expires = day, uses = 3),
+            ),
+        )
+    }
+    // share-skeleton: the links not known yet, from a server that can't be reached: room kept for a couple.
+    val unknown = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
+    shot("share-skeleton", 460, 510) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
+            androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { ShareSheet(unknown, {}) }
+        }
     }
     for ((name, url, h) in listOf(Triple("share-form", null, 510), Triple("share-copy", "https://realm.example.dev/s/a1", 430))) {
         shot(name, 460, h) {

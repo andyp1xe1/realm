@@ -1,7 +1,6 @@
 package realm.ui
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -219,8 +218,7 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
         }
     }
 
-    // Grows smoothly if the list of links arrives after the sheet opens, instead of jumping taller.
-    Column(modifier.animateContentSize()) {
+    Column(modifier) {
         Text(title?.let { "Share “$it”" } ?: "Share", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
@@ -271,12 +269,16 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
             CopyBox(text) { model.platform.copyText(it) }
         }
 
-        if (model.isOwner && model.links.isNotEmpty()) {
-            Spacer(Modifier.height(20.dp))
-            Text("Active", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(6.dp))
-            LazyColumn(Modifier.heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(model.links, key = { it.token }) { l -> LinkRow(l, model, selected = l.url == link) { url = l.url } }
+        // Fetched as the realm opened, so usually known by now; until then, room for a couple.
+        if (model.isOwner) {
+            Loading(model.links.state, skeleton = { Active { repeat(2) { LinkRowSkeleton() } } }) { links ->
+                if (links.isNotEmpty()) {
+                    Active {
+                        LazyColumn(Modifier.heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            items(links, key = { it.token }) { l -> LinkRow(l, model, selected = l.url == link) { url = l.url } }
+                        }
+                    }
+                }
             }
         }
 
@@ -341,6 +343,30 @@ private fun CopyBox(text: String?, onCopy: (String) -> Unit) {
                 Icon(if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy, "Copy", Modifier.size(18.dp))
             }
         }
+    }
+}
+
+/** The active links, under their heading. */
+@Composable
+private fun Active(list: @Composable () -> Unit) = Column {
+    Spacer(Modifier.height(20.dp))
+    Text("Active", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(6.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { list() }
+}
+
+/** The room a [LinkRow] takes, before the links are known. */
+@Composable
+private fun LinkRowSkeleton() {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SkeletonLine(0.5f, style = MaterialTheme.typography.bodyMedium)
+            SkeletonLine(0.35f, style = MaterialTheme.typography.labelSmall)
+        }
+        Spacer(Modifier.size(36.dp)) // the revoke button
     }
 }
 

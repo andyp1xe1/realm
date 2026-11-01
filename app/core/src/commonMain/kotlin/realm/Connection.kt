@@ -118,7 +118,7 @@ private data class ConfigJson(
  */
 fun Prefs.owner(): Connection.Owner? {
     val server = get("server") ?: return null
-    val login = get("cloudflare")?.let { runCatching { prefsJson.decodeFromString<CloudflareLogin>(it) }.getOrNull() }
+    val login = Remembered(this, "cloudflare", CloudflareLogin.serializer()).get()
     return get("token")?.let { Connection.ByToken(server, it, cloudflare = login) }
         ?: login?.let { Connection.ByCloudflare(server, it) }
 }
@@ -127,7 +127,5 @@ fun Prefs.owner(): Connection.Owner? {
 fun Prefs.saveOwner(owner: Connection.Owner?) {
     set("server", owner?.server)
     set("token", (owner as? Connection.ByToken)?.token)
-    set("cloudflare", owner?.cloudflare?.let { prefsJson.encodeToString(it) })
+    Remembered(this, "cloudflare", CloudflareLogin.serializer()).set(owner?.cloudflare)
 }
-
-private val prefsJson = Json { ignoreUnknownKeys = true }
