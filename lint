@@ -66,5 +66,10 @@ while read -r f; do
   [ "$n" -gt 500 ] && { echo "$f: $n lines, over 500 — split it"; fail=1; }
 done < <(pick '\.(go|ts|js|kt|kts)$')
 
+# On the shared drive every file looks executable, so git can record a script without its x bit; a fresh clone then can't run it.
+while read -r mode f; do
+  [ "$mode" = 100755 ] || { echo "$f: a script without its executable bit in git; run: git update-index --chmod=+x $f"; fail=1; }
+done < <(git ls-files -s -- "${paths[@]}" | while read -r mode _ _ f; do [ "$(head -c2 "$f" 2>/dev/null)" = '#!' ] && echo "$mode $f"; done)
+
 [ $fail = 0 ] && echo "all clean"
 exit $fail

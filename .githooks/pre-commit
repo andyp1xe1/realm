@@ -53,4 +53,11 @@ if [ -n "$kt" ]; then
   done
 fi
 
+# On the shared drive every file looks executable, so git can record a script without its x bit; a fresh clone then can't run it.
+for f in $staged; do
+  [ "$(git show ":$f" | head -c2)" = '#!' ] || continue
+  [ "$(git ls-files -s -- "$f" | cut -d' ' -f1)" = 100755 ] ||
+    { echo "$f: a script without its executable bit in git; run: git update-index --chmod=+x $f"; fail=1; }
+done
+
 exit $fail
