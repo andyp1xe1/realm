@@ -87,56 +87,6 @@ private fun model(): Model {
     return m
 }
 
-/** Signed in to an unreachable server, with realms, connected links, and tile previews filled in by hand. */
-private fun home(feed: Model): Home {
-    val h = Home(FakePlatform("server" to "http://127.0.0.1:9", "token" to "t"), CoroutineScope(Dispatchers.Unconfined))
-    val now = System.currentTimeMillis()
-    fun item(id: String, kind: String, text: String? = null, name: String? = null, mime: String? = null) =
-        Item(id, kind, text, name, mime, 1000, null, now)
-    h.realms += listOf(
-        Realm("main", "Main", now, 214, now),
-        Realm("trip", "Lisbon trip", now, 37, now - 86_400_000),
-        Realm("tax", "Tax 2026", now, 12, now - 9 * 86_400_000),
-        Realm("new", "Ideas", now, 0, null),
-    )
-    h.previews["realm:main"] = feed.items
-    h.previews["realm:trip"] = listOf(
-        item("t1", "note", "flight TP1351 lands 9:40, taxi rank is left of arrivals"),
-        item("t2", "file", name = "boarding-pass.pdf", mime = "application/pdf"),
-        item("t3", "link", "https://www.timeout.com/lisbon/restaurants"),
-    )
-    h.previews["realm:tax"] = listOf(
-        item("x1", "file", name = "invoice-0423.pdf", mime = "application/pdf"),
-        item("x2", "file", name = "receipts.zip", mime = "application/zip"),
-        item("x3", "note", "ask about the home office deduction"),
-    )
-    val sam = "https://realm.sam.dev/s/k2"
-    val file = "https://realm.sam.dev/s/f9"
-    val drop = "https://realm.jo.dev/s/d4"
-    h.shared += Space.Shared(sam, Info(scope = "read", realm = Realm("r", "Sam's recipes")), null, Api(sam, null, "desktop"))
-    h.shared +=
-        Space.Shared(
-            file,
-            Info(
-                scope = "read",
-                realm = Realm("f", "Flat hunt"),
-                items = 1,
-                item = item("f", "file", name = "lease-draft.pdf", mime = "application/pdf"),
-            ),
-            null,
-            Api(file, null, "desktop"),
-        )
-    h.shared += Space.Shared(drop, Info(scope = "drop", realm = Realm("d", "Jo's inbox")), null, Api(drop, null, "desktop"))
-    h.previews["link:$file"] = listOf(item("f", "file", name = "lease-draft.pdf", mime = "application/pdf"))
-    h.previews["link:$sam"] = listOf(
-        item("s1", "note", "shakshuka: 6 eggs, 2 tins tomatoes, cumin, feta"),
-        item("s2", "link", "https://cooking.nytimes.com/recipes/1014721"),
-    )
-    h.open(h.spaces.first())
-    h.showTabs()
-    return h
-}
-
 /** Frames from the feed zooming out into the tab overview (zoom-N, about N×16ms in; zoom-0 is before), then back (unzoom-N). */
 private fun zoom(h: Home) {
     h.open(h.spaces.first())
@@ -484,6 +434,15 @@ fun main(args: Array<String>) {
         shot("grid-$label", w, h, realtimeMs = 1500) { GridPage(home) }
     }
     shot("grid-light", 400, 820, dark = false) { GridPage(home) }
+    // The README's three phone screens, all one size so they line up side by side in docs/screens.png.
+    shot("readme-feed", 400, 820, realtimeMs = 1500) { FeedPage(clean, "Main", 7) }
+    shot("readme-tabs", 400, 820) { GridPage(home) }
+    val sharingFeed = model().apply {
+        pending.clear()
+        links.set((sharing.links.state as? realm.Loaded.Known)?.value.orEmpty())
+        this.sharing = true
+    }
+    shot("readme-share", 400, 820, realtimeMs = 1500) { FeedPage(sharingFeed, "Main", 7) }
     zoom(
         home(m).also {
             it.modelOf(it.spaces.first()).apply {
