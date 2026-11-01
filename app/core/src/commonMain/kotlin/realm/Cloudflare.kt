@@ -8,14 +8,14 @@ import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.request.forms.submitForm
 import io.ktor.http.URLBuilder
 import io.ktor.http.parameters
-import io.ktor.util.encodeBase64
-import io.ktor.util.generateNonce
+import io.ktor.util.generateNonceSuspend
 import io.ktor.util.sha256
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.io.encoding.Base64
 import kotlin.time.Clock
 
 /** The browser, for logins that come back to localhost. Implemented by each app's Platform. */
@@ -69,9 +69,9 @@ object Cloudflare {
 
     /** The browser login: authorization code with PKCE, caught on localhost. */
     suspend fun logIn(browser: Browser, engine: HttpClientEngine? = null): CloudflareLogin {
-        val verifier = generateNonce() + generateNonce()
-        val challenge = sha256(verifier.encodeToByteArray()).encodeBase64().trimEnd('=').replace('+', '-').replace('/', '_')
-        val state = generateNonce()
+        val verifier = generateNonceSuspend() + generateNonceSuspend()
+        val challenge = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT).encode(sha256(verifier.encodeToByteArray()))
+        val state = generateNonceSuspend()
         val url = URLBuilder(AUTHORIZE).apply {
             parameters.append("response_type", "code")
             parameters.append("client_id", CLIENT_ID)
