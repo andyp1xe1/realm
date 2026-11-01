@@ -33,10 +33,17 @@ compose.desktop {
     application {
         mainClass = "realm.desktop.MainKt"
         nativeDistributions {
-            targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.AppImage, TargetFormat.Dmg, TargetFormat.Msi)
+            targetFormats(TargetFormat.AppImage, TargetFormat.Dmg, TargetFormat.Msi)
             packageName = "realm"
             packageVersion = "1.0.0"
             modules("java.desktop", "java.prefs", "jdk.unsupported")
+            linux {
+                // Releases pass the tag without its v: `-Prealm.version=1.2.0` or `1.2.0-rc.1`. Only Linux takes it:
+                // the AppImage and the uber jar accept any version, but Dmg and Msi need MAJOR > 0 and no -rc
+                // suffix, and Compose checks every listed format, so they keep the placeholder above.
+                packageVersion = providers.gradleProperty("realm.version").getOrElse("1.0.0")
+                iconFile.set(file("packaging/realm.png"))
+            }
         }
     }
 }

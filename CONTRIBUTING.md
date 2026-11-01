@@ -48,7 +48,7 @@ An exception to a lint goes on the offending line, with a reason, a human's appr
 
 ## Releases
 
-A release is a tag `vMAJOR.MINOR.PATCH`, like `v1.2.0`. To try one out first, tag a release candidate, `v1.2.0-rc.1`: it becomes a GitHub pre-release, which the app never deploys. No other names, like `-test`. Pushing a tag builds the worker and attaches it to the release. The pre-push hook refuses any other tag, and the release workflow ignores them.
+A release is a tag `vMAJOR.MINOR.PATCH`, like `v1.2.0`. To try one out first, tag a release candidate, `v1.2.0-rc.1`: it becomes a GitHub pre-release, which the app never deploys. No other names, like `-test`. Pushing a tag builds the worker and the apps and attaches them to the release: `worker.js` and `worker.json`, `realm-<tag>.apk` signed with the release key, `realm-<tag>-x86_64.AppImage`, and `realm-<tag>-linux-x64.jar`, which runs on Java 17 or later. The apps are versioned from the tag; `app/androidApp/build.gradle.kts` explains the Android versionCode. The pre-push hook refuses any other tag, and the release workflow ignores them.
 
 ## Agent skills
 
