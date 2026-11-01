@@ -66,6 +66,9 @@ internal class FakePlatform(vararg prefs: Pair<String, String>) : Platform {
             map[key] = value
         }
     }
+
+    /** What's kept in prefs, to start the next run from. */
+    fun kept(): List<Pair<String, String>> = map.mapNotNull { (k, v) -> v?.let { k to it } }
     override val incoming = emptyFlow<realm.Incoming>()
     override val isForeground = false
     override val canTakePhoto = true

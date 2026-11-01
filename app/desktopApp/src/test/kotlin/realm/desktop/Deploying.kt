@@ -13,6 +13,7 @@ import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Density
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -177,7 +178,9 @@ internal class Film(val home: Home, settings: Boolean = false) {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 Box {
                     SetupOrTabs(home)
-                    if (this@Film.settings) SettingsDialog(home, onDismiss = { this@Film.settings = false })
+                    if (this@Film.settings) {
+                        SettingsDialog(home, onDismiss = { this@Film.settings = false }, Modifier.onSizeChanged { sheetHeight = it.height })
+                    }
                     CloudflareSheet(home.cloudflare)
                 }
             }
@@ -185,6 +188,10 @@ internal class Film(val home: Home, settings: Boolean = false) {
     }
     private var t = 0L
     private var n = 0
+    private var sheetHeight = 0
+
+    /** The settings sheet's height in pixels as each frame drew it; 0 before it was laid out. */
+    val sheetHeights = mutableListOf<Int>()
 
     /** What each frame drew from: the step of the sheet, and whether a server was signed in to. */
     val drawn = mutableListOf<Pair<String, Boolean>>()
@@ -192,6 +199,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
     fun frame() = scene.render(t).also {
         t += 16_000_000L
         drawn += (home.cloudflare.login?.let { it::class.simpleName } ?: "-") to (home.server != null)
+        sheetHeights += sheetHeight
     }
 
     /** Renders frames, ~16ms of real time apart, until [done] or [max]; saves every [every]th as [name]-N. */

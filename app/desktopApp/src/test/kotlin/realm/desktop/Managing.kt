@@ -112,4 +112,36 @@ internal fun managing() {
         still("manage-token")
     }.close()
     println("${out.path}/manage-*.png")
+    steadySettings()
+}
+
+/**
+ * settings-cold-N: the run after signing in, with nothing kept about the server, settings open from the
+ * start: a skeleton, then what's fetched, fading through in place. settings-warm-N: the same with what the
+ * last run fetched kept: it shows at once, and the refresh changes nothing on screen. Checks the sheet keeps
+ * one height in every frame of both, and that only the cold one ever drew the skeleton.
+ */
+private fun steadySettings() {
+    val cloud = FakeCloud(worker = """{"version":3,"scope":"owner"}""")
+    val first = FakePlatform()
+    val home = Home(first, CoroutineScope(Dispatchers.Default), cloud.engine)
+    home.cloudflare.logIn()
+    Film(home).apply { until { home.serverSettings.facts.state is Loaded.Known && home.cloudflare.knownRelease != null } }.close()
+    val kept = first.kept()
+    check("server-facts" in kept.map { it.first }) { "signing in kept nothing about the server" }
+    for ((name, prefs) in listOf("settings-cold" to kept.filter { it.first != "server-facts" }, "settings-warm" to kept)) {
+        val next = Home(FakePlatform(*prefs.toTypedArray()), CoroutineScope(Dispatchers.Default), cloud.engine)
+        val film = Film(next, settings = true)
+        val unknown = mutableListOf<Boolean>()
+        film.roll(name, every = 2, max = 60) { false.also { unknown += next.serverSettings.facts.state == Loaded.Unknown } }
+        film.close()
+        val heights = film.sheetHeights.filter { it > 0 }
+        val skeleton = unknown.count { it }
+        println("$name: ${heights.size} frames, sheet heights ${heights.distinct()} px, $skeleton with the skeleton")
+        check(heights.size > 50 && heights.distinct().size == 1) { "$name: the settings sheet changed height: $heights" }
+        check(next.serverSettings.facts.state is Loaded.Known) { "$name: the server's facts never arrived" }
+        if (name == "settings-cold") check(skeleton > 2) { "settings-cold: the skeleton never showed" }
+        if (name == "settings-warm") check(skeleton == 0) { "settings-warm: drew the skeleton with the facts kept" }
+    }
+    println("${out.path}/settings-cold-*.png, settings-warm-*.png")
 }

@@ -27,5 +27,9 @@ kotlin {
             implementation(libs.compose.ui.backhandler)
             implementation(libs.material.icons.extended)
         }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
+        }
     }
 }

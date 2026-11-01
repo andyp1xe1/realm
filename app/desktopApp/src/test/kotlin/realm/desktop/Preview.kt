@@ -331,6 +331,11 @@ private fun Screen(m: Model) {
 
 fun main(args: Array<String>) {
     out = File(args.firstOrNull() ?: "build/preview").apply { mkdirs() }
+    // A failed check ends the run, though the stand-in homes' threads would keep it alive.
+    Thread.setDefaultUncaughtExceptionHandler { _, e ->
+        e.printStackTrace()
+        kotlin.system.exitProcess(1)
+    }
     val m = model()
     for ((label, w, h) in listOf(Triple("phone", 400, 820), Triple("desktop", 880, 640))) {
         shot("feed-$label", w, h) {
