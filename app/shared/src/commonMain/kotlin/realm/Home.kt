@@ -12,6 +12,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlin.time.Duration.Companion.seconds
@@ -71,6 +73,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** What each tile shows: its space's latest items, kept between runs, and their pictures. */
     val tiles = Tiles(platform)
     val previews get() = tiles.previews
+
+    /** Feeds' first pages fetched ahead of opening them, two at a time, so the overview's don't crowd out the rest. */
+    private val prefetching = Semaphore(2)
     private var lastRefresh: TimeSource.Monotonic.ValueTimeMark? = null
 
     /** The Cloudflare login the server is signed in with, if it is. */
@@ -107,6 +112,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         tiles.restore(spaces.map { it.key })
         openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
         refresh()
+        model?.refresh() // the feed it opens on: shown from what was kept meanwhile
     }
 
     /** Whether there's a newer worker for [api]; only the owner's Cloudflare login can deploy it. */
@@ -144,6 +150,17 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
                 loading = false
             }
             spaces.filter { it.canRead }.forEach { sp -> launch { tiles.fetch(sp) } }
+        }
+    }
+
+    /**
+     * Fetches the first page of each feed among [keys] (the tiles in view) ahead of its opening, unless it was
+     * fetched in the last minute: item metadata only, no files or images.
+     */
+    fun prefetch(keys: Collection<Any?>) {
+        spaces.filter { it.key in keys && it.canRead }.forEach { sp ->
+            val m = modelOf(sp)
+            scope.launch { prefetching.withPermit { m.prefetch() } }
         }
     }
 
@@ -290,6 +307,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         checkForUpdate(force = true, s.api) // before adopt's refresh, which would check less eagerly
         adopt(s.api, s.realms)
         message = Api.mismatch(s.info)
+        model?.refresh() // the feed it opens on, fetched as it signs in
     }
 
     /**

@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -95,6 +96,8 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
     // Start scrolled to the current tab, so the feed has a tile on screen to zoom into.
     val grid = rememberLazyGridState(initialFirstVisibleItemIndex = spaces.indexOfFirst { it.key == home.openKey } + 1)
     LaunchedEffect(Unit) { home.refresh() }
+    // The feeds of the tiles in view, fetched ahead of a tap on one, as the overview shows and scrolls.
+    LaunchedEffect(grid) { snapshotFlow { grid.layoutInfo.visibleItemsInfo.map { it.key } }.collect(home::prefetch) }
     // A tile just made or connected: bring it into view, let it arrive, then zoom into it from there.
     LaunchedEffect(home.fresh) {
         val key = home.fresh ?: return@LaunchedEffect

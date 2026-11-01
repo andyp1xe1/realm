@@ -254,8 +254,11 @@ internal class Film(val home: Home, settings: Boolean = false) {
         }
     }
 
-    private var t = 0L
+    @Volatile private var t = 0L
     private var n = 0
+
+    /** The clock animations run on, in ms: 16 more each frame. */
+    val ms: Long get() = t / 1_000_000
     private var sheetHeight = 0
 
     /** The settings sheet's height in pixels as each frame drew it; 0 before it was laid out. */

@@ -159,4 +159,5 @@ private fun steadySettings() {
     }
     cloud.slowness = 0
     println("${out.path}/settings-cold-*.png, settings-slow-*.png, settings-warm-*.png")
+    keeping()
 }

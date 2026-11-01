@@ -18,6 +18,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.TimeSource
 
 enum class Filter(val label: String, val kinds: List<String>) {
     All("All", emptyList()),
@@ -106,6 +108,11 @@ class Model(
     private var next: String? = kept?.next
     private var listJob: Job? = null
 
+    /** What the first-page ask under way is for: the query and filter; null for a later page. */
+    private var asking: Pair<String, Filter>? = null
+
+    /** When the first page was last asked for and came back, to skip asking again so soon when prefetching. */
+    private var fetchedAt: TimeSource.Monotonic.ValueTimeMark? = null
     private val uploads = Semaphore(2)
     private var pendingKeys = 0
 
@@ -125,10 +132,13 @@ class Model(
 
     /**
      * Asks for the first page again, in place: rows that are the same stay as they are, and only a page that
-     * differs is shown, and kept.
+     * differs is shown, and kept. An ask for the same that's under way already, as from a prefetch, is left to
+     * finish rather than started over.
      */
     fun refresh() {
+        if (listJob?.isActive == true && asking == query to filter) return
         listJob?.cancel()
+        asking = query to filter
         listJob = scope.launch {
             loading = true
             try {
@@ -139,6 +149,7 @@ class Model(
                 }
                 next = page.next
                 loaded = true
+                fetchedAt = TimeSource.Monotonic.markNow()
                 keep()
             } catch (e: CancellationException) {
                 throw e
@@ -157,6 +168,16 @@ class Model(
         }
     }
 
+    /**
+     * The first page, fetched ahead of opening the feed, unless it was in the last minute or a search is up;
+     * returns once it's there.
+     */
+    suspend fun prefetch() {
+        if (filtering || fetchedAt?.let { it.elapsedNow() < 1.minutes } == true) return
+        refresh()
+        listJob?.join()
+    }
+
     /** Keeps the first page as it stands for the next run: not a search's, which isn't the feed. */
     private fun keep() {
         if (!filtering && canRead) cache?.keepFirst(Page(items.toList(), next))
@@ -165,6 +186,7 @@ class Model(
     fun loadMore() {
         val before = next ?: return
         if (loading) return
+        asking = null
         listJob = scope.launch {
             loading = true
             try {
