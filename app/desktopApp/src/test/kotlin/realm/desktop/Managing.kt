@@ -14,7 +14,7 @@ import realm.value
 
 /** Signed in with Cloudflare to [cloud]'s worker, with settings open. */
 private fun settingsOver(cloud: FakeCloud): Pair<Home, Film> {
-    val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), cloud.engine)
+    val home = Home(FakePlatform(), CoroutineScope(Ui), cloud.engine)
     home.cloudflare.logIn()
     Film(home).apply { until { home.server != null } }.close()
     return home to Film(home, settings = true)
@@ -106,7 +106,7 @@ internal fun managing() {
     // manage-token: signed in with a fixed owner token, there's no Cloudflare login to manage the server with.
     val cloud = FakeCloud(worker = """{"version":2,"scope":"owner"}""")
     val token =
-        Home(FakePlatform("server" to "https://realm.jo.workers.dev", "token" to "t"), CoroutineScope(Dispatchers.Default), cloud.engine)
+        Home(FakePlatform("server" to "https://realm.jo.workers.dev", "token" to "t"), CoroutineScope(Ui), cloud.engine)
     Film(token, settings = true).apply {
         until { token.serverSettings.facts.state is Loaded.Known && token.cloudflare.update != null }
         still("manage-token")
@@ -124,13 +124,13 @@ internal fun managing() {
 private fun steadySettings() {
     val cloud = FakeCloud(worker = """{"version":3,"scope":"owner"}""")
     val first = FakePlatform()
-    val home = Home(first, CoroutineScope(Dispatchers.Default), cloud.engine)
+    val home = Home(first, CoroutineScope(Ui), cloud.engine)
     home.cloudflare.logIn()
     Film(home).apply { until { home.serverSettings.facts.state is Loaded.Known && home.cloudflare.knownRelease != null } }.close()
     val kept = first.kept()
     check("server-facts" in kept.map { it.first }) { "signing in kept nothing about the server" }
     for ((name, prefs) in listOf("settings-cold" to kept.filter { it.first != "server-facts" }, "settings-warm" to kept)) {
-        val next = Home(FakePlatform(*prefs.toTypedArray()), CoroutineScope(Dispatchers.Default), cloud.engine)
+        val next = Home(FakePlatform(*prefs.toTypedArray()), CoroutineScope(Ui), cloud.engine)
         val film = Film(next, settings = true)
         val unknown = mutableListOf<Boolean>()
         film.roll(name, every = 2, max = 60) { false.also { unknown += next.serverSettings.facts.state == Loaded.Unknown } }

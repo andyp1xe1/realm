@@ -10,8 +10,7 @@ import realm.RealmOn
 import realm.screen
 import realm.value
 
-private fun home(cloud: FakeCloud, platform: FakePlatform = FakePlatform()) =
-    Home(platform, CoroutineScope(Dispatchers.Default), cloud.engine)
+private fun home(cloud: FakeCloud, platform: FakePlatform = FakePlatform()) = Home(platform, CoroutineScope(Ui), cloud.engine)
 
 /** Logged in to [cloud]'s account with no realm on it, its requirements checked; then a still of it as [name]. */
 private fun checked(name: String, cloud: FakeCloud): Home {
@@ -78,7 +77,7 @@ internal fun onboarding() {
         film.roll("onboard-retry", max = 40)
         check(home.onboarding.deployFailed) { "the failure isn't shown as one to retry" }
         check(
-            Home(FakePlatform(*fails.kept().toTypedArray()), CoroutineScope(Dispatchers.Default), cloud.engine).onboarding.session != null,
+            Home(FakePlatform(*fails.kept().toTypedArray()), CoroutineScope(Ui), cloud.engine).onboarding.session != null,
         ) {
             "a failed deploy didn't keep the login"
         }

@@ -250,7 +250,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
     /** What each frame drew from as screen/sheet step, like Onboarding/Deploying. */
     val screens = mutableListOf<String>()
 
-    fun frame() = scene.render(t).also {
+    fun frame() = scene.renderOnUi(t).also {
         t += 16_000_000L
         val step = home.cloudflare.login?.let { it::class.simpleName } ?: "-"
         drawn += step to (home.server != null)
@@ -265,7 +265,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
             if (n % every == 0) save("$name-$n", img)
             n++
             if (done()) return
-            Thread.sleep(16)
+            Ui.pause(16)
         }
     }
 
@@ -274,7 +274,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
         repeat(600) {
             if (done()) return
             frame()
-            Thread.sleep(10)
+            Ui.pause(10)
         }
         error("never got there")
     }
@@ -328,7 +328,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
  */
 internal fun deploying() {
     run {
-        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud().engine)
+        val home = Home(FakePlatform(), CoroutineScope(Ui), FakeCloud().engine)
         val film = Film(home)
         film.roll("deploy", max = 8)
         home.cloudflare.logIn()
@@ -342,7 +342,7 @@ internal fun deploying() {
     }
     run {
         // A worker there already: logging in signs in to it, as before, with nothing to deploy.
-        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud(worker = """{"version":3,"scope":"owner"}""").engine)
+        val home = Home(FakePlatform(), CoroutineScope(Ui), FakeCloud(worker = """{"version":3,"scope":"owner"}""").engine)
         val film = Film(home)
         film.roll("existing", every = 3, max = 8)
         home.cloudflare.logIn()
@@ -353,7 +353,7 @@ internal fun deploying() {
         film.went("existing", "Setup/-", "Setup/LoggingIn", "Tabs/-")
     }
     run {
-        val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), FakeCloud().engine)
+        val home = Home(FakePlatform(), CoroutineScope(Ui), FakeCloud().engine)
         val film = Film(home)
         film.frame()
         home.cloudflare.logIn()
@@ -392,7 +392,7 @@ internal fun deploying() {
  */
 internal fun updating() {
     val cloud = FakeCloud(worker = """{"version":2,"scope":"owner"}""")
-    val home = Home(FakePlatform(), CoroutineScope(Dispatchers.Default), cloud.engine)
+    val home = Home(FakePlatform(), CoroutineScope(Ui), cloud.engine)
     home.cloudflare.logIn()
     Film(home).apply {
         until { home.cloudflare.update != null }

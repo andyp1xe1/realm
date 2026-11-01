@@ -111,14 +111,14 @@ internal fun shot(name: String, wDp: Int, hDp: Int, dark: Boolean = true, realti
     val scene = ImageComposeScene(wDp * 2, hDp * 2, Density(2f)) {
         RealmTheme(dark) { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() } }
     }
-    for (f in 0..30) scene.render(f * 16_000_000L)
+    for (f in 0..30) scene.renderOnUi(f * 16_000_000L)
     // Some content (the recording waveform) samples on a real-time clock; let it run.
     val t0 = System.nanoTime()
     while (System.nanoTime() - t0 < realtimeMs * 1_000_000) {
-        Thread.sleep(16)
-        scene.render(System.nanoTime() - t0 + 600_000_000L)
+        Ui.pause(16)
+        scene.renderOnUi(System.nanoTime() - t0 + 600_000_000L)
     }
-    val png = scene.render(600_000_000L).encodeToData(EncodedImageFormat.PNG)!!.bytes
+    val png = scene.renderOnUi(600_000_000L).encodeToData(EncodedImageFormat.PNG)!!.bytes
     File(out, "$name.png").writeBytes(png)
     scene.close()
     println("${out.path}/$name.png")

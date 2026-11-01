@@ -44,20 +44,20 @@ internal fun login() {
         }
         start()
     }
-    val scope = CoroutineScope(Dispatchers.Default)
+    val scope = CoroutineScope(Ui)
     val h = Home(FakePlatform(), scope)
     val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
         RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { SetupOrTabs(h) } }
     }
     var t = 0L
-    fun frame() = scene.render(t).also { t += 16_000_000L }
+    fun frame() = scene.renderOnUi(t).also { t += 16_000_000L }
 
     repeat(20) { frame() }
     scope.launch { h.signIn("http://127.0.0.1:${server.address.port}", "t") }
     var waited = 0
     while (h.isEmpty && waited++ < 400) {
         frame()
-        Thread.sleep(10)
+        Ui.pause(10)
     }
     for (n in 0..30) {
         val img = frame()
@@ -72,13 +72,13 @@ internal fun login() {
 
 /** Frames of an empty realm's top bar as its first item arrives (header-N): the agents move up into it. */
 private fun header() {
-    val m = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
+    val m = Model(FakePlatform(), CoroutineScope(Ui), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
     m.startEmpty()
     val scene = ImageComposeScene(400 * 2, 120 * 2, Density(2f)) {
         RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { FeedPage(m, "Main", 2) } }
     }
     var t = 0L
-    fun frame() = scene.render(t).also { t += 16_000_000L }
+    fun frame() = scene.renderOnUi(t).also { t += 16_000_000L }
     repeat(60) { frame() }
     m.items.add(Item("first", "note", "hi", null, null, null, null, System.currentTimeMillis()))
     for (n in 0..30) {

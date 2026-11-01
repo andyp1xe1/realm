@@ -82,7 +82,7 @@ private fun linkServer(now: Long): String {
 
 /** Signed in to an unreachable server, with realms, connected links, and tile previews filled in by hand. */
 internal fun home(feed: Model): Home {
-    val h = Home(FakePlatform("server" to "http://127.0.0.1:9", "token" to "t"), CoroutineScope(Dispatchers.Unconfined))
+    val h = Home(FakePlatform("server" to "http://127.0.0.1:9", "token" to "t"), CoroutineScope(Ui))
     val now = System.currentTimeMillis()
     fun item(id: String, kind: String, text: String? = null, name: String? = null, mime: String? = null) =
         Item(id, kind, text, name, mime, 1000, null, now)

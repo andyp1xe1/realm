@@ -55,7 +55,7 @@ import kotlin.math.sin
 
 private fun model(): Model {
     // Unreachable server: nothing is fetched, we fill the lists by hand.
-    val m = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
+    val m = Model(FakePlatform(), CoroutineScope(Ui), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
     m.startEmpty() // loaded, as if fetched: the lists below are its first page
     val now = System.currentTimeMillis()
     fun item(
@@ -94,7 +94,7 @@ private fun zoom(h: Home) {
         RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Tabs(h) } }
     }
     var t = 0L
-    fun frame() = scene.render(t).also { t += 16_000_000L }
+    fun frame() = scene.renderOnUi(t).also { t += 16_000_000L }
     repeat(30) { frame() }
     File(out, "zoom-0.png").writeBytes(frame().encodeToData(EncodedImageFormat.PNG)!!.bytes)
     h.showTabs()
@@ -123,7 +123,7 @@ private fun modes() {
             RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { FeedPage(m, "Main", 7) } }
         }
         var t = 0L
-        fun frame() = scene.render(t).also { t += 16_000_000L }
+        fun frame() = scene.renderOnUi(t).also { t += 16_000_000L }
         repeat(30) { frame() }
         File(out, "mode-$which-0.png").writeBytes(frame().encodeToData(EncodedImageFormat.PNG)!!.bytes)
         if (which == "mic") {
@@ -170,7 +170,7 @@ private fun arrive() {
         RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Screen(m) } }
     }
     var t = 0L
-    fun frame() = scene.render(t).also { t += 16_000_000L }
+    fun frame() = scene.renderOnUi(t).also { t += 16_000_000L }
     fun shots(name: String) {
         for (n in 0..20) {
             val img = frame()
@@ -222,19 +222,19 @@ private fun create() {
         }
         start()
     }
-    val h = Home(FakePlatform("server" to "http://127.0.0.1:${server.address.port}", "token" to "t"), CoroutineScope(Dispatchers.Default))
+    val h = Home(FakePlatform("server" to "http://127.0.0.1:${server.address.port}", "token" to "t"), CoroutineScope(Ui))
     val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
         RealmTheme { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { Tabs(h) } }
     }
     var t = 0L
-    fun frame() = scene.render(t).also { t += 16_000_000L }
+    fun frame() = scene.renderOnUi(t).also { t += 16_000_000L }
 
     // Let the realms load and Main open, then go to the grid. Waits on the stand-in server, not a frame count.
     fun until(ok: () -> Boolean) {
         repeat(400) {
             if (ok()) return
             frame()
-            Thread.sleep(10)
+            Ui.pause(10)
         }
     }
     until { h.realms.size >= 2 && h.model != null }
@@ -242,25 +242,25 @@ private fun create() {
     h.showTabs()
     repeat(40) {
         frame()
-        Thread.sleep(5)
+        Ui.pause(5)
     }
     h.createRealm("Ideas")
     for (n in 0..80) {
         val img = frame()
-        Thread.sleep(5) // real time for the stand-in server to answer
+        Ui.pause(5) // real time for the stand-in server to answer
         if (n % 4 == 0) File(out, "create-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
     }
     // Then back to the grid and delete Lisbon trip: it fades away and Ideas slides into its place (delete-N).
     h.showTabs()
     repeat(40) {
         frame()
-        Thread.sleep(5)
+        Ui.pause(5)
     }
     until { h.realms.any { it.id == "ideas" } }
     h.deleteRealm(h.realms.first { it.id == "trip" })
     for (n in 0..40) {
         val img = frame()
-        Thread.sleep(5)
+        Ui.pause(5)
         if (n % 4 == 0) File(out, "delete-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
     }
     scene.close()
@@ -359,11 +359,11 @@ fun main(args: Array<String>) {
                 }
             }
         }
-        scene.render(0)
+        scene.renderOnUi(0)
         scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Enter, androidx.compose.ui.geometry.Offset(60f, 40f))
         scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Move, androidx.compose.ui.geometry.Offset(62f, 40f))
-        for (f in 1..40) scene.render(f * 16_000_000L)
-        File(out, "$name.png").writeBytes(scene.render(700_000_000L).encodeToData(EncodedImageFormat.PNG)!!.bytes)
+        for (f in 1..40) scene.renderOnUi(f * 16_000_000L)
+        File(out, "$name.png").writeBytes(scene.renderOnUi(700_000_000L).encodeToData(EncodedImageFormat.PNG)!!.bytes)
         scene.close()
     }
     shot("agents", 200, 80) {
@@ -373,7 +373,7 @@ fun main(args: Array<String>) {
         }
     }
     val owned = Api("https://realm.example.dev/api", Bearer { "t" }, "desktop")
-    val sharing = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), owned).apply {
+    val sharing = Model(FakePlatform(), CoroutineScope(Ui), owned).apply {
         val day = System.currentTimeMillis() + 86_400_000
         links.set(
             listOf(
@@ -383,7 +383,7 @@ fun main(args: Array<String>) {
         )
     }
     // share-skeleton: the links not known yet, from a server that can't be reached: room kept for a couple.
-    val unknown = Model(FakePlatform(), CoroutineScope(Dispatchers.Unconfined), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
+    val unknown = Model(FakePlatform(), CoroutineScope(Ui), Api("http://127.0.0.1:9/api", Bearer { "t" }, "desktop"))
     shot("share-skeleton", 460, 510) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
             androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) { ShareSheet(unknown, {}) }
@@ -409,7 +409,7 @@ fun main(args: Array<String>) {
     val empty =
         Model(
             FakePlatform(),
-            CoroutineScope(Dispatchers.Unconfined),
+            CoroutineScope(Ui),
             Api(
                 "http://127.0.0.1:${none.address.port}/api",
                 Bearer {
@@ -420,12 +420,12 @@ fun main(args: Array<String>) {
         )
     shot("empty", 400, 760, realtimeMs = 1500) { FeedPage(empty, "Ideas", 7) }
     shot("empty-light", 400, 760, dark = false, realtimeMs = 1500) { FeedPage(empty, "Ideas", 7) }
-    shot("setup", 400, 760) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
-    shot("setup-light", 400, 760, dark = false) { Setup(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined))) }
+    shot("setup", 400, 760) { Setup(Home(FakePlatform(), CoroutineScope(Ui))) }
+    shot("setup-light", 400, 760, dark = false) { Setup(Home(FakePlatform(), CoroutineScope(Ui))) }
     shot("setup-token", 460, 440) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
             androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) {
-                realm.ui.TokenSheetPreview(Home(FakePlatform(), CoroutineScope(Dispatchers.Unconfined)))
+                realm.ui.TokenSheetPreview(Home(FakePlatform(), CoroutineScope(Ui)))
             }
         }
     }
