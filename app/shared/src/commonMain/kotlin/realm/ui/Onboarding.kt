@@ -4,6 +4,7 @@
 package realm.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -69,29 +70,32 @@ import realm.Onboarding as State
 
 /**
  * The whole screen in place of setup, with settings in its corner for the account and signing out: choosing
- * an account, then, on one with no realm, deploying it. The one fades through to the other.
+ * an account, then, on one with no realm, deploying it. The one fades through to the other. What deploying
+ * needs scrolls; Deploy stays at the bottom of the screen, in reach however tall that is.
  */
 @Composable
 fun OnboardingScreen(home: Home, modifier: Modifier = Modifier) {
     val o = home.onboarding
     var settings by remember { mutableStateOf(false) }
     Box(modifier.fillMaxSize()) {
-        Column(
-            Modifier.align(Alignment.TopCenter).widthIn(max = 460.dp).fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-        ) {
-            Spacer(Modifier.height(24.dp))
-            Wordmark(size = 28)
-            Spacer(Modifier.height(12.dp))
-            AnimatedContent(
-                o.account,
-                // Choosing an account fades through to its checks, the screen fitting what comes.
-                transitionSpec = {
-                    (fadeIn(tween(STEP_MILLIS * 2 / 3, delayMillis = STEP_MILLIS / 3)) togetherWith fadeOut(tween(STEP_MILLIS / 3)))
-                        .using(SizeTransform(clip = true))
-                },
-                contentKey = { it != null },
-            ) { a -> Column { if (a == null) Chooser(home) else Checks(a, o) } }
+        Column(Modifier.align(Alignment.TopCenter).widthIn(max = 460.dp).fillMaxSize()) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp)) {
+                Spacer(Modifier.height(24.dp))
+                Wordmark(size = 28)
+                Spacer(Modifier.height(12.dp))
+                AnimatedContent(
+                    o.account,
+                    // Choosing an account fades through to its checks, the screen fitting what comes.
+                    transitionSpec = {
+                        (fadeIn(tween(STEP_MILLIS * 2 / 3, delayMillis = STEP_MILLIS / 3)) togetherWith fadeOut(tween(STEP_MILLIS / 3)))
+                            .using(SizeTransform(clip = true))
+                    },
+                    contentKey = { it != null },
+                ) { a -> Column { if (a == null) Chooser(home) else Checks(a, o) } }
+            }
+            AnimatedVisibility(o.account != null, enter = fadeIn(tween(STEP_MILLIS)), exit = fadeOut(tween(STEP_MILLIS))) {
+                Box(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp)) { DeployButton(o) }
+            }
         }
         IconButton(onClick = { settings = true }, Modifier.align(Alignment.TopEnd).padding(8.dp)) {
             Icon(Icons.Outlined.Settings, "Settings")
@@ -157,8 +161,6 @@ private fun ColumnScope.Checks(account: Account, o: State) {
     Loading(state, skeleton = { Column { AddressSkeleton() } }) { r -> Column { if (!r.deployed) Address(r, o) } }
     o.comingUp?.let { ComingUp(it) }
     Problem(o.problem)
-    Spacer(Modifier.height(20.dp))
-    DeployButton(o)
 }
 
 /** Deployed, but its new address isn't answering yet: what's happening, while signing in is tried again. */
