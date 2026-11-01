@@ -24,7 +24,7 @@ private fun checked(name: String, cloud: FakeCloud): Home {
 }
 
 /**
- * onboard-cold-N: setup fades through to onboarding, its rows held by a skeleton, then checked. onboard-ready:
+ * onboard-cold-N: setup fades through to onboarding, its rows' room kept (a skeleton if checking is slow), then checked. onboard-ready:
  * everything met, Deploy on. onboard-r2-off, onboard-d1-full: Deploy dimmed, with the dashboard to fix it.
  * onboard-subdomain-empty, -typed: no workers.dev subdomain until one is typed. onboard-retry-N: a deploy fails
  * and stays on onboarding, logged in, then Retry deploys and signs in. onboard-restart-N: the next run opens
@@ -37,15 +37,13 @@ internal fun onboarding() {
         val film = Film(home)
         film.roll("onboard-cold", every = 2, max = 6)
         home.cloudflare.logIn()
-        val skeleton = mutableListOf<Boolean>()
-        film.roll("onboard-cold", every = 2, max = 300) {
-            skeleton += home.screen == realm.Screen.Onboarding && home.onboarding.requirements.state == Loaded.Unknown
-            home.onboarding.requirements.state is Loaded.Known
-        }
+        film.roll("onboard-cold", every = 2, max = 300) { home.onboarding.requirements.state is Loaded.Known }
+        val known = film.indicated.size
         film.roll("onboard-cold", every = 2, max = 30)
         film.still("onboard-ready")
         film.close()
-        check(skeleton.count { it } > 2) { "onboard-cold: the skeleton never showed" }
+        // The rows are blank from the frame onboarding shows, and their skeleton fades in only if checking is slow.
+        film.checkIndicator("onboard-cold", film.screens.indexOfFirst { it.startsWith("Onboarding/") }, known)
         check(home.onboarding.deployment != null) { "onboard-ready: Deploy isn't on" }
         film.went("onboard-cold", "Setup/-", "Setup/LoggingIn", "Onboarding/-")
     }

@@ -125,7 +125,7 @@ private fun List<Resource>.words() = map { it.words() }.let {
 internal fun Fact(label: String, text: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Text(label, Modifier.width(96.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(text, style = MaterialTheme.typography.bodyMedium)
+        Changing(text) { Text(it, style = MaterialTheme.typography.bodyMedium) } // a refresh fades only what it changed
     }
 }
 

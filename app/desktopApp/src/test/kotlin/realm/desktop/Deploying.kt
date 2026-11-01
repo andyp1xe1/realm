@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -31,6 +32,9 @@ import realm.Home
 import realm.Login
 import realm.screen
 import realm.ui.CloudflareSheet
+import realm.ui.INDICATOR_DELAY_MILLIS
+import realm.ui.Indicators
+import realm.ui.LocalIndicators
 import realm.ui.RealmTheme
 import realm.ui.SettingsDialog
 import realm.ui.SetupOrTabs
@@ -53,6 +57,8 @@ internal class FakeCloud(
     val databases: Int = 0,
     var subdomain: String? = "jo",
     var uploadFails: Boolean = false,
+    /** How much longer than usual each read takes, as on a slow network. */
+    var slowness: Long = 0,
 ) {
     private var record = true
     private var workersDev = true
@@ -68,7 +74,7 @@ internal class FakeCloud(
         val route = if (account == null) path else path.replace("cf/accounts/$account", "cf/accounts/a1")
         val sub = if (jo) subdomain else "studio$account"
         // Each write takes a moment, as Cloudflare's do, so every step is on screen for a few frames.
-        delay(if (req.method.value == "GET") 40 else 450)
+        delay(if (req.method.value == "GET") 40 + slowness else 450)
         when {
             route == "POST dash.cloudflare.com/oauth2/token" -> json("""{"access_token":"cf","refresh_token":"r","expires_in":3600}""")
 
@@ -224,19 +230,30 @@ internal class FakeCloud(
 /** A scene of the app's first screen with the Cloudflare sheet over it, and frames taken as real time passes. */
 internal class Film(val home: Home, settings: Boolean = false) {
     var settings by mutableStateOf(settings)
+    private val indicators = Indicators()
     val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
         RealmTheme {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                Box {
-                    SetupOrTabs(home)
-                    if (this@Film.settings) {
-                        SettingsDialog(home, onDismiss = { this@Film.settings = false }, Modifier.onSizeChanged { sheetHeight = it.height })
+                CompositionLocalProvider(LocalIndicators provides indicators) {
+                    Box {
+                        SetupOrTabs(home)
+                        if (this@Film.settings) {
+                            SettingsDialog(
+                                home,
+                                onDismiss = { this@Film.settings = false },
+                                Modifier.onSizeChanged {
+                                    sheetHeight =
+                                        it.height
+                                },
+                            )
+                        }
+                        CloudflareSheet(home.cloudflare)
                     }
-                    CloudflareSheet(home.cloudflare)
                 }
             }
         }
     }
+
     private var t = 0L
     private var n = 0
     private var sheetHeight = 0
@@ -250,12 +267,28 @@ internal class Film(val home: Home, settings: Boolean = false) {
     /** What each frame drew from as screen/sheet step, like Onboarding/Deploying. */
     val screens = mutableListOf<String>()
 
+    /** Whether each frame showed a skeleton or spinner, however faintly. */
+    val indicated = mutableListOf<Boolean>()
+
     fun frame() = scene.renderOnUi(t).also {
         t += 16_000_000L
         val step = home.cloudflare.login?.let { it::class.simpleName } ?: "-"
         drawn += step to (home.server != null)
         screens += "${home.screen}/$step"
         sheetHeights += sheetHeight
+        indicated += indicators.showing
+    }
+
+    /**
+     * Checks the frames from [from] on showed a skeleton or spinner only if what they waited for took longer than
+     * the delay before one shows: it was there by frame [known], each frame 16ms of the clock animations run on.
+     */
+    fun checkIndicator(name: String, from: Int, known: Int) {
+        val shown = indicated.drop(from).count { it }
+        val tookMs = (known - from) * 16
+        println("$name: known after ${tookMs}ms, ${indicated.size - from} frames, $shown with a skeleton or spinner")
+        if (tookMs < INDICATOR_DELAY_MILLIS) check(shown == 0) { "$name: a skeleton showed for what came in ${tookMs}ms" }
+        if (tookMs > INDICATOR_DELAY_MILLIS + 100) check(shown > 2) { "$name: nothing showed it coming for ${tookMs}ms" }
     }
 
     /** Renders frames, ~16ms of real time apart, until [done] or [max]; saves every [every]th as [name]-N. */

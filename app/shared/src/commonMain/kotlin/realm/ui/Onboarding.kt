@@ -57,7 +57,6 @@ import realm.D1_FREE_LIMIT
 import realm.DatabaseCheck
 import realm.DomainChoice
 import realm.Home
-import realm.Loaded
 import realm.R2Check
 import realm.R2NotEnabled
 import realm.ReleaseCheck
@@ -151,7 +150,7 @@ private fun ColumnScope.Checks(account: Account, o: State) {
     Spacer(Modifier.height(4.dp))
     Label("What it needs")
     Loading(state, skeleton = { Column { RowsSkeleton() } }) { r ->
-        Column { Rows(r, o, refreshing = (state as? Loaded.Known)?.refreshing == true) }
+        Column { Rows(r, o, refreshing = o.requirements.refreshing) }
     }
     InlineButton("Check again", o::check)
     Spacer(Modifier.height(12.dp))
@@ -211,25 +210,34 @@ private val RowHeight = 64.dp
 @Composable
 private fun Requirement(ok: Boolean, title: String, detail: String, refreshing: Boolean, action: (@Composable () -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
+        // Checked again, the mark stays until the check is slow, then turns; it changes only if the answer does.
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-            when {
-                refreshing -> CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                ok -> Icon(Icons.Outlined.Check, "Met", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                else -> Icon(Icons.Outlined.ErrorOutline, "Not met", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
-            }
+            val mark = @Composable { Changing(ok) { Mark(it) } }
+            if (refreshing) Delayed(instead = mark) { CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp) } else mark()
         }
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Changing(title to detail, Modifier.weight(1f)) { (title, detail) ->
+            Column {
+                Text(title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         action?.invoke()
+    }
+}
+
+@Composable
+private fun Mark(ok: Boolean) {
+    if (ok) {
+        Icon(Icons.Outlined.Check, "Met", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+    } else {
+        Icon(Icons.Outlined.ErrorOutline, "Not met", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
     }
 }
 

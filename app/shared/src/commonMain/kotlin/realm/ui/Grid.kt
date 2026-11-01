@@ -107,12 +107,15 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
 
     Column(modifier.widthIn(max = PageWidth).fillMaxSize()) {
         Box(Modifier.fillMaxWidth().height(2.dp)) {
+            // A refresh shows the bar only once it's slow: what's known is on show meanwhile.
             if (home.loading) {
-                LinearProgressIndicator(
-                    Modifier.fillMaxWidth().height(2.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = Color.Transparent,
-                )
+                Delayed {
+                    LinearProgressIndicator(
+                        Modifier.fillMaxWidth().height(2.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = Color.Transparent,
+                    )
+                }
             }
         }
         home.incoming?.let { IncomingBanner(it) { home.incoming = null } }

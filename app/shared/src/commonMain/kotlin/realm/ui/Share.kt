@@ -382,30 +382,33 @@ private fun LinkRow(l: Link, model: Model, selected: Boolean, onSelect: () -> Un
             .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                buildString {
-                    append(l.scope)
-                    l.label?.let { append(" · ").append(it) }
-                    l.items?.let { append(" · ").append(if (it.size == 1) "1 item" else "${it.size} items") }
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                buildString {
-                    append(
-                        l.expires?.let { "expires " + model.platform.formatDay(it) + " " + model.platform.formatTime(it) }
-                            ?: "never expires",
-                    )
-                    append(" · ${l.uses}")
-                    l.maxUses?.let { append("/$it") }
-                    append(" uses")
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        // Refreshed, a link's row fades only if it changed.
+        Changing(l, Modifier.weight(1f)) { shown ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    buildString {
+                        append(shown.scope)
+                        shown.label?.let { append(" · ").append(it) }
+                        shown.items?.let { append(" · ").append(if (it.size == 1) "1 item" else "${it.size} items") }
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    buildString {
+                        append(
+                            shown.expires?.let { "expires " + model.platform.formatDay(it) + " " + model.platform.formatTime(it) }
+                                ?: "never expires",
+                        )
+                        append(" · ${shown.uses}")
+                        shown.maxUses?.let { append("/$it") }
+                        append(" uses")
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         IconButton(onClick = { revoking = true }, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Outlined.Delete, "Revoke", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)

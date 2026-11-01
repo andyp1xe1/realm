@@ -32,5 +32,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.ktor.client.mock)
         }
+        // Draws screens offscreen, to test what each frame shows.
+        getByName("desktopTest").dependencies { implementation(compose.desktop.currentOs) }
     }
 }

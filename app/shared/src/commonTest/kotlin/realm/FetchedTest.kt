@@ -1,5 +1,6 @@
 package realm
 
+import androidx.compose.runtime.snapshots.Snapshot
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -7,7 +8,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.builtins.ListSerializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class FetchedTest {
     private class MapPrefs : Prefs {
@@ -50,11 +53,39 @@ class FetchedTest {
         val answer = CompletableDeferred<List<Realm>>()
         f.refresh { answer.await() }
         runCurrent()
-        assertEquals(Loaded.Known(main, refreshing = true), f.state) // shown meanwhile, not a skeleton
+        assertEquals(Loaded.Known(main), f.state) // shown meanwhile, not a skeleton
+        assertTrue(f.refreshing)
         answer.complete(both)
         runCurrent()
         assertEquals(Loaded.Known(both), f.state)
+        assertFalse(f.refreshing)
         assertEquals(both, cache.get()) // and kept for the run after
+    }
+
+    /** The state objects reading [Fetched.state] reads, as a screen showing it would. */
+    private fun readBy(f: Fetched<*>): Set<Any> = mutableSetOf<Any>().also { reads -> Snapshot.observe({ reads += it }) { f.state } }
+
+    /** Runs [change] and gives the state objects it changed, as a screen would be told of them. */
+    private fun TestScope.changedBy(change: () -> Unit): Set<Any> {
+        val changed = mutableSetOf<Any>()
+        val h = Snapshot.registerApplyObserver { set, _ -> changed.addAll(set) }
+        change()
+        runCurrent()
+        Snapshot.sendApplyNotifications()
+        h.dispose()
+        return changed
+    }
+
+    @Test
+    fun aRefreshThatFindsTheSameChangesNothingAScreenShowingItReads() = runTest {
+        cache.set(main)
+        val f = fetched()
+        val shown = readBy(f)
+        assertTrue(changedBy { f.refresh { main } }.none { it in shown }) // asked, and found the same: no redraw
+        assertEquals(Loaded.Known(main), f.state)
+        assertFalse(f.refreshing)
+        assertTrue(changedBy { f.refresh { both } }.any { it in shown }) // found something new: it's shown
+        assertEquals(Loaded.Known(both), f.state)
     }
 
     @Test

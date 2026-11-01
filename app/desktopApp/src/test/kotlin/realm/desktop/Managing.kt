@@ -10,6 +10,7 @@ import realm.DomainChoice
 import realm.Home
 import realm.Loaded
 import realm.Zone
+import realm.ui.INDICATOR_DELAY_MILLIS
 import realm.value
 
 /** Signed in with Cloudflare to [cloud]'s worker, with settings open. */
@@ -116,10 +117,11 @@ internal fun managing() {
 }
 
 /**
- * settings-cold-N: the run after signing in, with nothing kept about the server, settings open from the
- * start: a skeleton, then what's fetched, fading through in place. settings-warm-N: the same with what the
- * last run fetched kept: it shows at once, and the refresh changes nothing on screen. Checks the sheet keeps
- * one height in every frame of both, and that only the cold one ever drew the skeleton.
+ * settings-cold-N: the run after signing in, with nothing kept about the server, settings open from the start:
+ * blank where the facts go, then what's fetched fading in; it comes within the delay, so no skeleton shows.
+ * settings-slow-N: the same over a slow network: the skeleton fades in once the delay is up, then the facts
+ * fade in over it. settings-warm-N: the same with what the last run fetched kept: it shows at once, and the
+ * refresh changes nothing on screen. Checks the sheet keeps one height in every frame of each.
  */
 private fun steadySettings() {
     val cloud = FakeCloud(worker = """{"version":3,"scope":"owner"}""")
@@ -129,19 +131,32 @@ private fun steadySettings() {
     Film(home).apply { until { home.serverSettings.facts.state is Loaded.Known && home.cloudflare.knownRelease != null } }.close()
     val kept = first.kept()
     check("server-facts" in kept.map { it.first }) { "signing in kept nothing about the server" }
-    for ((name, prefs) in listOf("settings-cold" to kept.filter { it.first != "server-facts" }, "settings-warm" to kept)) {
+    val cold = kept.filter { it.first != "server-facts" }
+    for ((name, prefs, slowness) in listOf(
+        Triple("settings-cold", cold, 0L),
+        Triple("settings-slow", cold, 300L),
+        Triple("settings-warm", kept, 0L),
+    )) {
+        cloud.slowness = slowness
         val next = Home(FakePlatform(*prefs.toTypedArray()), CoroutineScope(Ui), cloud.engine)
         val film = Film(next, settings = true)
-        val unknown = mutableListOf<Boolean>()
-        film.roll(name, every = 2, max = 60) { false.also { unknown += next.serverSettings.facts.state == Loaded.Unknown } }
+        film.roll(name, every = 2, max = 200) { next.serverSettings.facts.state is Loaded.Known }
+        val known = film.indicated.size
+        film.roll(name, every = 2, max = 40)
         film.close()
         val heights = film.sheetHeights.filter { it > 0 }
-        val skeleton = unknown.count { it }
-        println("$name: ${heights.size} frames, sheet heights ${heights.distinct()} px, $skeleton with the skeleton")
-        check(heights.size > 50 && heights.distinct().size == 1) { "$name: the settings sheet changed height: $heights" }
+        println("$name: ${heights.size} frames, sheet heights ${heights.distinct()} px")
+        check(heights.size > 30 && heights.distinct().size == 1) { "$name: the settings sheet changed height: $heights" }
         check(next.serverSettings.facts.state is Loaded.Known) { "$name: the server's facts never arrived" }
-        if (name == "settings-cold") check(skeleton > 2) { "settings-cold: the skeleton never showed" }
-        if (name == "settings-warm") check(skeleton == 0) { "settings-warm: drew the skeleton with the facts kept" }
+        film.checkIndicator(name, 0, known)
+        if (name ==
+            "settings-cold"
+        ) {
+            check(known * 16 < INDICATOR_DELAY_MILLIS) { "settings-cold took ${known * 16}ms: no test of a fast one" }
+        }
+        if (name == "settings-slow") check(film.indicated.any { it }) { "settings-slow: the skeleton never showed" }
+        if (name == "settings-warm") check(known == 1 && film.indicated.none { it }) { "settings-warm: wasn't known at once" }
     }
-    println("${out.path}/settings-cold-*.png, settings-warm-*.png")
+    cloud.slowness = 0
+    println("${out.path}/settings-cold-*.png, settings-slow-*.png, settings-warm-*.png")
 }

@@ -1,5 +1,6 @@
 // Data the app fetches and shows: the one supported way to hold it. Fetched starts from the last value kept,
-// refreshes in place, keeps what it had when asking fails, and publishes whole values. ui/Loading.kt draws it.
+// refreshes in place, keeps what it had when asking fails, and publishes whole values, and only ones that differ
+// from what's shown: a refresh that finds the same changes nothing, so nothing redraws. ui/Loading.kt draws it.
 package realm
 
 import androidx.compose.runtime.getValue
@@ -13,11 +14,11 @@ import kotlinx.coroutines.launch
 
 /** Fetched data as the UI sees it: never known yet, or known, maybe being asked for again. */
 sealed interface Loaded<out T> {
-    /** Nothing known yet: the UI keeps the room the data takes, with a skeleton, until it is. */
+    /** Nothing known yet: the UI keeps the room the data takes, blank, with a skeleton only if it is slow to come. */
     data object Unknown : Loaded<Nothing>
 
-    /** [value] as last fetched or kept; [refreshing] while it's asked for again, and shown meanwhile. */
-    data class Known<out T>(val value: T, val refreshing: Boolean = false) : Loaded<T>
+    /** [value] as last fetched or kept, shown while it's asked for again ([Fetched.refreshing]). */
+    data class Known<out T>(val value: T) : Loaded<T>
 }
 
 /** The value, if it's known. */
@@ -37,6 +38,13 @@ class Fetched<T : Any>(
     var state: Loaded<T> by mutableStateOf(cache?.get()?.let { Loaded.Known(it) } ?: Loaded.Unknown)
         private set
 
+    /**
+     * A fetch is under way. Apart from [state], so that asking again changes nothing a reader of the value sees:
+     * only what shows the asking, like a spinner, reads this.
+     */
+    var refreshing by mutableStateOf(false)
+        private set
+
     private var job: Job? = null
 
     /** Each fetch and forget gets the next number; a fetch publishes only if it's still the latest. */
@@ -49,7 +57,7 @@ class Fetched<T : Any>(
     fun refresh(fetch: suspend () -> T) {
         job?.cancel()
         val mine = ++generation
-        (state as? Loaded.Known)?.let { state = it.copy(refreshing = true) }
+        refreshing = true
         job = scope.launch {
             val next = try {
                 fetch()
@@ -58,7 +66,7 @@ class Fetched<T : Any>(
             } catch (e: Exception) {
                 logFailure(doing, e)
                 if (mine != generation) return@launch // given up on meanwhile
-                (state as? Loaded.Known)?.let { state = it.copy(refreshing = false) }
+                refreshing = false
                 failed(explain(e))
                 return@launch
             }
@@ -81,6 +89,7 @@ class Fetched<T : Any>(
     /** Back to nothing known, here and in the cache, as on signing out; a fetch under way is dropped. */
     fun forget() {
         drop()
+        refreshing = false
         state = Loaded.Unknown
         cache?.set(null)
     }
@@ -90,7 +99,10 @@ class Fetched<T : Any>(
         generation++
     }
 
+    /** [value], unless it's the one shown already: then nothing changes, and nothing redraws. */
     private fun publish(value: T) {
+        refreshing = false
+        if (state.value == value) return
         state = Loaded.Known(value)
         cache?.set(value)
     }
