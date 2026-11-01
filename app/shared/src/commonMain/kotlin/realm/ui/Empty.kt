@@ -46,16 +46,17 @@ import kotlin.math.sin
 fun EmptyRealm(modifier: Modifier = Modifier, still: Boolean = false, onShare: () -> Unit = {}) {
     val appear = remember { Animatable(if (still) 1f else 0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, tween(400)) }
-    val drift = if (still) {
-        0f
+    // Read only while drawing: the art redraws each frame without recomposing anything.
+    val drift: () -> Float = if (still) {
+        { 0f }
     } else {
         // Linear: with easing, each cycle would slow to a stop before the next, reading as an end.
-        val t by rememberInfiniteTransition().animateFloat(
+        val t = rememberInfiniteTransition().animateFloat(
             0f,
             1f,
             infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Restart),
         )
-        t
+        remember(t) { { t.value } }
     }
     Column(modifier.graphicsLayer { alpha = appear.value }, horizontalAlignment = Alignment.CenterHorizontally) {
         GhostFeed(drift)
@@ -72,7 +73,7 @@ fun EmptyRealm(modifier: Modifier = Modifier, still: Boolean = false, onShare: (
 }
 
 @Composable
-private fun GhostFeed(drift: Float) {
+private fun GhostFeed(drift: () -> Float) {
     val card = MaterialTheme.colorScheme.surfaceContainer
     val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
     val tile = MaterialTheme.colorScheme.primaryContainer
@@ -81,7 +82,7 @@ private fun GhostFeed(drift: Float) {
         val u = size.width / 240f // design units: the art is drawn on a 240×200 grid
 
         // Each card bobs a few units, a quarter turn apart from the next.
-        fun bob(phase: Float) = sin((drift + phase) * 2 * PI).toFloat() * 3f * u
+        fun bob(phase: Float) = sin((drift() + phase) * 2 * PI).toFloat() * 3f * u
 
         // A note: two lines of text.
         translate(0f, bob(0f)) {
