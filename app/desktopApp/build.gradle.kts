@@ -24,9 +24,11 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.coroutines.swing)
+    implementation(libs.kotlinx.serialization.json)
     // Ktor logs through SLF4J; this prints warnings to the terminal (src/main/resources/simplelogger.properties).
     runtimeOnly(libs.slf4j.simple)
     testImplementation(libs.ktor.client.mock)
+    testImplementation(kotlin("test"))
 }
 
 compose.desktop {

@@ -15,7 +15,6 @@ import org.jetbrains.skia.Surface
 import realm.Incoming
 import realm.LocalFile
 import realm.Platform
-import realm.Prefs
 import realm.Recording
 import realm.jvm.Dates
 import realm.jvm.DiskCache
@@ -38,7 +37,6 @@ import java.io.File
 import java.net.URI
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import java.util.prefs.Preferences
 import javax.imageio.ImageIO
 import javax.sound.sampled.AudioFileFormat
 import javax.sound.sampled.AudioFormat
@@ -58,14 +56,8 @@ class DesktopPlatform : Platform {
     override val isForeground = true
     var window: Frame? = null
 
-    private val node = Preferences.userRoot().node("realm")
-    override val prefs = object : Prefs {
-        override fun get(key: String): String? = node.get(key, null)
-        override fun set(key: String, value: String?) {
-            if (value == null) node.remove(key) else node.put(key, value)
-            node.flush()
-        }
-    }
+    // Lazy: the previews borrow this platform's image decoding, and must not write the user's settings.
+    override val prefs by lazy { SettingsFile(File(configHome(), "app.json")) }
 
     private val incomingChannel = Channel<Incoming>(Channel.UNLIMITED)
     override val incoming: Flow<Incoming> = incomingChannel.receiveAsFlow()
@@ -188,6 +180,20 @@ class DesktopPlatform : Platform {
             "mac" in os -> File(home, "Library/Caches/realm")
             "win" in os -> File(System.getenv("LOCALAPPDATA") ?: home, "realm/cache")
             else -> File(System.getenv("XDG_CACHE_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.cache", "realm")
+        }
+    }
+
+    /**
+     * The system's place for settings: XDG on Linux, Library/Application Support on macOS, AppData on Windows.
+     * The Go CLI keeps its own config.json in the same folder.
+     */
+    private fun configHome(): File {
+        val home = System.getProperty("user.home")
+        val os = System.getProperty("os.name").lowercase()
+        return when {
+            "mac" in os -> File(home, "Library/Application Support/realm")
+            "win" in os -> File(System.getenv("APPDATA") ?: home, "realm")
+            else -> File(System.getenv("XDG_CONFIG_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.config", "realm")
         }
     }
 
