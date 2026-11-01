@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -195,6 +196,7 @@ private fun ColumnScope.Found(result: UpdateCheck, home: Home, onClose: () -> Un
  * Each address the worker answers on, the one in use marked, and workers.dev while it's off; then adding
  * one, or what's being done. The last address it answers on can't be taken away.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ColumnScope.Addresses(inUse: String, a: Addresses, settings: ServerSettings) {
     val task = settings.task
@@ -202,19 +204,24 @@ private fun ColumnScope.Addresses(inUse: String, a: Addresses, settings: ServerS
     val busy = task != null && task != AddressTask.Adding && task !is AddressTask.Failed
     (listOfNotNull(a.workersDev) + a.origins).distinct().forEach { origin ->
         val on = origin in a.origins
-        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        // The address fills its line; on a narrow screen the actions wrap under it rather than cut it short.
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 origin.removePrefix("https://"),
-                Modifier.weight(1f),
+                Modifier.weight(1f).heightIn(min = 40.dp).wrapContentHeight(),
                 color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (origin == inUse) {
-                Text("In use", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            }
-            if (!busy) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (origin == inUse) {
+                    Text("In use", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                }
+                if (!busy) {
                     if (!on) TextButton(onClick = settings::turnOnWorkersDev) { Text("Turn on") }
                     if (on && origin != inUse) TextButton(onClick = { settings.use(origin) }) { Text("Use") }
                     if (on && a.origins.size > 1) {
