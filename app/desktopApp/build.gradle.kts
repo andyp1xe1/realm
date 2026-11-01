@@ -62,4 +62,6 @@ tasks.register<JavaExec>("preview") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("realm.desktop.PreviewKt")
     args(layout.buildDirectory.dir("preview").get().asFile.path)
+    // Its own JVM: capped, so it and Gradle fit in the memory a build is given.
+    maxHeapSize = "1536m"
 }

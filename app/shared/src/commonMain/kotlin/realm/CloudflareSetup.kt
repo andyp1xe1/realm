@@ -1,5 +1,6 @@
 // Logging in with Cloudflare from the app, and deploying or updating the realm worker with that login. Every
 // step is published as one whole Login for the sheet to draw; nothing is written before the user says Deploy.
+// With no worker yet, the login goes on to Onboarding, which deploys through here.
 package realm
 
 import androidx.compose.runtime.getValue
@@ -37,35 +38,30 @@ class CloudflareSetup internal constructor(
         private set
 
     /**
-     * Logs in with Cloudflare in the browser and signs in to the realm worker on that account, as `realm login`
-     * does; with no worker there yet, offers to deploy one. Tapping again starts over.
+     * Logs in with Cloudflare in the browser, as `realm login` does. With one account, signs in to the realm
+     * worker there, or, with none yet, keeps the login and opens onboarding to deploy one; with several, the
+     * login is kept for the user to choose one. Logging in again, to grant more accounts, replaces the login
+     * kept before, which is ended. Tapping again starts over.
      */
     fun logIn() = start {
         login = Login.LoggingIn
-        when (val r = logInWithCloudflare(platform, platform.name, ::askWhich, home::sessionFor, engine)) {
-            null -> login = null
-
+        val before = home.onboarding.session
+        val r = logInWithCloudflare(platform, platform.name, home::sessionFor, engine)
+        // Setup fades through to onboarding or the realms: no frame has neither.
+        when (r) {
             is SignedIn -> signedIn(r)
 
-            is NoWorker -> {
-                // Not saved anywhere until it's signed in, so its renewals needn't be either.
-                val session = CloudflareSession(r.login) {}
-                val only = r.accounts.singleOrNull()
-                if (only != null) plan(session, only, updating = false) else login = Login.PickAccount(session, r.accounts)
+            is NoWorker -> Snapshot.withMutableSnapshot {
+                login = null
+                home.onboarding.start(r.login, listOf(r.account))
+            }
+
+            is SeveralAccounts -> Snapshot.withMutableSnapshot {
+                login = null
+                home.onboarding.start(r.login, r.accounts)
             }
         }
-    }
-
-    private suspend fun askWhich(found: List<Worker>): Worker? {
-        val answer = CompletableDeferred<Worker?>()
-        login = Login.PickWorker(found, answer)
-        return answer.await().also { login = Login.LoggingIn }
-    }
-
-    /** Answers [Login.PickAccount]: works out what deploying to [account] would do. */
-    fun deployTo(account: Account) {
-        val picking = login as? Login.PickAccount ?: return
-        start { plan(picking.session, account, updating = false) }
+        before?.let { scope.launch { Cloudflare.revoke(it.login) } }
     }
 
     /** Opens the plan for [update], with the Cloudflare login the server is signed in with. */
@@ -73,34 +69,44 @@ class CloudflareSetup internal constructor(
         val session = home.session ?: return
         val id = session.login.account ?: return
         start {
-            login = Login.Planning(updating = true)
-            val account = CloudflareApi(session, engine).use { it.account(id) }
-            plan(session, account, updating = true)
+            login = Login.Planning
+            login = try {
+                val release = latestRelease(engine)
+                val plan = CloudflareApi(session, engine).use { it.plan(it.account(id), release) }
+                if (plan is Plan.Fresh) throw ApiException("There's no realm worker on that account any more.")
+                // Deploying would stop at the bucket: say so before, not after.
+                Login.Confirm(session, plan, Choices(), R2NotEnabled().takeIf { !plan.found.r2Enabled })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logFailure("Working out an update on $id", e)
+                Login.Failed(explain(e))
+            }
         }
     }
 
-    private suspend fun plan(session: CloudflareSession, account: Account, updating: Boolean) {
-        login = Login.Planning(updating)
-        login = try {
-            val release = latestRelease(engine)
-            val plan = CloudflareApi(session, engine).use { it.plan(account, release) }
-            // Deploying would stop at the bucket: say so before, not after.
-            Login.Confirm(session, plan, Choices(), R2NotEnabled().takeIf { !plan.found.r2Enabled })
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            logFailure("Working out a deploy to ${account.id}", e)
-            Login.Failed(explain(e))
-        }
-    }
-
-    /** Deploys the plan being confirmed, with what the user picked, and signs in to it once it answers. */
+    /** Deploys the update being confirmed; a failure says why in the plan, to try again. */
     fun deploy(choices: Choices) {
         val confirm = login as? Login.Confirm ?: return
         val plan = confirm.plan as? Plan.Ready ?: return
-        start {
+        run(confirm.session, plan, choices) { e -> login = Login.Confirm(confirm.session, plan, choices, e) }
+    }
+
+    /**
+     * Deploys [deployment] from onboarding with its login, showing the steps in the sheet, and signs in to it
+     * once it answers. A failure puts the sheet away and tells [failed] why; the login stays.
+     */
+    internal fun deployFresh(session: CloudflareSession, deployment: Deployment, failed: (String) -> Unit) =
+        run(session, deployment.plan, deployment.choices) { e ->
+            login = null
+            failed(e.message ?: "Deploying stopped")
+        }
+
+    /** Deploys [plan] with [choices], then lands it: signed in to, or the update noted. [failed] gets why it stopped. */
+    private fun run(session: CloudflareSession, plan: Plan.Ready, choices: Choices, failed: (ApiException) -> Unit) {
+        start(failed) {
             login = Login.Deploying(plan, emptyList())
-            CloudflareApi(confirm.session, engine).use { cf ->
+            CloudflareApi(session, engine).use { cf ->
                 val steps = mutableListOf<Step>()
                 val done = try {
                     cf.deploy(plan, choices) {
@@ -111,7 +117,7 @@ class CloudflareSetup internal constructor(
                     throw e
                 } catch (e: Exception) {
                     logFailure("Deploying to ${plan.found.account.id}", e)
-                    login = Login.Confirm(confirm.session, plan, choices, e as? ApiException ?: ApiException(explain(e)))
+                    Snapshot.withMutableSnapshot { failed(e as? ApiException ?: ApiException(explain(e))) }
                     return@start
                 }
                 finish(
@@ -119,7 +125,7 @@ class CloudflareSetup internal constructor(
                         plan,
                         done,
                         steps,
-                        confirm.session.login,
+                        session.login,
                         platform.name,
                         home::sessionFor,
                         progress = { login = Login.Deploying(plan, it) },
@@ -143,10 +149,10 @@ class CloudflareSetup internal constructor(
                 home.message = "Your server runs realm ${landed.plan.release.manifest.version} now."
             }
 
+            // Onboarding keeps the login, says the address is coming up, and signs in once it answers.
             is Landed.NotAnswering -> Snapshot.withMutableSnapshot {
                 login = null
-                home.signedInBeforeItAnswers(landed.connection)
-                home.message = "realm is deployed. Its address may take a few minutes to reach you."
+                home.onboarding.comingUp(landed.connection)
             }
 
             is Landed.SignedInTo -> signedIn(landed.signedIn)
@@ -161,9 +167,7 @@ class CloudflareSetup internal constructor(
 
     /** Puts the sheet away, giving up on what it asks; a deploy under way runs to the end. */
     fun dismiss() {
-        when (val l = login) {
-            is Login.PickWorker -> l.pick(null)
-
+        when (login) {
             is Login.Deploying, is Login.Replace, null -> {}
 
             else -> {
@@ -202,8 +206,11 @@ class CloudflareSetup internal constructor(
         updateChecks.reset()
     }
 
-    /** Runs [block] instead of whatever this was doing; what goes wrong goes to the snackbar. */
-    private fun start(block: suspend () -> Unit) {
+    /**
+     * Runs [block] instead of whatever this was doing; what goes wrong goes to [failed], given, or else to the
+     * snackbar.
+     */
+    private fun start(failed: ((ApiException) -> Unit)? = null, block: suspend () -> Unit) {
         val previous = job
         job = scope.launch {
             previous?.cancelAndJoin()
@@ -217,8 +224,10 @@ class CloudflareSetup internal constructor(
                 home.message = "Logging in stopped: ${e.message}"
             } catch (e: Exception) {
                 logFailure("Logging in with Cloudflare", e)
-                login = null
-                home.message = explain(e)
+                Snapshot.withMutableSnapshot {
+                    login = null
+                    if (failed != null) failed(e as? ApiException ?: ApiException(explain(e))) else home.message = explain(e)
+                }
             }
         }
     }

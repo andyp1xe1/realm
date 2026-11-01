@@ -3,7 +3,7 @@ package realm
 import kotlinx.coroutines.CompletableDeferred
 
 /**
- * Where logging in with Cloudflare, or deploying the worker with that login, has got to. One value, assigned
+ * Where logging in with Cloudflare, or deploying or updating the worker with that login, has got to. One value, assigned
  * whole, so the sheet never draws a step without what it shows: a plan without its release, progress without
  * its plan. [CloudflareSetup.login] is null when neither is under way.
  */
@@ -11,18 +11,8 @@ sealed interface Login {
     /** The browser is out, or the worker is being looked for. */
     data object LoggingIn : Login
 
-    /** Realm workers on more than one account: [pick] one to sign in to, or null to give up. */
-    class PickWorker(val workers: List<Worker>, private val answer: CompletableDeferred<Worker?>) : Login {
-        fun pick(worker: Worker?) {
-            answer.complete(worker)
-        }
-    }
-
-    /** No realm worker on any of [accounts] yet: one is picked to deploy it to. */
-    class PickAccount(val session: CloudflareSession, val accounts: List<Account>) : Login
-
-    /** Looking at the account and the newest release to work out a plan; [updating] the worker that's there. */
-    data class Planning(val updating: Boolean) : Login
+    /** Looking at the account and the newest release to work out an update of the worker that's there. */
+    data object Planning : Login
 
     /**
      * [plan], to confirm before anything is written, with what was picked so far. [problem] is why the last

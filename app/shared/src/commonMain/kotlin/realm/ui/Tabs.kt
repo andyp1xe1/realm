@@ -26,6 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import realm.Home
+import realm.Screen
+import realm.screen
 
 /** How long a tab takes to zoom in or out; the overview fades over the same time. */
 const val TAB_ZOOM_MILLIS = 380
@@ -63,13 +65,14 @@ fun Modifier.tabBounds(key: String, shape: Shape): Modifier {
 }
 
 /**
- * Setup until something is signed in or connected, then the realms. Between the two it fades through:
- * the outgoing screen fades out quickly, then the incoming one fades in as it grows into place.
+ * Setup until something is signed in or connected, then the realms; onboarding while logged in with Cloudflare
+ * with nothing deployed yet. Between them it fades through: the outgoing screen fades out quickly, then the
+ * incoming one fades in as it grows into place.
  */
 @Composable
 fun SetupOrTabs(home: Home, modifier: Modifier = Modifier) {
     AnimatedContent(
-        home.isEmpty,
+        home.screen,
         modifier,
         transitionSpec = {
             (
@@ -79,7 +82,13 @@ fun SetupOrTabs(home: Home, modifier: Modifier = Modifier) {
                 fadeOut(tween(FADE_THROUGH_MILLIS / 3))
         },
         contentAlignment = Alignment.TopCenter,
-    ) { empty -> if (empty) Setup(home) else Tabs(home) }
+    ) { screen ->
+        when (screen) {
+            Screen.Setup -> Setup(home)
+            Screen.Onboarding -> OnboardingScreen(home)
+            Screen.Tabs -> Tabs(home)
+        }
+    }
 }
 
 /** How long signing in or out takes to fade from setup to the realms, or back. */

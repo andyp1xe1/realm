@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.graphics.ImageBitmap
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
@@ -59,6 +60,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** The server section of settings. */
     val serverSettings = ServerSettings(this, scope, engine)
 
+    /** Logged in with Cloudflare with no realm worker yet: checking what deploying needs, and deploying. */
+    val onboarding = Onboarding(this, scope, engine)
+
     private val prefs = platform.prefs
 
     /** The realms last fetched, so the overview shows straight away and works offline; and the share links added. */
@@ -78,9 +82,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     internal var session: CloudflareSession? = null
         private set
 
-    /** A server just deployed, signed in to before its address reached us. */
-    private var deployedJustNow: Api? = null
-
     val spaces: List<Space> get() = realms.map { own(it) } + shared
     val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
     val model: Model? get() = open?.let(::modelOf)
@@ -88,15 +89,21 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     init {
         migratePrefs()
-        val owner = prefs.owner()
-        if (owner != null) {
-            val bearer = when (owner) {
-                is Connection.ByToken -> Bearer { owner.token }
-                is Connection.ByCloudflare -> sessionFor(owner).also { session = it }
+        when (val own = prefs.own()) {
+            null -> {}
+
+            // Its accounts and what deploying needs are asked for now, for onboarding to show.
+            is Connection.LoginOnly -> onboarding.start(own.cloudflare, null)
+
+            is Connection.Owner -> {
+                val bearer = when (own) {
+                    is Connection.ByToken -> Bearer { own.token }
+                    is Connection.ByCloudflare -> sessionFor(own).also { session = it }
+                }
+                server = Api.server(own.server, bearer, platform.name, engine)
+                realms.addAll(knownRealms.get().orEmpty())
+                serverSettings.refresh() // so settings opens on it, the last known shown meanwhile
             }
-            server = Api.server(owner.server, bearer, platform.name, engine)
-            realms.addAll(knownRealms.get().orEmpty())
-            serverSettings.refresh() // so settings opens on it, the last known shown meanwhile
         }
         knownLinks.get()?.forEach { url ->
             shared += Space.Shared(url, null, null, linkApi(url))
@@ -156,7 +163,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (s !== deployedJustNow) message = explain(e) // that one was said to take a few minutes
+            message = explain(e)
         }
     }
 
@@ -252,7 +259,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         s = CloudflareSession(owner.login) { next ->
             if (session !== s) return@CloudflareSession
             if (next != null) {
-                prefs.saveOwner(owner.copy(login = next))
+                prefs.saveOwn(owner.copy(login = next))
             } else {
                 scope.launch {
                     if (session !== s) return@launch
@@ -276,8 +283,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         return null
     }
 
-    /** Switches to a server just signed in to, as the owner. */
+    /** Switches to a server just signed in to, as the owner. A login onboarding kept goes on as its owner's. */
     internal fun signedIn(s: SignedIn) {
+        onboarding.handOver()
         signOut()
         adoptOwner(s)
         serverSettings.refresh() // fetched now, not when settings opens
@@ -297,32 +305,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     private fun adoptOwner(s: SignedIn) {
         session = s.session
-        prefs.saveOwner(s.connection)
+        prefs.saveOwn(s.connection)
         checkForUpdate(force = true, s.api) // before adopt's refresh, which would check less eagerly
         adopt(s.api, s.realms)
         message = Api.mismatch(s.info)
-    }
-
-    /**
-     * Signs in to a worker just deployed whose address doesn't reach you yet, as new ones may not for a few
-     * minutes: the overview shows its realms once it answers.
-     */
-    internal fun signedInBeforeItAnswers(owner: Connection.ByCloudflare) {
-        signOut()
-        val s = sessionFor(owner).also { session = it }
-        prefs.saveOwner(owner)
-        val api = Api.server(owner.server, s, platform.name, engine)
-        server = api
-        deployedJustNow = api
-        scope.launch {
-            repeat(30) {
-                delay(10.seconds)
-                if (server !== api) return@launch
-                val list = runCatching { api.realms() }.getOrNull() ?: return@repeat
-                adopt(api, list)
-                return@launch serverSettings.refresh()
-            }
-        }
     }
 
     /**
@@ -339,17 +325,33 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     fun signOut() = leave(switching = false)
 
-    /** Signs out; [switching] to another address of the same server keeps the login and settings' view of it. */
-    private fun leave(switching: Boolean) {
+    /**
+     * Leaves the server signed in to with Cloudflare for the account chooser, with the same login: no new
+     * consent in the browser. In one go, so the realms fade straight through to it.
+     */
+    fun useAnotherAccount() {
+        val login = session?.login ?: return
+        Snapshot.withMutableSnapshot {
+            leave(switching = false, ending = false)
+            onboarding.start(login.copy(account = null), null)
+        }
+    }
+
+    /**
+     * Signs out, of the server or of a Cloudflare login onboarding kept, [ending] the login unless it goes on;
+     * [switching] to another address of the same server keeps the login and settings' view of it.
+     */
+    private fun leave(switching: Boolean, ending: Boolean = !switching) {
         realms.forEach { forget(ownKey(it.id)) }
         realms.clear()
         server?.close()
         server = null
-        if (!switching) session?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
+        val kept = onboarding.handOver()
+        if (ending) (session ?: kept)?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
         session = null
         cloudflare.signedOut()
         if (!switching) serverSettings.signedOut()
-        prefs.saveOwner(null)
+        prefs.saveOwn(null)
         knownRealms.set(null)
         if (open == null) reopen()
     }
