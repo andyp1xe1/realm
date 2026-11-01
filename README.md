@@ -2,7 +2,7 @@
 
 realm is a personal dump for notes and files. Anything you type, paste, drop, or record lands in a searchable realm, and a share link gives a friend or an agent access without a login. One deployment holds as many realms as you like.
 
-<p align="center"><img src="docs/screens.png" alt="Three phone screens: a realm's feed of notes, a link, a voice note, and a PDF; the tab overview with realms and share links as tiles; and the Share dialog with a prompt ready to copy for an agent" width="900"></p>
+<p align="center"><img src="docs/screens.png" alt="Three phone screens: a realm's feed of notes, a link, a voice note, and a PDF; the tab overview with realms and share links as tiles; and the Share dialog for choosing what a link allows and how long it lasts, with the realm's active links" width="900"></p>
 
 ```
 worker/       Cloudflare Worker API. R2 stores files, D1 stores items and the search index.
