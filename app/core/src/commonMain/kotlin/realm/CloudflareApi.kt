@@ -88,7 +88,7 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
     suspend fun subdomain(account: Account): String? = try {
         call<Subdomain>(HttpMethod.Get, "/accounts/${account.id}/workers/subdomain").subdomain
     } catch (e: CloudflareError) {
-        if (NO_SUBDOMAIN in e.codes || e.status == 404) null else throw e
+        if (NO_SUBDOMAIN in e.codes) null else throw e
     }
 
     internal suspend fun workersDevOn(account: Account): Boolean =

@@ -9,6 +9,7 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -109,6 +110,14 @@ class RequirementsTest {
         assertNull(r.deployment(Choices()))
         for (bad in listOf("", "-jo", "jo-", "jo.dev", "jo_dev", "a".repeat(64))) assertNull(r.deployment(Choices(subdomain = bad)), bad)
         assertEquals("jo-dev", r.deployment(Choices(subdomain = " Jo-Dev "))?.choices?.subdomain)
+    }
+
+    @Test
+    fun onlyCloudflaresNoSubdomainCodeMeansThereIsNone() = runTest {
+        val elsewhere = account { route, _ ->
+            if (route == "GET $CF/accounts/a1/workers/subdomain") cfError(HttpStatusCode.NotFound, 7003, "No route for that URI") else null
+        }.api()
+        assertFailsWith<CloudflareError> { elsewhere.subdomain(ACCOUNT) }
     }
 
     @Test
