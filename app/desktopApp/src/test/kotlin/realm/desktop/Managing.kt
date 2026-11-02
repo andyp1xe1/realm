@@ -3,7 +3,6 @@
 package realm.desktop
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import realm.AddressTask
 import realm.Check
 import realm.DomainChoice

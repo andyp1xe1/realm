@@ -14,32 +14,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.emptyFlow
 import org.jetbrains.skia.EncodedImageFormat
 import realm.Api
 import realm.Bearer
-import realm.ByteReader
 import realm.Home
-import realm.Info
 import realm.Item
-import realm.LocalFile
 import realm.Model
 import realm.Pending
-import realm.Platform
-import realm.Prefs
-import realm.Realm
-import realm.Recording
-import realm.Space
-import realm.jvm.Dates
 import realm.jvm.JFile
 import realm.ui.Composer
 import realm.ui.Feed
-import realm.ui.Grid
 import realm.ui.Main
 import realm.ui.RealmTheme
 import realm.ui.RecordingPanel
@@ -50,8 +37,6 @@ import realm.ui.Tabs
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
-import kotlin.math.abs
-import kotlin.math.sin
 
 private fun model(): Model {
     // Unreachable server: nothing is fetched, we fill the lists by hand.

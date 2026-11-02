@@ -31,15 +31,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -346,7 +344,7 @@ internal fun KindIcon(kind: String, mime: String?, modifier: Modifier = Modifier
             "audio" -> Icons.Outlined.Audiotrack
             "video" -> Icons.Outlined.Movie
             "image" -> Icons.Outlined.Image
-            else -> if (mime?.startsWith("text/") == true) Icons.Outlined.Description else Icons.Outlined.InsertDriveFile
+            else -> if (mime?.startsWith("text/") == true) Icons.Outlined.Description else Icons.AutoMirrored.Outlined.InsertDriveFile
         },
         null,
         modifier,
