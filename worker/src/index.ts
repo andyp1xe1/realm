@@ -288,13 +288,10 @@ async function owner(ctx: OwnerCtx, p: string[]): Promise<Response> {
     return route({ ...ctx, realm, baseUrl: `${ctx.baseUrl}/realms/${encodeURIComponent(realm.id)}` }, rest);
   }
 
-  if (a === "links" && !(m === "POST" && !b)) return links(ctx, b);
+  if (a === "links") return links(ctx, b);
   if (a === "info" && !b && m === "GET") return info(ctx);
   if (!a && (m === "GET" || m === "HEAD")) return help(ctx);
-
-  const first = await ctx.env.DB.prepare("SELECT * FROM realms ORDER BY created, id LIMIT 1").first<Realm>();
-  if (!first) throw new HttpError(404, "no realms yet; create one with POST /api/realms");
-  return route({ ...ctx, realm: first }, p);
+  throw new HttpError(404, "not found; a realm's items, files, uploads and new links are under /api/realms/<realm>/");
 }
 
 async function route(ctx: RealmCtx, p: string[]): Promise<Response> {

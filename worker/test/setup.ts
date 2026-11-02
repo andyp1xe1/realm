@@ -19,7 +19,7 @@ export function setup() {
 type Call = ReturnType<typeof setup>["call"];
 
 export async function mkLink(call: Call, body: object) {
-  const r = await call("/api/links", {
+  const r = await call("/api/realms/main/links", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

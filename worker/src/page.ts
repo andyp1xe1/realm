@@ -24,7 +24,7 @@ export function agentHelp(ctx: Ctx): string {
       `curl -s${auth} -X POST "${ctx.baseUrl}/realms" -H 'content-type: application/json' -d '{"name":"Trip"}'`,
       `curl -s${auth} -X PATCH "${ctx.baseUrl}/realms/<realm>" -H 'content-type: application/json' -d '{"name":"Holiday"}'`,
       `curl -s${auth} -X DELETE "${ctx.baseUrl}/realms/<realm>"   # deletes everything in it`,
-      `The routes below work per realm. Without /realms/<realm>, they use the first realm.`,
+      `The routes below work per realm.`,
       ``,
     );
   }
@@ -132,13 +132,14 @@ export async function htmlPage(ctx: Ctx): Promise<Response> {
         ? `<div class=feed>${items.map((i) => itemHtml(ctx, i)).join("")}</div>`
         : `<p class=empty>${q || kind ? "Nothing matches." : "Nothing here yet."}</p>`);
   }
-  const composer = canWrite
-    ? `<section id=drop class=composer>
+  const composer =
+    canWrite && "realm" in ctx
+      ? `<section id=drop class=composer>
 <textarea id=t rows=3 placeholder="Type or paste a note, or drop files anywhere"></textarea>
 <div class=bar><label class=icon title="Add files">${svg("attach")}<input type=file id=f multiple hidden></label>
 <span class=hint>Ctrl+Enter to send</span><button id=go class=send title=Send>${svg("send")}</button></div>
 <div id=log></div></section>`
-    : "";
+      : "";
   const sub =
     ctx.scope === "drop"
       ? "Drop notes and files here"

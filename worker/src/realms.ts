@@ -78,7 +78,10 @@ export async function links(ctx: Ctx, token: string | undefined): Promise<Respon
   const realm = "realm" in ctx ? ctx.realm.id : null;
   const m = ctx.req.method;
   if (!token && m === "GET") return listLinks(ctx, realm);
-  if (!token && m === "POST" && "realm" in ctx) return createLink(ctx);
+  if (!token && m === "POST") {
+    if (!("realm" in ctx)) throw new HttpError(404, "create links under /api/realms/<realm>/links");
+    return createLink(ctx);
+  }
   if (token && (m === "DELETE" || m === "PATCH")) {
     const row = await ctx.env.DB.prepare("SELECT * FROM links WHERE token = ?").bind(token).first<LinkRow>();
     const link = row && linkFromRow(row);
@@ -93,18 +96,24 @@ export async function links(ctx: Ctx, token: string | undefined): Promise<Respon
   throw new HttpError(404, "not found");
 }
 
+interface NewLink {
+  scope?: Scope;
+  items?: string[];
+  ttl?: number;
+  uses?: number;
+  label?: string;
+  max_bytes?: number;
+}
+
+const NEW_LINK_FIELDS: string[] = ["scope", "items", "ttl", "uses", "label", "max_bytes"] satisfies (keyof NewLink)[];
+
 async function createLink(ctx: RealmCtx): Promise<Response> {
-  const j = (await ctx.req.json().catch(() => ({}))) as {
-    scope?: Scope | "item";
-    items?: string[];
-    item?: string;
-    ttl?: number;
-    uses?: number;
-    label?: string;
-    max_bytes?: number;
-  };
-  const items = j.items ?? (j.item ? [j.item] : undefined);
-  const scope = j.scope === "item" ? "read" : j.scope || (items ? "read" : "drop");
+  const j = (await ctx.req.json().catch(() => ({}))) as NewLink;
+  const unknown = Object.keys(j).filter((k) => !NEW_LINK_FIELDS.includes(k));
+  if (unknown.length)
+    throw new HttpError(400, `unknown field ${unknown[0]}; a link takes ${NEW_LINK_FIELDS.join(", ")}`);
+  const items = j.items;
+  const scope = j.scope || (items ? "read" : "drop");
   if (!["drop", "read", "full"].includes(scope)) throw new HttpError(400, "scope must be drop|read|full");
   if (items && scope !== "read") throw new HttpError(400, "a link to picked items can only read");
   const link: Link = {

@@ -17,18 +17,18 @@ test("realms: create, list, isolate, rename, delete", async () => {
   const trip = await (await post(call, "/api/realms", { name: "Trip" })).json();
   const T = `/api/realms/${trip.id}`;
 
-  await call("/api/items", { method: "POST", body: "in main" });
+  await call("/api/realms/main/items", { method: "POST", body: "in main" });
   const n = await (await call(`${T}/items`, { method: "POST", body: "packing list" })).json();
   assert.equal(n.realm, trip.id);
   await tick();
   const f = await (await put(call, `${T}/files/map.png`, "PNG")).json();
-  assert.equal((await call(`/api/items/${n.id}`)).status, 404); // /api/items is the first realm
+  assert.equal((await call(`/api/realms/main/items/${n.id}`)).status, 404);
   assert.equal((await call(`${T}/items/${n.id}`)).status, 200);
   assert.deepEqual(
     (await (await call(`${T}/items?q=packing`)).json()).items.map((i: { id: string }) => i.id),
     [n.id],
   );
-  assert.equal((await (await call("/api/items?q=packing")).json()).items.length, 0);
+  assert.equal((await (await call("/api/realms/main/items?q=packing")).json()).items.length, 0);
 
   l = await (await call("/api/realms")).json();
   assert.deepEqual(
@@ -56,7 +56,7 @@ test("realms: create, list, isolate, rename, delete", async () => {
 
   // multipart uploads stay in the realm they started in
   const { upload } = await (await post(call, `${T}/uploads`, { name: "big" })).json();
-  assert.equal((await put(call, `/api/uploads/${upload}/1`, "x")).status, 404);
+  assert.equal((await put(call, `/api/realms/main/uploads/${upload}/1`, "x")).status, 404);
 
   assert.equal((await call(T, { method: "DELETE" })).status, 200);
   assert.equal((await call(T)).status, 404);
@@ -68,13 +68,13 @@ test("realms: create, list, isolate, rename, delete", async () => {
 
 test("selections: only picked items, editable, die with their last item", async () => {
   const { call } = setup();
-  const a = await (await put(call, "/api/files/a.txt", "AAA")).json();
+  const a = await (await put(call, "/api/realms/main/files/a.txt", "AAA")).json();
   await tick();
-  const b = await (await call("/api/items", { method: "POST", body: "note b" })).json();
-  const c = await (await call("/api/items", { method: "POST", body: "note c" })).json();
-  assert.equal((await post(call, "/api/links", { scope: "full", items: [a.id] })).status, 400);
-  assert.equal((await post(call, "/api/links", { items: [] })).status, 400);
-  assert.equal((await post(call, "/api/links", { items: [a.id, "nope"] })).status, 404);
+  const b = await (await call("/api/realms/main/items", { method: "POST", body: "note b" })).json();
+  const c = await (await call("/api/realms/main/items", { method: "POST", body: "note c" })).json();
+  assert.equal((await post(call, "/api/realms/main/links", { scope: "full", items: [a.id] })).status, 400);
+  assert.equal((await post(call, "/api/realms/main/links", { items: [] })).status, 400);
+  assert.equal((await post(call, "/api/realms/main/links", { items: [a.id, "nope"] })).status, 404);
 
   const l = await mkLink(call, { items: [a.id, b.id, a.id] });
   assert.deepEqual(l.items, [a.id, b.id]);
@@ -95,15 +95,15 @@ test("selections: only picked items, editable, die with their last item", async 
   assert.equal("selection" in whole, false);
   assert.equal((await post(call, `/api/links/${whole.token}`, { items: [c.id] }, "PATCH")).status, 400);
 
-  await call(`/api/items/${c.id}`, { method: "DELETE" });
+  await call(`/api/realms/main/items/${c.id}`, { method: "DELETE" });
   assert.equal((await call(`${p}/items`)).status, 404);
   assert.equal((await call(`${new URL(whole.url).pathname}/items`)).status, 200);
 });
 
 test("info tells a client what a link is without spending a use", async () => {
   const { call } = setup();
-  const f = await (await put(call, "/api/files/a.txt", "AAA")).json();
-  const one = await mkLink(call, { item: f.id, uses: 1, label: "bob" });
+  const f = await (await put(call, "/api/realms/main/files/a.txt", "AAA")).json();
+  const one = await mkLink(call, { items: [f.id], uses: 1, label: "bob" });
   const p = new URL(one.url).pathname;
   for (let i = 0; i < 3; i++) {
     const info = await (await call(`${p}/info`)).json();
@@ -192,4 +192,20 @@ test("a Cloudflare login that can manage the worker is the owner", async () => {
   } finally {
     globalThis.fetch = real;
   }
+});
+
+test("only a realm's own routes reach its items, and links share items by a list of ids", async () => {
+  const { call } = setup();
+  const f = await (await put(call, "/api/realms/main/files/a.txt", "AAA")).json();
+  assert.equal(f.realm, "main");
+  assert.equal((await call("/api/items")).status, 404);
+  assert.equal((await call("/api/items", { method: "POST", body: "x" })).status, 404);
+  assert.equal((await call(`/api/items/${f.id}/raw`)).status, 404);
+  assert.equal((await put(call, "/api/files/b.txt", "B")).status, 404);
+  assert.equal((await post(call, "/api/uploads", { name: "x" })).status, 404);
+  assert.equal((await post(call, "/api/links", { scope: "drop" })).status, 404);
+  assert.equal((await post(call, "/api/realms/main/links", { item: f.id })).status, 400);
+  assert.equal((await post(call, "/api/realms/main/links", { scope: "item", items: [f.id] })).status, 400);
+  assert.equal((await post(call, "/api/realms/main/links", { items: [f.id] })).status, 201);
+  assert.doesNotMatch(await (await call("/api")).text(), /first realm/);
 });
