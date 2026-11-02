@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Refuses a commit message that isn't one capitalised line, or that credits an agent.
+# Refuses a commit message that isn't one capitalized line, or that credits an agent.
 set -uo pipefail
 
 msg=$(sed '/^# -\+ >8 -\+$/,$d; /^#/d' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | sed '/./,$!d')

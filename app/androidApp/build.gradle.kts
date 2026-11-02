@@ -1,3 +1,4 @@
+// The Android app: the shared screens in one activity, with Android's pickers, camera, and share sheet.
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -5,23 +6,17 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// A release build gets its version from the tag: `-Prealm.version=1.2.0`, or `-Prealm.version=1.2.0-rc.1`.
-// versionCode grows with every release: MAJOR*1_000_000 + MINOR*10_000 + PATCH*100, plus N for rc.N and 99
-// for the release itself, so 1.2.0-rc.1 < 1.2.0-rc.2 < 1.2.0 < 1.2.1-rc.1. Local builds stay 0.1, code 1.
-val realmVersion: String? = providers.gradleProperty("realm.version").orNull
-val realmVersionCode: Int? =
-    realmVersion?.let { v ->
-        val parts =
-            Regex("""(0|[1-9]\d{0,2})\.(\d{1,2})\.(\d{1,2})(?:-rc\.([1-9]\d?))?""").matchEntire(v)?.destructured
-                ?: error("realm.version $v isn't MAJOR.MINOR.PATCH(-rc.N) with MAJOR < 1000, MINOR and PATCH < 100")
-        val (major, minor, patch, rc) = parts
-        require(rc != "99") { "realm.version $v: rc.99 would share the release's versionCode" }
-        major.toInt() * 1_000_000 + minor.toInt() * 10_000 + patch.toInt() * 100 + (rc.toIntOrNull() ?: 99)
-    }
+/** Orders every release and its candidates: 1.2.0-rc.1 < 1.2.0-rc.2 < 1.2.0 < 1.2.1-rc.1. */
+fun versionCodeOf(version: String): Int {
+    val (major, minor, patch, rc) =
+        Regex("""(0|[1-9]\d{0,2})\.(\d{1,2})\.(\d{1,2})(?:-rc\.([1-9]\d?))?""").matchEntire(version)?.destructured
+            ?: error("realm.version $version isn't MAJOR.MINOR.PATCH(-rc.N) with MAJOR < 1000, MINOR and PATCH < 100")
+    require(rc != "99") { "realm.version $version: rc.99 would share the release's versionCode" }
+    val release = 99
+    return major.toInt() * 1_000_000 + minor.toInt() * 10_000 + patch.toInt() * 100 + (rc.toIntOrNull() ?: release)
+}
 
-// The release key comes from the environment, as in CI: REALM_KEYSTORE (a PKCS12 file), REALM_KEYSTORE_PASSWORD,
-// REALM_KEY_ALIAS, REALM_KEY_PASSWORD. Without REALM_KEYSTORE, release builds are signed with the debug key,
-// so `assembleRelease` works anywhere.
+val realmVersion: String? = providers.gradleProperty("realm.version").orNull
 val releaseKeystore: String? = providers.environmentVariable("REALM_KEYSTORE").orNull
 
 android {
@@ -31,7 +26,7 @@ android {
         applicationId = "dev.realm.app"
         minSdk = 29
         targetSdk = 37
-        versionCode = realmVersionCode ?: 1
+        versionCode = realmVersion?.let(::versionCodeOf) ?: 1
         versionName = realmVersion ?: "0.1"
     }
     signingConfigs {
@@ -47,8 +42,6 @@ android {
     }
     buildTypes {
         release {
-            // R8 takes the APK from 52 MB to 4 MB, mostly unused icons. Ktor, kotlinx.serialization, coroutines,
-            // and OkHttp ship their own keep rules, so the app needs none of its own.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))

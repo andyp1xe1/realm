@@ -1,7 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-// Cloudflare's and GitHub's replies as they really sent them, and a fake that answers with them: one source
-// for core's tests and the desktop previews. Only tests depend on it.
+// Cloudflare's and GitHub's real replies and a fake server that answers with them, for tests and previews.
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kmp.library)

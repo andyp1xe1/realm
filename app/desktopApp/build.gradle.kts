@@ -1,3 +1,4 @@
+// The desktop app: the shared screens in a window, released as an AppImage and a jar.
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -25,7 +26,6 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.coroutines.swing)
     implementation(libs.kotlinx.serialization.json)
-    // Ktor logs through SLF4J; this prints warnings to the terminal (src/main/resources/simplelogger.properties).
     runtimeOnly(libs.slf4j.simple)
     testImplementation(project(":fixtures"))
     testImplementation(kotlin("test"))
@@ -35,23 +35,15 @@ compose.desktop {
     application {
         mainClass = "realm.desktop.MainKt"
         nativeDistributions {
-            targetFormats(TargetFormat.AppImage, TargetFormat.Dmg, TargetFormat.Msi)
+            targetFormats(TargetFormat.AppImage)
             packageName = "realm"
-            packageVersion = "1.0.0"
+            packageVersion = providers.gradleProperty("realm.version").getOrElse("0.1.0")
             modules("java.desktop", "jdk.unsupported")
-            linux {
-                // Releases pass the tag without its v: `-Prealm.version=1.2.0` or `1.2.0-rc.1`. Only Linux takes it:
-                // the AppImage and the uber jar accept any version, but Dmg and Msi need MAJOR > 0 and no -rc
-                // suffix, and Compose checks every listed format, so they keep the placeholder above.
-                packageVersion = providers.gradleProperty("realm.version").getOrElse("1.0.0")
-                iconFile.set(file("packaging/realm.png"))
-            }
+            linux { iconFile.set(file("packaging/realm.png")) }
         }
     }
 }
 
-// `./gradlew :desktopApp:dev` runs the app with Compose Hot Reload: save a file and the window updates in place.
-// REALM_LOG=debug ./gradlew :desktopApp:run logs more than the warnings simplelogger.properties allows.
 tasks.withType<JavaExec>().matching { it.name == "run" }.configureEach {
     System.getenv("REALM_LOG")?.let { systemProperty("org.slf4j.simpleLogger.defaultLogLevel", it) }
 }
@@ -66,11 +58,11 @@ tasks.register("dev") {
     dependsOn("hotRun")
 }
 
-// Offscreen screenshots of the UI with fake data, for eyeballing layout: build/preview/*.png
 tasks.register<JavaExec>("preview") {
+    group = "verification"
+    description = "Render the screens with fake data into build/preview, and check each filmstrip"
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("realm.desktop.PreviewKt")
     args(layout.buildDirectory.dir("preview").get().asFile.path)
-    // Its own JVM: capped, so it and Gradle fit in the memory a build is given.
     maxHeapSize = "1536m"
 }

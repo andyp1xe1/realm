@@ -1,3 +1,4 @@
+// The app's state and screens in Compose Multiplatform, for Android and desktop, on top of core.
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -32,7 +33,6 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.ktor.client.mock)
         }
-        // Draws screens offscreen, to test what each frame shows.
         getByName("desktopTest").dependencies { implementation(compose.desktop.currentOs) }
     }
 }

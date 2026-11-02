@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Refuses a commit with untidy code (Go, TypeScript, Kotlin) or an overlong code file. Checks what's staged, not the working tree.
-# Enable once per clone: git config core.hooksPath .githooks
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
