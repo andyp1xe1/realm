@@ -18,13 +18,13 @@ import android.os.Build
 import android.os.Environment
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -40,6 +40,7 @@ import realm.jvm.Dates
 import realm.jvm.DiskCache
 import realm.jvm.FileStore
 import realm.jvm.JFile
+import realm.jvm.ResultBridge
 import realm.jvm.StreamReader
 import realm.jvm.awaitRedirect
 import realm.jvm.download
@@ -85,12 +86,9 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     private val incomingChannel = Channel<Incoming>(Channel.UNLIMITED)
     override val incoming: Flow<Incoming> = incomingChannel.receiveAsFlow()
 
-    private var picked: CompletableDeferred<List<Uri>>? = null
-    private val pick = activity.registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { picked?.complete(it) }
-    private var shot: CompletableDeferred<Boolean>? = null
-    private val photo = activity.registerForActivityResult(ActivityResultContracts.TakePicture()) { shot?.complete(it) }
-    private var granted: CompletableDeferred<Boolean>? = null
-    private val permission = activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted?.complete(it) }
+    private val pick = activity.bridge(ActivityResultContracts.GetMultipleContents())
+    private val photo = activity.bridge(ActivityResultContracts.TakePicture())
+    private val permission = activity.bridge(ActivityResultContracts.RequestPermission())
 
     fun handleShare(intent: Intent?) {
         intent ?: return
@@ -108,26 +106,18 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         intent.action = null
     }
 
-    override suspend fun pickFiles(): List<LocalFile> {
-        val d = CompletableDeferred<List<Uri>>().also { picked = it }
-        pick.launch("*/*")
-        return d.await().map { UriFile(activity, it) }
-    }
+    override suspend fun pickFiles(): List<LocalFile> = pick("*/*").map { UriFile(activity, it) }
 
     override suspend fun takePhoto(): LocalFile? {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val file = File(activity.cacheDir, "camera/IMG_$stamp.jpg").apply { parentFile?.mkdirs() }
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
-        val d = CompletableDeferred<Boolean>().also { shot = it }
-        photo.launch(uri)
-        return if (d.await() && file.length() > 0) JFile(file, "image/jpeg") else null.also { file.delete() }
+        return if (photo(uri) && file.length() > 0) JFile(file, "image/jpeg") else null.also { file.delete() }
     }
 
     override suspend fun startRecording(): Recording? {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            val d = CompletableDeferred<Boolean>().also { granted = it }
-            permission.launch(Manifest.permission.RECORD_AUDIO)
-            if (!d.await()) return null
+            if (!permission(Manifest.permission.RECORD_AUDIO)) return null
         }
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val file = File(activity.cacheDir, "voice/voice_$stamp.m4a").apply { parentFile?.mkdirs() }
@@ -261,6 +251,12 @@ private class AndroidRecording(context: Context, private val file: File) : Recor
         rec.release()
         file.delete()
     }
+}
+
+private fun <I, O> ComponentActivity.bridge(contract: ActivityResultContract<I, O>): suspend (I) -> O {
+    val bridge = ResultBridge<O>()
+    val launcher = registerForActivityResult(contract, bridge::deliver)
+    return { input -> bridge.await { launcher.launch(input) } }
 }
 
 @Suppress("DEPRECATION")
