@@ -23,7 +23,7 @@ First, read recent commits, reverts, review comments, agent instruction files, a
 
 ## Fix and prove
 
-Then fix the most frequent classes now, one commit each. Prove each new check fails on a real past mistake. Run it from `./lint` and the pre-commit hook in `.githooks/`. Exceptions go on the offending line with a reason.
+Then fix the most frequent classes now, one commit each. Prove each new check fails on a real past mistake. Run it from `./lint` and the pre-commit hook in `.githooks/`. Exceptions go on the offending line with a reason, an expiry date, and a human's approval.
 
 ## Keep the rule table
 
