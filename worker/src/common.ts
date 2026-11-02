@@ -116,6 +116,22 @@ export function need(ctx: Ctx, perm: keyof typeof SCOPES) {
   if (!SCOPES[perm].includes(ctx.scope)) throw new HttpError(403, `this link can't ${perm}`);
 }
 
+/** Deletes files from R2 whose rows are already gone, and forgets them; what R2 refuses stays for the daily cleanup. */
+export async function purge(env: Env, keys: string[]) {
+  for (let i = 0; i < keys.length; i += 1000) {
+    const chunk = keys.slice(i, i + 1000);
+    try {
+      await env.BUCKET.delete(chunk);
+    } catch (e) {
+      console.error(e);
+      return;
+    }
+    await env.DB.prepare("DELETE FROM doomed WHERE key IN (SELECT value FROM json_each(?))")
+      .bind(JSON.stringify(chunk))
+      .run();
+  }
+}
+
 export function publicItem(i: Item) {
   const { key: _key, ...rest } = i;
   return rest;

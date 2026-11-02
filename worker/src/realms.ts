@@ -3,6 +3,7 @@ import {
   json,
   need,
   newId,
+  purge,
   randomToken,
   linkFromRow,
   type Ctx,
@@ -58,6 +59,9 @@ export async function deleteRealm(ctx: OwnerCtx, realm: Realm): Promise<Response
     .all<{ key: string }>();
   const { results: ups } = await db.prepare("SELECT * FROM uploads WHERE realm = ?").bind(realm.id).all<Upload>();
   await db.batch([
+    db
+      .prepare("INSERT OR IGNORE INTO doomed (key) SELECT key FROM items WHERE realm = ? AND key IS NOT NULL")
+      .bind(realm.id),
     db.prepare("DELETE FROM link_items WHERE token IN (SELECT token FROM links WHERE realm = ?)").bind(realm.id),
     db.prepare("DELETE FROM links WHERE realm = ?").bind(realm.id),
     db.prepare("DELETE FROM uploads WHERE realm = ?").bind(realm.id),
@@ -68,7 +72,10 @@ export async function deleteRealm(ctx: OwnerCtx, realm: Realm): Promise<Response
     await ctx.env.BUCKET.resumeMultipartUpload(up.key, up.r2id)
       .abort()
       .catch(() => {});
-  for (let i = 0; i < files.length; i += 1000) await ctx.env.BUCKET.delete(files.slice(i, i + 1000).map((f) => f.key));
+  await purge(
+    ctx.env,
+    files.map((f) => f.key),
+  );
   return json({ ok: true });
 }
 

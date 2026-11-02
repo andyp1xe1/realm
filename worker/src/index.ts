@@ -8,6 +8,7 @@ import {
   json,
   need,
   publicItem,
+  purge,
   safeEqual,
   text,
   wantsHtml,
@@ -104,6 +105,7 @@ export const MIGRATIONS: string[][] = [
     `ALTER TABLE links DROP COLUMN item`,
   ],
   [`CREATE TABLE owners (key TEXT PRIMARY KEY, ok INTEGER NOT NULL, until INTEGER NOT NULL)`],
+  [`CREATE TABLE doomed (key TEXT PRIMARY KEY)`],
 ];
 
 const migrated = new WeakMap<D1Database, Promise<void>>();
@@ -149,7 +151,7 @@ export default {
     }
   },
 
-  /** Daily: abort multipart uploads nobody finished, forget dead links. */
+  /** Daily: abort multipart uploads nobody finished, delete files R2 refused before, forget dead links. */
   async scheduled(_event: unknown, env: Env): Promise<void> {
     await ready(env);
     const cutoff = Date.now() - 24 * 3600 * 1000;
@@ -167,6 +169,11 @@ export default {
       env.DB.prepare("DELETE FROM link_items WHERE token NOT IN (SELECT token FROM links)"),
       env.DB.prepare("DELETE FROM owners WHERE until < ?").bind(Date.now()),
     ]);
+    const { results: doomed } = await env.DB.prepare("SELECT key FROM doomed").all<{ key: string }>();
+    await purge(
+      env,
+      doomed.map(({ key }) => key),
+    );
   },
 };
 

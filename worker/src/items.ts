@@ -10,6 +10,7 @@ import {
   need,
   newId,
   publicItem,
+  purge,
   type RealmCtx,
   type Env,
   type Item,
@@ -198,13 +199,14 @@ export async function patchItem(ctx: RealmCtx, id: string): Promise<Response> {
 export async function deleteItem(ctx: RealmCtx, id: string): Promise<Response> {
   const item = await getItem(ctx, id, "modify");
   await ctx.env.DB.batch([
+    ...(item.key ? [ctx.env.DB.prepare("INSERT OR IGNORE INTO doomed (key) VALUES (?)").bind(item.key)] : []),
     ctx.env.DB.prepare("DELETE FROM items WHERE id = ?").bind(id),
     ctx.env.DB.prepare("DELETE FROM link_items WHERE item = ?").bind(id),
     ctx.env.DB.prepare(
       "DELETE FROM links WHERE selection = 1 AND NOT EXISTS (SELECT 1 FROM link_items WHERE link_items.token = links.token)",
     ),
   ]);
-  if (item.key) await ctx.env.BUCKET.delete(item.key);
+  if (item.key) await purge(ctx.env, [item.key]);
   return json({ ok: true });
 }
 

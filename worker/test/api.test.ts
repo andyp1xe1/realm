@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
-import { O, setup, mkLink, put } from "./setup.ts";
+import { O, setup, mkLink, post, put } from "./setup.ts";
 
 test("auth required", async () => {
   const { call } = setup();
@@ -375,4 +375,28 @@ test("cleanup aborts stale uploads and drops dead links", async () => {
     links.links.map((l: { token: string }) => l.token),
     [live.token],
   );
+});
+
+test("files of deleted items and realms leave storage once it works again", async () => {
+  const { call, env } = setup();
+  const bucket = (env as any).BUCKET;
+  const del = bucket.delete;
+  const trip = await (await post(call, "/api/realms", { name: "Trip" })).json();
+  const f = await (await put(call, "/api/realms/main/files/a.txt", "AAA")).json();
+  await put(call, `/api/realms/${trip.id}/files/b.txt`, "BBB");
+  assert.equal(bucket.objects.size, 2);
+
+  bucket.delete = async () => {
+    throw new Error("R2 is down");
+  };
+  assert.equal((await call(`/api/realms/main/items/${f.id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await call(`/api/realms/main/items/${f.id}`)).status, 404);
+  assert.equal((await call(`/api/realms/${trip.id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await call(`/api/realms/${trip.id}`)).status, 404);
+  await worker.scheduled({}, env);
+  assert.equal(bucket.objects.size, 2);
+
+  bucket.delete = del;
+  await worker.scheduled({}, env);
+  assert.equal(bucket.objects.size, 0);
 });
