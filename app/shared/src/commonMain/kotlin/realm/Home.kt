@@ -219,16 +219,17 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     internal fun sessionFor(owner: Connection.ByCloudflare): CloudflareSession =
         sessionFor(owner.login) { Connection.ByCloudflare(server?.base?.removeSuffix("/api") ?: owner.server, it) }
 
-    internal fun sessionFor(login: CloudflareLogin, kept: (CloudflareLogin) -> Connection.Own) = CloudflareSession(login) { next ->
-        if (next != null) {
-            prefs.saveOwn(kept(next))
-        } else {
-            scope.launch {
-                signOut()
-                message = CloudflareRejected().message
+    internal fun sessionFor(login: CloudflareLogin, kept: (CloudflareLogin) -> Connection.Own) =
+        CloudflareSession(login, CloudflareAuth.on(engine)) { next ->
+            if (next != null) {
+                prefs.saveOwn(kept(next))
+            } else {
+                scope.launch {
+                    signOut()
+                    message = CloudflareRejected().message
+                }
             }
         }
-    }
 
     /** Signs in to your own server at [url]; returns an error message or null. */
     suspend fun signIn(url: String, token: String): String? {
