@@ -127,10 +127,10 @@ class ManageTest {
 
     @Test
     fun aNewerReleaseThisAppCannotDeploySaysToUpdateTheApp() = runTest {
-        val current = account(worker = 3, releases = arrayOf("v2.0.0" to 4, "v1.2.0" to 3)).api().checkUpdate(ACCOUNT)
+        val current = account(worker = 3, releases = arrayOf("v2.0.0" to Api.VERSION + 1, "v1.2.0" to 3)).api().checkUpdate(ACCOUNT)
         assertEquals(Semver(2, 0, 0), assertIs<UpdateCheck.NeedsNewerApp>(current).newer)
 
-        val none = account(worker = 3, releases = arrayOf("v2.0.0" to 4)).api().checkUpdate(ACCOUNT)
+        val none = account(worker = 3, releases = arrayOf("v2.0.0" to Api.VERSION + 1)).api().checkUpdate(ACCOUNT)
         assertEquals(Semver(2, 0, 0), assertIs<UpdateCheck.NeedsNewerApp>(none).newer)
     }
 

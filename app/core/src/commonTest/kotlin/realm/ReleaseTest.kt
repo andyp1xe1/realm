@@ -58,7 +58,7 @@ class ReleaseTest {
                 "v1.4.0-rc.1" to manifest(3),
                 "v1.4.0" to manifest(3),
                 "nightly" to manifest(3),
-                "v1.10.0" to manifest(4),
+                "v1.10.0" to manifest(Api.VERSION + 1),
                 "v1.3.0" to manifest(3, fork = "someone/realm"),
                 "v1.2.0" to manifest(3),
                 "v1.1.0" to manifest(2),
@@ -67,7 +67,7 @@ class ReleaseTest {
         val r = latestRelease(gh.engine)
 
         assertEquals("v1.2.0", r.tag.toString())
-        assertEquals(Semver(1, 10, 0), r.newer) // needs API version 4: the app should be updated
+        assertEquals(Semver(1, 10, 0), r.newer) // needs a newer API version: the app should be updated
         assertEquals(MANIFEST, r.manifest)
         assertContentEquals("abc".encodeToByteArray(), r.code)
         val fetched = gh.routes.filter { "/download/" in it }
@@ -89,7 +89,7 @@ class ReleaseTest {
 
     @Test
     fun onlyReleasesNeedingANewerAppSaySo() = runTest {
-        val gh = github(listOf(release("v2.0.0")), mapOf("v2.0.0" to manifest(4)))
+        val gh = github(listOf(release("v2.0.0")), mapOf("v2.0.0" to manifest(Api.VERSION + 1)))
         val e = assertFailsWith<NoRelease> { latestRelease(gh.engine) }
         assertEquals(Semver(2, 0, 0), e.newer)
     }

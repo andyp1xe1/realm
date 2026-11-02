@@ -185,7 +185,7 @@ private fun create() {
         createContext("/") { x ->
             val path = x.requestURI.path
             val body = when {
-                path == "/api/info" -> """{"version":3,"scope":"owner","realm":null}"""
+                path == "/api/info" -> """{"version":4,"scope":"owner","realm":null}"""
 
                 path == "/api/realms" && x.requestMethod == "POST" ->
                     """{"id":"ideas","name":"Ideas","created":3,"count":0}""".also { realms += it }

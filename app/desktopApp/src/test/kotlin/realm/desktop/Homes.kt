@@ -20,12 +20,12 @@ private fun linkServer(now: Long): String {
             """"mime":${mime?.let { "\"$it\"" }},"size":1000,"src":null,"created":$now}"""
     val lease = item("f", "file", name = "lease-draft.pdf", mime = "application/pdf")
     val answers = mapOf(
-        "/s/k2/info" to """{"version":3,"scope":"read","realm":{"id":"r","name":"Sam's recipes"}}""",
+        "/s/k2/info" to """{"version":4,"scope":"read","realm":{"id":"r","name":"Sam's recipes"}}""",
         "/s/k2/items" to """{"items":[${item("s1", "note", "shakshuka: 6 eggs, 2 tins tomatoes, cumin, feta")},""" +
             """${item("s2", "link", "https://cooking.nytimes.com/recipes/1014721")}],"next":null}""",
-        "/s/f9/info" to """{"version":3,"scope":"read","realm":{"id":"f","name":"Flat hunt"},"items":1,"item":$lease}""",
+        "/s/f9/info" to """{"version":4,"scope":"read","realm":{"id":"f","name":"Flat hunt"},"items":1,"item":$lease}""",
         "/s/f9/items" to """{"items":[$lease],"next":null}""",
-        "/s/d4/info" to """{"version":3,"scope":"drop","realm":{"id":"d","name":"Jo's inbox"}}""",
+        "/s/d4/info" to """{"version":4,"scope":"drop","realm":{"id":"d","name":"Jo's inbox"}}""",
     )
     val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0).apply {
         createContext("/") { x ->

@@ -63,7 +63,7 @@ class OnboardingTest {
                 )
 
                 "GET $gh/worker.json" -> json(
-                    """{"version":3,"name":"realm","main_module":"worker.js","compatibility_date":"2026-10-01",
+                    """{"version":4,"name":"realm","main_module":"worker.js","compatibility_date":"2026-10-01",
                         "sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
                         "r2_buckets":[{"binding":"BUCKET","bucket_name":"realm"}],"d1_databases":[{"binding":"DB","database_name":"realm"}]}""",
                 )
@@ -89,7 +89,7 @@ class OnboardingTest {
 
                 "GET cf/accounts/a2/workers/scripts/realm/secrets" -> cf("""[{"name":"REALM_ACCOUNT"}]""")
 
-                "GET realm.studio.workers.dev/api/info" -> json("""{"version":3,"scope":"owner"}""")
+                "GET realm.studio.workers.dev/api/info" -> json("""{"version":4,"scope":"owner"}""")
 
                 "GET realm.studio.workers.dev/api/realms" -> json("""{"realms":[{"id":"main","name":"Studio's","created":1,"count":0}]}""")
 
@@ -122,7 +122,7 @@ class OnboardingTest {
                     } else if (refuses) {
                         json("""{"error":"bad token"}""", HttpStatusCode.Unauthorized)
                     } else if (worker) {
-                        json("""{"version":3,"scope":"owner"}""")
+                        json("""{"version":4,"scope":"owner"}""")
                     } else {
                         json("""{"error":"not found"}""", HttpStatusCode.NotFound)
                     }

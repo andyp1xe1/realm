@@ -126,7 +126,7 @@ internal fun onboarding() {
  * settings' "Use another Cloudflare account" goes back to the chooser with the same login.
  */
 private fun choosing() {
-    val worker = """{"version":3,"scope":"owner"}"""
+    val worker = """{"version":4,"scope":"owner"}"""
     run {
         val home = home(FakeCloud(worker = worker, accounts = 3))
         val film = Film(home)

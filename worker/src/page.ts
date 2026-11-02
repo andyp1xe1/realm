@@ -36,6 +36,7 @@ export function agentHelp(ctx: Ctx): string {
       `curl -s${auth} "${B}/items?q=invoice+march"            # full-text search over text and file names`,
       `curl -s${auth} "${B}/items?kind=image,file&limit=50"   # filter by kind`,
       `curl -s${auth} "${B}/items?before=<id>"                # next page (response has "next")`,
+      `curl -s${auth} "${B}/items?since=<n>"                  # what was added after a list's "since"`,
       `→ {"items": [Item...], "next": "<id>"|null}`,
       item,
       ``,

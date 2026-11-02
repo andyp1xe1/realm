@@ -114,6 +114,7 @@ class Model(
     val isEmpty get() = loaded && canRead && !filtering && items.isEmpty() && pending.isEmpty()
 
     private var next: String? = kept?.next
+    private var since: Long? = kept?.since
     private var listJob: Job? = null
 
     private var asking: Pair<String, Filter>? = null
@@ -152,6 +153,7 @@ class Model(
                     items.addAll(page.items)
                 }
                 next = page.next
+                since = page.since
                 loaded = true
                 fetchedAt = TimeSource.Monotonic.markNow()
                 keep()
@@ -180,7 +182,7 @@ class Model(
     }
 
     private fun keep() {
-        if (!filtering && canRead) cache?.keepFirst(Page(items.toList(), next))
+        if (!filtering && canRead) cache?.keepFirst(Page(items.toList(), next, since))
     }
 
     fun loadMore() {
@@ -204,16 +206,21 @@ class Model(
         }
     }
 
-    /** Pulls in anything added from other devices since the newest item. */
+    /** Pulls in what was added since the server last said, as from other devices. */
     suspend fun poll() {
         if (filtering || loading || !canRead) return
-        val newest = items.firstOrNull() ?: return refresh(quietly = true)
-        val cursor = (newest.created - 60_000).coerceAtLeast(0).toString(36).padStart(9, '0')
-        runCatching { api.list(after = cursor, limit = 100) }.onSuccess { page ->
-            val before = items.size
-            page.items.forEach(::prepend)
-            if (items.size != before) keep()
+        val from = since ?: return refresh(quietly = true)
+        val page = try {
+            api.list(since = from, limit = 100)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return
         }
+        val before = items.size
+        page.items.forEach(::prepend)
+        since = page.since ?: from
+        if (items.size != before) keep()
     }
 
     private fun prepend(item: Item) {

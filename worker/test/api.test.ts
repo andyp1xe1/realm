@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import worker from "../src/index.ts";
-import { O, setup, mkLink, post, put } from "./setup.ts";
+import worker, { realmWorker } from "../src/index.ts";
+import { O, TOKEN, setup, mkLink, post, put } from "./setup.ts";
 
 test("auth required", async () => {
   const { call } = setup();
@@ -427,4 +427,33 @@ test("files of deleted items and realms leave storage once it works again", asyn
   bucket.delete = del;
   await worker.scheduled({}, env);
   assert.equal(bucket.objects.size, 0);
+});
+
+test("a poll from a page's since returns every item added after it, two isolates in one millisecond too", async () => {
+  const { env, call } = setup();
+  await call("/api/realms/main/items", { method: "POST", body: "first" });
+  const page = await (await call("/api/realms/main/items")).json();
+  assert.equal(typeof page.since, "number");
+
+  const other = realmWorker();
+  const now = Date.now;
+  Date.now = () => 1_800_000_000_000;
+  try {
+    await call("/api/realms/main/items", { method: "POST", body: "here" });
+    const req = new Request(`${O}/api/realms/main/items`, {
+      method: "POST",
+      body: "there",
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    assert.equal((await other.fetch(req, env)).status, 201);
+  } finally {
+    Date.now = now;
+  }
+
+  const polled = await (await call(`/api/realms/main/items?since=${page.since}`)).json();
+  assert.deepEqual(polled.items.map((i: { text: string }) => i.text).sort(), ["here", "there"]);
+  assert.ok(polled.since > page.since);
+  const again = await (await call(`/api/realms/main/items?since=${polled.since}`)).json();
+  assert.deepEqual(again.items, []);
+  assert.equal(again.since, polled.since);
 });

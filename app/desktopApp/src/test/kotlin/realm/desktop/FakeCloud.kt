@@ -32,7 +32,7 @@ internal class FakeCloud(
     var worker: String? = null,
     val r2: Boolean = true,
     val accounts: Int = 1,
-    var release: Int = 3,
+    var release: Int = 4,
     val databases: Int = 0,
     var subdomain: String? = "jo",
     var uploadFails: Boolean = false,
@@ -137,7 +137,7 @@ internal class FakeCloud(
                 if (uploadFails) {
                     cfError(HttpStatusCode.InternalServerError, 10021, "Uploading the script failed. Try again in a minute.")
                 } else {
-                    worker = """{"version":3,"scope":"owner"}"""
+                    worker = """{"version":4,"scope":"owner"}"""
                     cf("""{"id":"realm"}""")
                 }
 

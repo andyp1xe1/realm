@@ -107,6 +107,13 @@ export const MIGRATIONS: string[][] = [
   ],
   [`CREATE TABLE owners (key TEXT PRIMARY KEY, ok INTEGER NOT NULL, until INTEGER NOT NULL)`],
   [`CREATE TABLE doomed (key TEXT PRIMARY KEY)`],
+  [
+    `ALTER TABLE items ADD COLUMN seq INTEGER`,
+    `UPDATE items SET seq = rowid`,
+    `INSERT OR REPLACE INTO meta (k, v) SELECT 'seq', COALESCE(MAX(rowid), 0) FROM items`,
+    `CREATE INDEX items_realm_seq ON items(realm, seq)`,
+    `CREATE TRIGGER items_seq AFTER INSERT ON items BEGIN UPDATE meta SET v = v + 1 WHERE k = 'seq'; END`,
+  ],
 ];
 
 const migrated = new WeakMap<D1Database, Promise<void>>();

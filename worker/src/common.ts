@@ -13,7 +13,7 @@ export interface Env {
 export const FORK: string | undefined = undefined;
 
 /** Bump with every change to the API, so clients can tell a deployment needs updating. */
-export const VERSION = 3;
+export const VERSION = 4;
 
 export type Scope = "owner" | "full" | "read" | "drop";
 
@@ -49,6 +49,7 @@ export interface Item {
   realm: string;
   src: string | null;
   created: number;
+  seq?: number;
 }
 
 export interface Upload {
@@ -155,7 +156,7 @@ export async function purge(env: Env, keys: string[]) {
 }
 
 export function publicItem(i: Item) {
-  const { key: _key, ...rest } = i;
+  const { key: _key, seq: _seq, ...rest } = i;
   return rest;
 }
 

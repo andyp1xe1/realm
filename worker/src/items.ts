@@ -44,6 +44,12 @@ export async function list(ctx: RealmCtx): Promise<Response> {
     where.push("items.id > ?");
     args.push(after);
   }
+  const since = q.get("since");
+  if (since) {
+    where.push("items.seq > ?");
+    args.push(Number(since) || 0);
+  }
+  const counted = before ? null : await ctx.env.DB.prepare("SELECT v FROM meta WHERE k = 'seq'").first<{ v: number }>();
 
   let from = "items";
   const search = (q.get("q") || "").trim();
@@ -56,16 +62,19 @@ export async function list(ctx: RealmCtx): Promise<Response> {
     }
   }
 
-  const order = after && !before ? "ASC" : "DESC";
-  const sql = `SELECT items.* FROM ${from} WHERE ${where.join(" AND ")} ORDER BY items.id ${order} LIMIT ?`;
+  const order = (after || since) && !before ? "ASC" : "DESC";
+  const by = since ? "items.seq" : "items.id";
+  const sql = `SELECT items.* FROM ${from} WHERE ${where.join(" AND ")} ORDER BY ${by} ${order} LIMIT ?`;
   const { results } = await ctx.env.DB.prepare(sql)
     .bind(...args, limit + 1)
     .all<Item>();
   const more = results.length > limit;
   const items = results.slice(0, limit);
+  const newest = since && more ? items[items.length - 1].seq : counted?.v;
   return json({
     items: items.map(publicItem),
     next: more && order === "DESC" ? items[items.length - 1].id : null,
+    since: newest ?? null,
   });
 }
 
@@ -169,7 +178,8 @@ async function insert(env: Env, i: Item) {
 
 function insertStmt(env: Env, i: Item) {
   return env.DB.prepare(
-    "INSERT INTO items (id, kind, text, name, mime, size, key, realm, src, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO items (id, kind, text, name, mime, size, key, realm, src, created, seq) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT v + 1 FROM meta WHERE k = 'seq'))",
   ).bind(i.id, i.kind, i.text, i.name, i.mime, i.size, i.key ?? null, i.realm, i.src, i.created);
 }
 

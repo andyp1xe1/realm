@@ -182,7 +182,7 @@ internal fun deploying() {
     }
     run {
         // A worker there already: logging in signs in to it, as before, with nothing to deploy.
-        val home = Home(FakePlatform(), CoroutineScope(Ui), FakeCloud(worker = """{"version":3,"scope":"owner"}""").engine)
+        val home = Home(FakePlatform(), CoroutineScope(Ui), FakeCloud(worker = """{"version":4,"scope":"owner"}""").engine)
         val film = Film(home)
         film.roll("existing", every = 3, max = 8)
         home.cloudflare.logIn()
@@ -250,7 +250,7 @@ internal fun updating() {
     film.roll("update", max = 20)
     film.close()
 
-    cloud.worker = """{"version":4,"scope":"owner"}"""
+    cloud.worker = """{"version":5,"scope":"owner"}"""
     val refused = Film(home)
     home.cloudflare.startUpdate()
     refused.roll("refused", max = 200) { home.cloudflare.login is Login.Confirm }

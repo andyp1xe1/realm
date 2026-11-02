@@ -28,7 +28,7 @@ internal fun login() {
         createContext("/") { x ->
             val path = x.requestURI.path
             val body = when {
-                path == "/api/info" -> """{"version":3,"scope":"owner","realm":null}"""
+                path == "/api/info" -> """{"version":4,"scope":"owner","realm":null}"""
 
                 path == "/api/realms" ->
                     """{"realms":[{"id":"main","name":"Main","created":1,"count":0},{"id":"trip","name":"Lisbon trip","created":2,"count":0}]}"""

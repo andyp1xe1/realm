@@ -21,6 +21,12 @@ class FeedCache(private val store: Prefs, private val space: String) {
         /** The most items a chunk holds, and the feed asks for in its first page. */
         const val PAGE = 50
 
-        private fun capped(page: Page) = if (page.items.size <= PAGE) page else Page(page.items.take(PAGE), page.items[PAGE - 1].id)
+        private fun capped(page: Page) = if (page.items.size <=
+            PAGE
+        ) {
+            page
+        } else {
+            page.copy(items = page.items.take(PAGE), next = page.items[PAGE - 1].id)
+        }
     }
 }

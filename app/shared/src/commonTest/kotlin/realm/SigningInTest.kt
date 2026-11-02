@@ -20,7 +20,7 @@ class SigningInTest {
             MockEngineConfig().apply { dispatcher = StandardTestDispatcher(testScheduler) }.also {
                 it.addHandler { req ->
                     val body = when (req.url.host + req.url.encodedPath) {
-                        "realm.jo.dev/api/info" -> """{"version":3,"scope":"owner"}""".also { asked++ }
+                        "realm.jo.dev/api/info" -> """{"version":4,"scope":"owner"}""".also { asked++ }
                         "realm.jo.dev/api/realms" -> """{"realms":[{"id":"main","name":"Main"}]}"""
                         else -> """{"items":[],"links":[]}"""
                     }

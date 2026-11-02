@@ -39,7 +39,7 @@ internal fun managing() {
         film.close()
     }
 
-    val (home, film) = settingsOver(FakeCloud(worker = """{"version":3,"scope":"owner"}"""))
+    val (home, film) = settingsOver(FakeCloud(worker = """{"version":4,"scope":"owner"}"""))
     val settings = home.serverSettings
     fun task() = settings.task
     film.until { settings.facts?.state is Loaded.Known }
@@ -125,7 +125,7 @@ internal fun managing() {
  * refresh changes nothing on screen. Checks the sheet keeps one height in every frame of each.
  */
 private fun steadySettings() {
-    val cloud = FakeCloud(worker = """{"version":3,"scope":"owner"}""")
+    val cloud = FakeCloud(worker = """{"version":4,"scope":"owner"}""")
     val first = FakePlatform()
     val home = Home(first, CoroutineScope(Ui), cloud.engine)
     home.cloudflare.logIn()

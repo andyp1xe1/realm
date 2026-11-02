@@ -40,8 +40,9 @@ data class Item(
     val realm: String? = null,
 )
 
+/** One page of a feed; [since] is where the server's count of added items stood, for asking what came after. */
 @Serializable
-data class Page(val items: List<Item>, val next: String? = null)
+data class Page(val items: List<Item>, val next: String? = null, val since: Long? = null)
 
 @Serializable
 data class Realm(val id: String, val name: String, val created: Long = 0, val count: Long = 0, val updated: Long? = null)
@@ -182,13 +183,13 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
         query: String? = null,
         kinds: List<String> = emptyList(),
         before: String? = null,
-        after: String? = null,
+        since: Long? = null,
         limit: Int = 60,
     ): Page = http.get("$base/items") {
         if (!query.isNullOrBlank()) parameter("q", query)
         if (kinds.isNotEmpty()) parameter("kind", kinds.joinToString(","))
         before?.let { parameter("before", it) }
-        after?.let { parameter("after", it) }
+        since?.let { parameter("since", it) }
         parameter("limit", limit)
     }.ok().body()
 
@@ -252,7 +253,7 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
 
         /** The fork ("owner/repo", null for realm itself) and API version this app is written for, as in [Info]. */
         val FORK: String? = null
-        const val VERSION = 3
+        const val VERSION = 4
 
         /** A warning for a server running other code than this app is written for, or null. */
         fun mismatch(info: Info): String? = when {
