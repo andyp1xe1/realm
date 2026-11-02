@@ -1,6 +1,6 @@
 # Contributing
 
-Run `git config core.hooksPath .githooks` once per clone. The hooks check every commit and every pushed tag.
+Run `git config core.hooksPath .githooks` and `git config core.fileMode false` once per clone. The hooks check every commit and every pushed tag. With `fileMode` off, git keeps a script's executable bit from the index, so set it with `git update-index --chmod=+x`.
 
 `./lint` runs the code checks on the whole tree, or on the paths you give it, like `./lint app`. `./lint --fix` formats first. The code checks cover formatting, file length, app text, what `app/core` may import, layouts that grow as data arrives, and script permissions. The hooks also check commit messages and tag names. Each error says what to change.
 

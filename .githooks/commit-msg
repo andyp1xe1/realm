@@ -2,7 +2,7 @@
 # Refuses a commit message that isn't one capitalized line, or that credits an agent.
 set -uo pipefail
 
-msg=$(sed '/^# -\+ >8 -\+$/,$d; /^#/d' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | sed '/./,$!d')
+msg=$(sed '/^# -\+ >8 -\+$/,$d' "$1" | git stripspace --strip-comments)
 first=$(head -n1 <<<"$msg")
 fail=0
 no() { echo "commit message: $1"; fail=1; }
