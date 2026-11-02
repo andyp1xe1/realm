@@ -1,13 +1,4 @@
 // realm — a personal dump. One Worker, one R2 bucket, one D1 database, any number of realms.
-//
-//   /api/realms/<id>/...  owner access to one realm, `Authorization: Bearer <owner>`, where <owner> is a
-//                         Cloudflare login that can manage this worker, or the optional $REALM_TOKEN
-//   /api/...              the same routes on the first realm, plus /api/realms and /api/links
-//   /s/<token>/...        the same routes on the link's realm, limited by the link's scope
-//
-// Scopes: drop (upload only) · read (list, search, download) · full (read + upload + edit/delete)
-//         owner (everything, incl. realms and links). A read link can be a selection: it then
-//         sees only the items picked for it, and a selection of one downloads at the bare link.
 
 import {
   HttpError,
@@ -43,7 +34,7 @@ import {
 import { agentHelp, htmlPage } from "./page.ts";
 import { createRealm, deleteRealm, links, realmsWithStats, renameRealm } from "./realms.ts";
 
-// Each step runs once, in order, as one transaction. Append new steps; never edit old ones.
+/** Each step runs once, in order, as one transaction. Append new steps; never edit old ones. */
 export const MIGRATIONS: string[][] = [
   [
     `CREATE TABLE IF NOT EXISTS items (
@@ -93,7 +84,6 @@ export const MIGRATIONS: string[][] = [
       created INTEGER NOT NULL
     )`,
   ],
-  // Realms. Everything so far lands in "Main", and item links become read links with a selection of one.
   [
     `CREATE TABLE realms (id TEXT PRIMARY KEY, name TEXT NOT NULL, created INTEGER NOT NULL)`,
     `INSERT INTO realms (id, name, created) VALUES ('main', 'Main', CAST(strftime('%s', 'now') AS INTEGER) * 1000)`,
@@ -110,13 +100,11 @@ export const MIGRATIONS: string[][] = [
     `UPDATE links SET scope = 'read', selection = 1 WHERE scope = 'item'`,
     `ALTER TABLE links DROP COLUMN item`,
   ],
-  // Answers about Cloudflare logins, by token hash, shared by every isolate and location.
   [`CREATE TABLE owners (key TEXT PRIMARY KEY, ok INTEGER NOT NULL, until INTEGER NOT NULL)`],
 ];
 
 const migrated = new WeakMap<D1Database, Promise<void>>();
 
-/** Brings the database up to date once per isolate, so deploying new code is the whole upgrade. */
 function ready(env: Env): Promise<void> {
   let p = migrated.get(env.DB);
   if (!p) {
@@ -140,7 +128,7 @@ async function migrate(db: D1Database) {
         db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('schema', ?)").bind(v + 1),
       ]);
     } catch (e) {
-      if ((await version()) <= v) throw e; // otherwise another isolate got there first
+      if ((await version()) <= v) throw e;
     }
   }
 }
@@ -233,15 +221,9 @@ async function handle(req: Request, env: Env): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
-// Answers about Cloudflare logins, by token hash: a yes holds 5 minutes, a no 30 seconds. This isolate's
-// copy is a free first look; the owners table is shared by every isolate and location, and survives
-// evictions and redeploys. Only on a miss in both is Cloudflare asked. Exported for tests.
+/** Cached answers about Cloudflare logins, by token hash. */
 export const owners = new Map<string, { ok: boolean; until: number }>();
 
-/**
- * Whether [token] is a Cloudflare login (OAuth or API token) that can manage this worker: the owner is
- * whoever can see its settings on its own account. Cloudflare being unreachable is a 503, not a "no".
- */
 async function cloudflareOwner(env: Env, token: string): Promise<boolean> {
   if (!env.REALM_ACCOUNT || !token) return false;
   const key = await sha256(token);
@@ -282,7 +264,6 @@ async function sha256(s: string): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(d)));
 }
 
-/** Owner routes that sit above any one realm; the rest go to a realm. */
 async function owner(ctx: Ctx, p: string[]): Promise<Response> {
   const m = ctx.req.method;
   const [a, b, ...rest] = p;
@@ -307,7 +288,6 @@ async function owner(ctx: Ctx, p: string[]): Promise<Response> {
   if (a === "links" && !(m === "POST" && !b)) return links(ctx, b);
   if (a === "info" || (!a && (m === "GET" || m === "HEAD"))) return route(ctx, p);
 
-  // Everything else works on the first realm, so clients that predate realms keep working.
   const first = await ctx.env.DB.prepare("SELECT * FROM realms ORDER BY created, id LIMIT 1").first<Realm>();
   if (!first) throw new HttpError(404, "no realms yet; create one with POST /api/realms");
   return route({ ...ctx, realm: first }, p);
@@ -318,7 +298,7 @@ async function route(ctx: Ctx, p: string[]): Promise<Response> {
   const [a, b, c] = p;
 
   if (!a) {
-    if (m !== "GET" && m !== "HEAD") return createFromBody(ctx); // POST to the bare link = dump something
+    if (m !== "GET" && m !== "HEAD") return createFromBody(ctx);
     const only = await soleItem(ctx);
     if (only) return raw(ctx, only);
     return wantsHtml(ctx.req) ? htmlPage(ctx) : text(agentHelp(ctx), 200, "text/markdown; charset=utf-8");
@@ -363,7 +343,6 @@ async function route(ctx: Ctx, p: string[]): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
-/** What a client needs to know before connecting. Free: it never spends a use. */
 async function info(ctx: Ctx): Promise<Response> {
   const l = ctx.link;
   const out: Record<string, unknown> = { fork: FORK, version: VERSION, scope: ctx.scope, realm: ctx.realm };
@@ -390,7 +369,6 @@ async function info(ctx: Ctx): Promise<Response> {
   return json(out);
 }
 
-/** The item a selection of exactly one points at; its link downloads it directly. */
 async function soleItem(ctx: Ctx): Promise<string | null> {
   if (!ctx.link?.selection) return null;
   const { results } = await ctx.env.DB.prepare("SELECT item FROM link_items WHERE token = ? LIMIT 2")

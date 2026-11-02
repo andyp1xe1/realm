@@ -16,13 +16,7 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.attribute.PosixFilePermissions
 
-/**
- * The desktop app's settings, kept between runs: the Cloudflare login, the connection, the realms and the share
- * links. One JSON object of strings in [file], read once and written whole on each change, readable only by
- * the user, since it holds a login. java.util.prefs, which kept them before, refuses values over 8 KB.
- *
- * A file that can't be read is kept aside as `app.json.bad`, and the app starts as if nothing were kept.
- */
+/** The desktop app's settings: one JSON object of strings in [file], readable only by the user. */
 class SettingsFile(private val file: File) : Prefs {
     private val values: MutableMap<String, String> = if (file.exists()) read() else mutableMapOf()
 
@@ -39,7 +33,6 @@ class SettingsFile(private val file: File) : Prefs {
             (v as JsonPrimitive).also { check(it.isString) }.content
         }
     } catch (_: Exception) {
-        // Not the parser's message: it quotes the file, which holds a login.
         val bad = File(file.path + ".bad")
         val kept = runCatching { Files.move(file.toPath(), bad.toPath(), REPLACE_EXISTING) }.isSuccess
         logFailure("Reading the settings", IOException("$file isn't a JSON object of strings" + if (kept) "; kept it as $bad" else ""))
@@ -58,7 +51,6 @@ class SettingsFile(private val file: File) : Prefs {
             }
             try {
                 Files.writeString(tmp, JsonObject(values.mapValues { JsonPrimitive(it.value) }).toString())
-                // Whole or not at all: a crash midway leaves the last whole file.
                 try {
                     Files.move(tmp, file.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
                 } catch (_: AtomicMoveNotSupportedException) {

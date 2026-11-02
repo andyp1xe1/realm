@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Checks one app/shared file (stdin, named by $1) for layouts that jump: growing as data arrives, and buttons
-# whose hover background touches the label. Intended growth says why on the line: // grows: <reason>
+# Checks one app/shared file (stdin, named by $1) for layouts that jump; a line ending in // grows: <reason> passes.
 set -uo pipefail
 fail=0
 n=0

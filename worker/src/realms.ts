@@ -1,5 +1,3 @@
-// Realms, and the share links into them.
-
 import {
   HttpError,
   json,
@@ -99,7 +97,6 @@ async function createLink(ctx: Ctx): Promise<Response> {
     label?: string;
     max_bytes?: number;
   };
-  // {scope: "item", item} is how clients asked for a one-item link before selections.
   const items = j.items ?? (j.item ? [j.item] : undefined);
   const scope = j.scope === "item" ? "read" : j.scope || (items ? "read" : "drop");
   if (!["drop", "read", "full"].includes(scope)) throw new HttpError(400, "scope must be drop|read|full");
@@ -137,7 +134,6 @@ async function createLink(ctx: Ctx): Promise<Response> {
   return json(publicLink(ctx, link, picked), 201);
 }
 
-/** Replaces what a selection link sees. */
 async function patchLink(ctx: Ctx, link: Link): Promise<Response> {
   const j = (await ctx.req.json().catch(() => ({}))) as { items?: string[] };
   if (!j.items) throw new HttpError(400, "nothing to change");
@@ -150,13 +146,11 @@ async function patchLink(ctx: Ctx, link: Link): Promise<Response> {
   return json(publicLink(ctx, link, picked));
 }
 
-/** The picked ids, deduplicated, once they're all known to be in the realm. */
 async function checkSelection(ctx: Ctx, realm: string, items: unknown): Promise<string[]> {
   if (!Array.isArray(items) || !items.length || !items.every((i) => typeof i === "string")) {
     throw new HttpError(400, "items must be a list of item ids");
   }
   const ids = [...new Set(items as string[])];
-  // json_each keeps it one bound parameter; D1 allows only 100 per query.
   const found = await ctx.env.DB.prepare(
     "SELECT COUNT(*) AS n FROM items WHERE realm = ? AND id IN (SELECT value FROM json_each(?))",
   )

@@ -56,7 +56,6 @@ class DesktopPlatform : Platform {
     override val isForeground = true
     var window: Frame? = null
 
-    // Lazy: the previews borrow this platform's image decoding, and must not write the user's settings.
     override val prefs by lazy { SettingsFile(File(configHome(), "app.json")) }
 
     private val incomingChannel = Channel<Incoming>(Channel.UNLIMITED)
@@ -111,10 +110,6 @@ class DesktopPlatform : Platform {
         files.filter { it.isFile }.map { JFile(it) }
     }
 
-    /**
-     * On Linux the AWT file dialog is GTK's, and GLib aborts the whole JVM if GTK's settings schema
-     * isn't installed (e.g. NixOS outside a wrapped environment). Look for it first; else use Swing's chooser.
-     */
     private val gtkDialogSafe: Boolean by lazy {
         if ("linux" !in System.getProperty("os.name").lowercase()) return@lazy true
         val dataDirs = System.getenv("XDG_DATA_DIRS")?.takeIf { it.isNotBlank() } ?: "/usr/local/share:/usr/share"
@@ -172,7 +167,6 @@ class DesktopPlatform : Platform {
     override fun cachedImage(key: String) = imageCache.get(key)
     override fun cacheImage(key: String, bytes: ByteArray) = imageCache.put(key, bytes)
 
-    /** The system's place for caches: XDG on Linux, Library/Caches on macOS, LocalAppData on Windows. */
     private fun cacheHome(): File {
         val home = System.getProperty("user.home")
         val os = System.getProperty("os.name").lowercase()
@@ -183,10 +177,6 @@ class DesktopPlatform : Platform {
         }
     }
 
-    /**
-     * The system's place for settings: XDG on Linux, Library/Application Support on macOS, AppData on Windows.
-     * The Go CLI keeps its own config.json in the same folder.
-     */
     private fun configHome(): File {
         val home = System.getProperty("user.home")
         val os = System.getProperty("os.name").lowercase()
@@ -236,7 +226,6 @@ class DesktopPlatform : Platform {
     private fun stamp() = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
 }
 
-/** 16 kHz mono WAV straight from the default microphone. */
 private class DesktopRecording(private val file: File) : Recording {
     private val format = AudioFormat(16_000f, 16, 1, true, false)
     private val line: TargetDataLine = AudioSystem.getTargetDataLine(format).apply {

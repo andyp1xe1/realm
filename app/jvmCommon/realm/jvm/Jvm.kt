@@ -90,15 +90,12 @@ object Dates {
     }
 }
 
-/**
- * Image bytes kept on disk between runs. An item's file never changes once uploaded, so an entry never goes
- * stale; past [maxBytes] the least recently used go first. Blocking; call from an IO thread.
- */
+/** Image bytes cached in [dir], least recently used dropped past [maxBytes]. Blocking. */
 class DiskCache(private val dir: File, private val maxBytes: Long) {
     fun get(key: String): ByteArray? {
         val f = file(key)
         if (!f.isFile) return null
-        f.setLastModified(System.currentTimeMillis()) // recently used, so trimmed last
+        f.setLastModified(System.currentTimeMillis())
         return runCatching { f.readBytes() }.getOrNull()
     }
 
@@ -127,10 +124,7 @@ class DiskCache(private val dir: File, private val maxBytes: Long) {
     }
 }
 
-/**
- * Strings kept as files in [dir], one per key: fetched data the app shows at once next time, too big for prefs.
- * A file that can't be read or written is as if nothing were kept. Blocking, and small enough for the UI thread.
- */
+/** Strings kept as files in [dir], one per key. Blocking. */
 class FileStore(private val dir: File) : Prefs {
     override fun get(key: String): String? = runCatching { file(key).takeIf { it.isFile }?.readText() }.getOrNull()
 
@@ -144,7 +138,6 @@ class FileStore(private val dir: File) : Prefs {
             dir.mkdirs()
             val part = File(dir, f.name + ".part")
             part.writeText(value)
-            // Whole or not at all: a reader never sees half a file. Windows won't rename over a file that's there.
             if (!part.renameTo(f)) {
                 f.delete()
                 if (!part.renameTo(f)) part.delete()
@@ -152,7 +145,6 @@ class FileStore(private val dir: File) : Prefs {
         }
     }
 
-    /** A name that's safe on every file system: the key's letters and digits, then a hash that tells keys apart. */
     private fun file(key: String): File {
         val hash = MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
         return File(dir, key.map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").take(60) + "-" + hash)

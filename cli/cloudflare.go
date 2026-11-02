@@ -1,5 +1,3 @@
-// Logging in with Cloudflare: OAuth with PKCE against realm's Cloudflare client, a one-shot callback on
-// localhost, then finding the realm worker on the chosen account.
 package main
 
 import (
@@ -26,29 +24,24 @@ import (
 )
 
 const (
-	cfClientID  = "e48e69845742def220449dec54f713b3" // realm's OAuth client; public, not a secret
+	cfClientID  = "e48e69845742def220449dec54f713b3"
 	cfAuthorize = "https://dash.cloudflare.com/oauth2/auth"
 	cfTokenURL  = "https://dash.cloudflare.com/oauth2/token"
 	cfRevokeURL = "https://dash.cloudflare.com/oauth2/revoke"
 	cfAPI       = "https://api.cloudflare.com/client/v4"
-	cfPort      = 53134 // registered as http://localhost:53134/oauth/callback
+	cfPort      = 53134
 	workerName  = "realm"
 )
 
-// cfScopes are what the client asks for, by the ids Cloudflare checks them under ("Workers Admin" is
-// workers-scripts.admin). The custom-domain ones are optional on the consent screen. offline_access
-// is what gets a refresh token: access tokens last an hour.
-// REALM_CF_SCOPES replaces the list, for trying scope names against the client's registration.
 var cfScopes = []string{
 	"account-settings.read", "workers-scripts.admin", "d1.write", "workers-r2.write",
 	"workers-routes.write", "dns.write", "zone.read", "offline_access",
 }
 
-// cfAuth is a Cloudflare login, kept so the CLI can deploy and update the worker later.
 type cfAuth struct {
 	Access  string `json:"access"`
 	Refresh string `json:"refresh,omitempty"`
-	Expires int64  `json:"expires"` // unix seconds
+	Expires int64  `json:"expires"`
 	Account string `json:"account,omitempty"`
 }
 
@@ -102,7 +95,6 @@ func loginCloudflare() error {
 		return err
 	}
 
-	// The worker takes a Cloudflare login as its owner's once it knows which account it's on.
 	var secrets []struct{ Name string }
 	if err := cfGet(tok.Access, script+"/secrets", &secrets); err != nil {
 		return fmt.Errorf("worker secrets: %w", err)
@@ -118,14 +110,13 @@ func loginCloudflare() error {
 		}
 	}
 
-	// No owner token: the Cloudflare login is the key. Saved first, since the client reads it from there.
 	cfg := config{URL: origin, Cloudflare: tok}
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
 	c := newClient(cfg)
 	var info Info
-	for try := 0; try < 5; try++ { // a new secret takes a few seconds to reach the worker
+	for try := 0; try < 5; try++ {
 		if err = c.do("GET", "/info", nil, &info); err == nil || !strings.Contains(err.Error(), "(401)") {
 			break
 		}
@@ -141,7 +132,6 @@ func loginCloudflare() error {
 	return c.status()
 }
 
-// workerOrigin is where the worker answers: its custom domain if it has one, else its workers.dev address.
 func workerOrigin(token, account, script string) (string, error) {
 	var domains []struct{ Hostname string }
 	if err := cfGet(token, "/accounts/"+account+"/workers/domains?service="+workerName, &domains); err != nil {
@@ -170,7 +160,6 @@ func ask(prompt string) string {
 	return strings.TrimSpace(line)
 }
 
-// cfOAuth runs the browser login: authorization code with PKCE, caught on localhost.
 func cfOAuth() (*cfAuth, error) {
 	verifier := randomString(48)
 	sum := sha256.Sum256([]byte(verifier))
@@ -221,7 +210,6 @@ func cfOAuth() (*cfAuth, error) {
 		}
 	})
 	srv := &http.Server{Handler: mux}
-	// "localhost" may resolve to either address family; listen on both.
 	listening := 0
 	for _, host := range []string{"127.0.0.1", "::1"} {
 		if ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(cfPort))); err == nil {
@@ -257,11 +245,8 @@ func cfOAuth() (*cfAuth, error) {
 	}, "")
 }
 
-// errCFRejected means Cloudflare turned the login down: the only way on is logging in again.
 var errCFRejected = errors.New("Cloudflare login expired: realm login")
 
-// cfExchange posts to the token endpoint (form-encoded; it doesn't take JSON). A reply without a new
-// refresh token leaves [keep] valid, so it's kept.
 func cfExchange(form url.Values, keep string) (*cfAuth, error) {
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).PostForm(cfTokenURL, form)
 	if err != nil {
@@ -290,9 +275,6 @@ func cfExchange(form url.Values, keep string) (*cfAuth, error) {
 	return &cfAuth{Access: t.AccessToken, Refresh: t.RefreshToken, Expires: time.Now().Unix() + t.ExpiresIn}, nil
 }
 
-// cfAccess is a usable Cloudflare access token from the saved login, refreshed first if it has run out.
-// Refresh tokens are single-use, so the config is read fresh and the new one saved straight away. When
-// Cloudflare can't be reached the login is left as it is: the refresh token may still be good.
 func cfAccess() (string, error) {
 	cfg := readConfig()
 	auth := cfg.Cloudflare
@@ -325,7 +307,6 @@ func cfAccess() (string, error) {
 	return next.Access, nil
 }
 
-// cfRevoke ends the Cloudflare login on Cloudflare's side too. Best effort: logging out locally goes ahead.
 func cfRevoke(auth *cfAuth) {
 	if auth == nil || auth.Refresh == "" {
 		return
@@ -337,12 +318,10 @@ func cfRevoke(auth *cfAuth) {
 	})
 }
 
-// cfGet calls the Cloudflare API and decodes its "result".
 func cfGet(token, path string, out any) error {
 	return cfSend(token, "GET", path, nil, out)
 }
 
-// cfSend calls the Cloudflare API with an optional JSON body and decodes its "result" into out.
 func cfSend(token, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {

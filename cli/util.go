@@ -1,4 +1,3 @@
-// Flag parsing, sizes and durations, and transfer progress.
 package main
 
 import (
@@ -11,7 +10,6 @@ import (
 	"time"
 )
 
-// parse lets flags appear anywhere, e.g. `realm get last -o out`.
 func parse(fs *flag.FlagSet, args []string) {
 	var flags, pos []string
 	for i := 0; i < len(args); i++ {
@@ -97,7 +95,6 @@ type progressReader struct {
 	finished    bool
 }
 
-// progress reports transfer progress on stderr for big transfers when stderr is a terminal.
 func progress(r io.Reader, total int64, name string) io.Reader {
 	if total < 4<<20 || !isTerminal(os.Stderr) {
 		return r
@@ -125,7 +122,6 @@ func isTerminal(f *os.File) bool {
 	if err != nil || st.Mode()&os.ModeCharDevice == 0 {
 		return false
 	}
-	// /dev/null is a character device too, but nobody is there to answer.
 	null, err := os.Stat(os.DevNull)
 	return err != nil || !os.SameFile(st, null)
 }

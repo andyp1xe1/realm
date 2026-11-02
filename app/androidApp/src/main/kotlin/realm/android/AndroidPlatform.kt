@@ -58,7 +58,6 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     override val isForeground get() = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
 
     init {
-        // Opened files, photos and voice notes are already uploaded; keep a day's worth, then drop them.
         thread(isDaemon = true) {
             val cutoff = System.currentTimeMillis() - 24 * 3600 * 1000
             listOf("open", "camera", "voice").forEach { dir ->
@@ -86,7 +85,6 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     private val incomingChannel = Channel<Incoming>(Channel.UNLIMITED)
     override val incoming: Flow<Incoming> = incomingChannel.receiveAsFlow()
 
-    // Activity-result launchers have to be registered up front; each call awaits its own deferred.
     private var picked: CompletableDeferred<List<Uri>>? = null
     private val pick = activity.registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { picked?.complete(it) }
     private var shot: CompletableDeferred<Boolean>? = null
@@ -107,7 +105,7 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         } else if (!text.isNullOrBlank()) {
             incomingChannel.trySend(Incoming.Text(text))
         }
-        intent.action = null // don't re-send on recreation
+        intent.action = null
     }
 
     override suspend fun pickFiles(): List<LocalFile> {
@@ -169,7 +167,6 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         }
     }
 
-    // The login page links back here (the intent filter for realm-login://), since the browser can't close itself.
     override suspend fun authorize(url: String, port: Int, path: String) = awaitRedirect(port, path, back = "realm-login://back") {
         try {
             activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -178,7 +175,6 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         }
     }
 
-    // Android may clear its cache dir when space runs low, which is fine for this.
     private val imageCache = DiskCache(File(activity.cacheDir, "images"), 150L * 1024 * 1024)
     override val cache = FileStore(File(activity.cacheDir, "data"))
     override fun cachedImage(key: String) = imageCache.get(key)
@@ -255,7 +251,7 @@ private class AndroidRecording(context: Context, private val file: File) : Recor
     override fun level() = sqrt(rec.maxAmplitude / 32767f)
 
     override suspend fun stop(): LocalFile? {
-        val ok = runCatching { rec.stop() }.isSuccess // throws if stopped right after start
+        val ok = runCatching { rec.stop() }.isSuccess
         rec.release()
         return if (ok && file.length() > 0) JFile(file, "audio/mp4") else null.also { file.delete() }
     }

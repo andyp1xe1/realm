@@ -1,10 +1,7 @@
-// Docs for agents, and a tiny page for humans.
-
 import { SCOPES, text, type Ctx, type Item } from "./common.ts";
 import { list } from "./items.ts";
 
 export function agentHelp(ctx: Ctx): string {
-  // Above any one realm, the owner gets the realm routes spelled out with a placeholder id.
   const B = ctx.realm ? ctx.base : `${ctx.base}/realms/<realm>`;
   const auth = ctx.scope === "owner" ? ` -H "Authorization: Bearer $REALM_TOKEN"` : "";
   const exp = ctx.link?.expires ? `Expires ${new Date(ctx.link.expires).toISOString()}.` : "Does not expire.";
@@ -84,7 +81,6 @@ export function agentHelp(ctx: Ctx): string {
   return out.join("\n");
 }
 
-// Material-symbol paths (24px viewBox) so the page uses the same icons as the app.
 const ICON: Record<string, string> = {
   attach:
     "M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z",
@@ -203,7 +199,6 @@ function row(name){const d=document.createElement('div');d.className='up';
   return{set(t,f){s.textContent=t;if(f!=null)pr.style.strokeDashoffset=C*(1-Math.min(1,f))},
     done(t){this.set(t,1);d.querySelector('.ring').innerHTML=${JSON.stringify(svg("check"))}},
     fail(t){d.classList.add('err');s.textContent=t;d.querySelector('.ring').innerHTML=${JSON.stringify(svg("error"))}}}}
-// XHR rather than fetch: fetch can't report upload progress.
 function send(method,url,body,onp,type){return new Promise((ok,no)=>{const x=new XMLHttpRequest();x.open(method,url);if(type)x.setRequestHeader('content-type',type);
   x.upload.onprogress=e=>onp&&onp(e.loaded);x.onload=()=>{let j={};try{j=JSON.parse(x.responseText)}catch{}x.status<300?ok(j):no(new Error(j.error||'HTTP '+x.status))};x.onerror=()=>no(new Error('network error'));x.send(body)})}
 async function up(f){const r=row(f.name),of=' of '+size(f.size);
@@ -250,7 +245,6 @@ function itemHtml(ctx: Ctx, i: Item): string {
 }
 
 function linkify(escaped: string): string {
-  // Runs on escaped text, so stop at entities (&quot; etc.) and trailing punctuation.
   return escaped.replace(
     /https?:\/\/(?:(?!&(?:quot|#39|lt|gt);)[^\s<>"'])+(?<![.,;:!?)\]])/g,
     (u) => `<a href="${u}" rel=noreferrer target=_blank>${u}</a>`,

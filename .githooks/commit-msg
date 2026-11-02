@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # Refuses a commit message that isn't one capitalised line, or that credits an agent.
-# The rest of the style (plain words, the change as a user sees it) is for whoever writes it.
 set -uo pipefail
 
-# What git keeps: no comment lines, nothing below the --verbose scissors, no surrounding blank lines.
 msg=$(sed '/^# -\+ >8 -\+$/,$d; /^#/d' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | sed '/./,$!d')
 first=$(head -n1 <<<"$msg")
 fail=0

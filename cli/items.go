@@ -1,4 +1,3 @@
-// The item commands: adding, listing, getting, editing and removing items, and share links.
 package main
 
 import (
@@ -155,7 +154,7 @@ func (c *Client) ls(args []string) error {
 	if err := c.do("GET", "/items?"+q.Encode(), nil, &out); err != nil {
 		return err
 	}
-	for i := len(out.Items) - 1; i >= 0; i-- { // oldest first, newest lands next to the prompt
+	for i := len(out.Items) - 1; i >= 0; i-- {
 		it := out.Items[i]
 		t := time.UnixMilli(it.Created).Format("Jan 02 15:04")
 		desc := ""
@@ -217,7 +216,6 @@ func (c *Client) get(args []string) error {
 	return nil
 }
 
-// getLink downloads what a share link to one file shares, without connecting to it. Costs one use.
 func getLink(args []string) error {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	out := fs.String("o", "", "output file or directory, - for stdout")
@@ -249,7 +247,6 @@ func getLink(args []string) error {
 	return nil
 }
 
-// destFor is where get saves an item: its own name, in -o's directory or as -o.
 func destFor(it *Item, out string) string {
 	name := it.ID + ".txt"
 	if it.Name != nil {

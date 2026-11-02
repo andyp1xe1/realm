@@ -1,5 +1,3 @@
-// Items: listing and search, notes and files, downloads, and multipart uploads for big files.
-
 import {
   HttpError,
   KINDS,
@@ -57,7 +55,6 @@ export async function list(ctx: Ctx): Promise<Response> {
     }
   }
 
-  // `after` pages forward (oldest first) so clients can poll for new items.
   const order = after && !before ? "ASC" : "DESC";
   const sql = `SELECT items.* FROM ${from} WHERE ${where.join(" AND ")} ORDER BY items.id ${order} LIMIT ?`;
   const { results } = await ctx.env.DB.prepare(sql)
@@ -143,14 +140,12 @@ export async function putFile(
   const type = generic ? guessMime(name) : given;
   const key = `f/${newId()}/${name}`;
 
-  // R2 streams need a known length, and the length is what we charge against a link's byte budget.
   const data = body instanceof Request ? body.body : body.stream();
   const length = body instanceof Request ? requireLength(body) : body.size;
   if (!data) throw new HttpError(400, "empty body");
   await chargeBytes(ctx, length);
   const obj = await ctx.env.BUCKET.put(key, data, { httpMetadata: { contentType: type } });
 
-  // The id is taken after the upload so it sorts after anything created meanwhile (clients poll by id).
   const item: Item = {
     id: newId(),
     kind: kindOf(type),
@@ -202,7 +197,6 @@ export async function patchItem(ctx: Ctx, id: string): Promise<Response> {
 
 export async function deleteItem(ctx: Ctx, id: string): Promise<Response> {
   const item = await getItem(ctx, id, "modify");
-  // A selection left empty would show nothing, so its link goes too.
   await ctx.env.DB.batch([
     ctx.env.DB.prepare("DELETE FROM items WHERE id = ?").bind(id),
     ctx.env.DB.prepare("DELETE FROM link_items WHERE item = ?").bind(id),
@@ -210,7 +204,7 @@ export async function deleteItem(ctx: Ctx, id: string): Promise<Response> {
       "DELETE FROM links WHERE selection = 1 AND NOT EXISTS (SELECT 1 FROM link_items WHERE link_items.token = links.token)",
     ),
   ]);
-  if (item.key) await ctx.env.BUCKET.delete(item.key); // an orphaned object is better than a dangling item
+  if (item.key) await ctx.env.BUCKET.delete(item.key);
   return json({ ok: true });
 }
 
@@ -231,7 +225,6 @@ export async function raw(ctx: Ctx, id: string): Promise<Response> {
     return new Response(null, { headers: fileHeaders(ctx, item, obj.size, obj.httpEtag) });
   }
 
-  // Use-limited links ignore Range: every fetch is a whole download and costs one use.
   const limited = ctx.link?.max_uses != null;
   const range = limited ? null : parseRange(ctx.req.headers.get("range"));
   if (range === "invalid") throw new HttpError(416, "bad range");
@@ -244,7 +237,7 @@ export async function raw(ctx: Ctx, id: string): Promise<Response> {
   }
   if (!obj) throw new HttpError(404, "file missing from storage");
   const headers = fileHeaders(ctx, item, obj.size, obj.httpEtag);
-  if (!("body" in obj)) return new Response(null, { status: 304, headers }); // If-None-Match hit
+  if (!("body" in obj)) return new Response(null, { status: 304, headers });
   try {
     await consume(ctx);
   } catch (e) {
@@ -262,7 +255,6 @@ export async function raw(ctx: Ctx, id: string): Promise<Response> {
 }
 
 function fileHeaders(ctx: Ctx, item: Item, size: number, etag: string): Headers {
-  // Only types that can't run script are shown inline; html/svg/xml & co. always download.
   const mime = item.mime || "";
   const dl = ctx.url.searchParams.has("dl") || !INLINE.test(mime);
   const h = new Headers({
@@ -274,7 +266,6 @@ function fileHeaders(ctx: Ctx, item: Item, size: number, etag: string): Headers 
     "cache-control": "private, max-age=3600",
     "x-content-type-options": "nosniff",
   });
-  // Chrome's PDF viewer refuses to run in a sandboxed document; PDFs can't script the origin anyway.
   if (mime !== "application/pdf")
     h.set("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
   return h;
@@ -283,7 +274,6 @@ function fileHeaders(ctx: Ctx, item: Item, size: number, etag: string): Headers 
 const INLINE =
   /^(image\/(png|jpeg|gif|webp|avif|heic|bmp)|audio\/[\w.+-]+|video\/[\w.+-]+|text\/plain|application\/pdf)$/;
 
-/** Uploads must declare their size: R2 needs it to stream, and it's what byte budgets charge. */
 function requireLength(req: Request): number {
   const n = Number(req.headers.get("content-length"));
   if (!req.headers.get("content-length") || !Number.isFinite(n) || n < 0)
@@ -291,7 +281,6 @@ function requireLength(req: Request): number {
   return n;
 }
 
-/** Charge an upload against the link's byte budget, if it has one. */
 async function chargeBytes(ctx: Ctx, n: number) {
   if (!ctx.link || ctx.link.max_bytes == null) return;
   const r = await ctx.env.DB.prepare("UPDATE links SET bytes = bytes + ? WHERE token = ? AND bytes + ? <= max_bytes")
@@ -310,12 +299,10 @@ function parseRange(h: string | null): R2Range | "invalid" | null {
   return end >= offset ? { offset, length: end - offset + 1 } : "invalid";
 }
 
-// ---------- multipart uploads (for files bigger than one request) ----------
-
 export async function startUpload(ctx: Ctx): Promise<Response> {
   const j = (await ctx.req.json().catch(() => ({}))) as { name?: string; type?: string; text?: string };
   if (!j.name) throw new HttpError(400, "name required");
-  await consume(ctx); // a use is spent when the upload starts, so a 1-use link can't open endless uploads
+  await consume(ctx);
   const id = newId();
   const name = cleanName(j.name);
   const mime = j.type || guessMime(name);

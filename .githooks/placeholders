@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Checks one app Kotlin file, read from stdin and named by $1, against the rule in docs/ui-text.md:
-# no string starting with "Loading" or "Empty", and no "…" or "..." string that the doc doesn't list.
+# Checks one app Kotlin file (stdin, named by $1) for stand-in text that docs/ui-text.md forbids.
 set -uo pipefail
 root=$(git rev-parse --show-toplevel)
 mapfile -t allowed < <(sed -n '/^## Allowed/,$ s/^- `\(.*\)`$/\1/p' "$root/docs/ui-text.md")

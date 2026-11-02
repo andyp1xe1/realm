@@ -1,4 +1,3 @@
-// The browser's way back after an OAuth login: one request to http://localhost:<port><path>.
 package realm.jvm
 
 import kotlinx.coroutines.CompletableDeferred
@@ -13,13 +12,8 @@ import java.net.Socket
 import java.net.URLDecoder
 import kotlin.time.Duration.Companion.minutes
 
-/**
- * Runs [open] (which sends the browser off to log in), then waits for it to come back to [path] on [port]
- * and returns the query parameters it brought. The browser gets a page saying how it went; [back], if
- * given, is a link on it back to the app.
- */
+/** Runs [open] to send the browser off to log in, then returns the query parameters it brings back to [path] on [port]. */
 suspend fun awaitRedirect(port: Int, path: String, back: String? = null, open: () -> Unit): Map<String, String> = coroutineScope {
-    // "localhost" may resolve to either address family; listen on both.
     val servers = listOf("127.0.0.1", "::1").mapNotNull { host ->
         runCatching { ServerSocket(port, 8, InetAddress.getByName(host)) }.getOrNull()
     }
@@ -37,16 +31,15 @@ suspend fun awaitRedirect(port: Int, path: String, back: String? = null, open: (
         open()
         withTimeoutOrNull(5.minutes) { got.await() } ?: throw IOException("Timed out waiting for the browser")
     } finally {
-        servers.forEach { runCatching { it.close() } } // ends the accept loops
+        servers.forEach { runCatching { it.close() } }
     }
 }
 
-/** Answers one request; returns its query parameters if it was the one waited for. */
 private fun answer(client: Socket, path: String, back: String?): Map<String, String>? {
     client.soTimeout = 10_000
     val input = client.getInputStream().bufferedReader()
     val target = runCatching { input.readLine()?.split(' ')?.getOrNull(1) }.getOrNull()
-    while (runCatching { input.readLine() }.getOrNull()?.isNotEmpty() == true) Unit // the headers
+    while (runCatching { input.readLine() }.getOrNull()?.isNotEmpty() == true) Unit
     val out = client.getOutputStream()
     if (target == null || target.substringBefore('?') != path) {
         out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())

@@ -93,15 +93,13 @@ type Link struct {
 }
 
 type Client struct {
-	base   string // where item routes go: https://x/api/realms/<id>, https://x/api, or https://…/s/<token>
-	server string // the owner API, https://x/api; empty for share links
-	token  string // a fixed owner token; empty for share links and Cloudflare logins
-	viaCF  bool   // the owner is the saved Cloudflare login, renewed as it runs out
+	base   string
+	server string
+	token  string
+	viaCF  bool
 	http   *http.Client
 }
 
-// workerFork and workerVersion are the worker this CLI is written against: the GitHub owner/repo of a fork,
-// empty for realm itself, and its API version. An older one lacks things it uses.
 const workerFork = ""
 const workerVersion = 3
 
@@ -133,7 +131,6 @@ func main() {
 		check(logout())
 		return
 	case "get":
-		// A share link to one file downloads without being connected to anything.
 		if len(args) > 0 && isLink(args[0]) {
 			check(getLink(args))
 			return
@@ -181,14 +178,12 @@ func check(err error) {
 	}
 }
 
-// ---------- config ----------
-
 type config struct {
-	URL   string `json:"url"`             // the server's address, or a share link
-	Token string `json:"token,omitempty"` // owner token; none for a share link
-	Realm string `json:"realm,omitempty"` // id of the realm in use; empty = the first one
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
+	Realm string `json:"realm,omitempty"`
 
-	Cloudflare *cfAuth `json:"cloudflare,omitempty"` // a Cloudflare login, for deploying and updating
+	Cloudflare *cfAuth `json:"cloudflare,omitempty"`
 }
 
 func configPath() string {
@@ -329,7 +324,6 @@ func newClient(cfg config) *Client {
 			c.base += "/realms/" + url.PathEscape(cfg.Realm)
 		}
 	}
-	// No overall timeout (transfers can be huge), but don't hang forever on a dead server.
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.DialContext = (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	tr.TLSHandshakeTimeout = 15 * time.Second
@@ -337,8 +331,6 @@ func newClient(cfg config) *Client {
 	c.http = &http.Client{Transport: tr}
 	return c
 }
-
-// ---------- http ----------
 
 func (c *Client) req(method, path string, body io.Reader, size int64, ctype string) (*http.Response, error) {
 	r, err := http.NewRequest(method, c.base+path, body)
@@ -377,7 +369,6 @@ func (c *Client) req(method, path string, body io.Reader, size int64, ctype stri
 	return res, nil
 }
 
-// do sends an optional JSON body and decodes a JSON response into out (if non-nil).
 func (c *Client) do(method, path string, in, out any) error {
 	var body io.Reader
 	var size int64 = -1
@@ -408,7 +399,6 @@ func (c *Client) stream(method, path string, body io.Reader, w io.Writer) error 
 	return err
 }
 
-// at is the same client aimed at another base, e.g. the owner API above any one realm.
 func (c *Client) at(base string) *Client {
 	cc := *c
 	cc.base = base

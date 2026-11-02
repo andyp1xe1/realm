@@ -1,4 +1,3 @@
-// Where you are, and the realms on the server.
 package main
 
 import (
@@ -19,7 +18,7 @@ func (c *Client) status() error {
 	realm := info.Realm
 	if c.server != "" {
 		fmt.Println("server ", strings.TrimSuffix(c.server, "/api"))
-		if realm == nil { // the plain /api routes use the first realm
+		if realm == nil {
 			if rs, err := c.realmList(); err == nil && len(rs) > 0 {
 				realm = &rs[0]
 			}
@@ -55,7 +54,6 @@ func (c *Client) status() error {
 	}
 	fmt.Println("worker  version", info.Version)
 	if readConfig().Cloudflare != nil {
-		// Renews the login if its hour is up, so this also says whether it still works.
 		if _, err := cfAccess(); err != nil {
 			fmt.Println("cloudflare", err)
 		} else {
@@ -72,7 +70,6 @@ func plural(n int) string {
 	return "s"
 }
 
-// describe names an item in a line: its file name, or the start of its text.
 func describe(it *Item) string {
 	if it.Name != nil {
 		return *it.Name
@@ -83,14 +80,11 @@ func describe(it *Item) string {
 	return it.ID
 }
 
-// ---------- realms ----------
-
 func (c *Client) realmList() ([]Realm, error) {
 	var out struct{ Realms []Realm }
 	return out.Realms, c.at(c.server).do("GET", "/realms", nil, &out)
 }
 
-// findRealm takes an id, a name, or the unique start of a name, in any case.
 func (c *Client) findRealm(q string) (*Realm, error) {
 	rs, err := c.realmList()
 	if err != nil {
@@ -119,7 +113,6 @@ func (c *Client) findRealm(q string) (*Realm, error) {
 	return nil, fmt.Errorf("%q could be %s", q, strings.Join(names, ", "))
 }
 
-// current is the realm the item commands go to: the chosen one, else the first.
 func (c *Client) current(rs []Realm) string {
 	if i := strings.Index(c.base, "/realms/"); i >= 0 {
 		id, _ := url.PathUnescape(c.base[i+len("/realms/"):])
@@ -200,7 +193,7 @@ func (c *Client) realms(args []string) error {
 		if err := srv.do("DELETE", "/realms/"+url.PathEscape(r.ID), nil, nil); err != nil {
 			return err
 		}
-		if cfg := readConfig(); cfg.Realm == r.ID { // it was the one in use: back to the first
+		if cfg := readConfig(); cfg.Realm == r.ID {
 			cfg.Realm = ""
 			_ = saveConfig(cfg)
 		}
@@ -237,7 +230,6 @@ func quoteArg(s string) string {
 	return s
 }
 
-// confirm asks on the terminal; without one (scripts), only -y goes ahead.
 func confirm(question string, yes bool) error {
 	if yes {
 		return nil
