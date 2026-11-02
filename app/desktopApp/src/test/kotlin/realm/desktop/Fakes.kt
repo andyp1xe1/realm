@@ -30,8 +30,6 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.sin
 
-internal val real by lazy { DesktopPlatform() }
-
 /** Prefs, or the cache, kept in [map]: by a [FakePlatform], or handed to the next run's. */
 internal class MapPrefs(val map: MutableMap<String, String> = mutableMapOf()) : Prefs {
     override fun get(key: String) = map[key]
@@ -65,7 +63,7 @@ internal class FakePlatform(vararg prefs: Pair<String, String>, cached: Map<Stri
     /** Consents at once, as if the user had clicked through Cloudflare's screen. */
     override suspend fun authorize(url: String, port: Int, path: String) =
         mapOf("code" to "preview", "state" to io.ktor.http.Url(url).parameters["state"].orEmpty())
-    override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = real.decodeImage(bytes, maxSize)
+    override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = realm.desktop.decodeImage(bytes, maxSize)
     override fun cachedImage(key: String): ByteArray? = null
     override fun cacheImage(key: String, bytes: ByteArray) {}
     override fun formatTime(epochMs: Long) = Dates.time(epochMs)

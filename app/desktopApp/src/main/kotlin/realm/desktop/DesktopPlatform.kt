@@ -1,17 +1,10 @@
 package realm.desktop
 
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.withContext
-import org.jetbrains.skia.Codec
-import org.jetbrains.skia.Data
-import org.jetbrains.skia.EncodedOrigin
-import org.jetbrains.skia.Image
-import org.jetbrains.skia.Surface
 import realm.Incoming
 import realm.LocalFile
 import realm.Platform
@@ -47,7 +40,6 @@ import javax.swing.JFileChooser
 import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sqrt
 
 class DesktopPlatform : Platform {
@@ -56,7 +48,7 @@ class DesktopPlatform : Platform {
     override val isForeground = true
     var window: Frame? = null
 
-    override val prefs by lazy { SettingsFile(File(configHome(), "app.json")) }
+    override val prefs = SettingsFile(File(configHome(), "app.json"))
 
     private val incomingChannel = Channel<Incoming>(Channel.UNLIMITED)
     override val incoming: Flow<Incoming> = incomingChannel.receiveAsFlow()
@@ -95,7 +87,7 @@ class DesktopPlatform : Platform {
     }.getOrDefault(emptyList())
 
     override suspend fun pickFiles(): List<LocalFile> = withContext(Dispatchers.Main) {
-        val files = if (gtkDialogSafe) {
+        val files = if ("linux" !in System.getProperty("os.name").lowercase()) {
             FileDialog(window, "Add to realm", FileDialog.LOAD).apply {
                 isMultipleMode = true
                 isVisible = true
@@ -108,19 +100,6 @@ class DesktopPlatform : Platform {
             if (chooser.showOpenDialog(window) == JFileChooser.APPROVE_OPTION) chooser.selectedFiles.toList() else emptyList()
         }
         files.filter { it.isFile }.map { JFile(it) }
-    }
-
-    private val gtkDialogSafe: Boolean by lazy {
-        if ("linux" !in System.getProperty("os.name").lowercase()) return@lazy true
-        val dataDirs = System.getenv("XDG_DATA_DIRS")?.takeIf { it.isNotBlank() } ?: "/usr/local/share:/usr/share"
-        val dataHome = System.getenv("XDG_DATA_HOME") ?: "${System.getProperty("user.home")}/.local/share"
-        val dirs = System.getenv("GSETTINGS_SCHEMA_DIR")?.split(':').orEmpty() +
-            (dataDirs.split(':') + dataHome).map { "$it/glib-2.0/schemas" }
-        val needle = "org.gtk.Settings.FileChooser".toByteArray()
-        dirs.any { dir ->
-            val f = File(dir, "gschemas.compiled")
-            f.isFile && runCatching { f.readBytes().indexOf(needle) >= 0 }.getOrDefault(false)
-        }
     }
 
     override suspend fun takePhoto(): LocalFile? = null
@@ -177,53 +156,27 @@ class DesktopPlatform : Platform {
         }
     }
 
-    private fun configHome(): File {
-        val home = System.getProperty("user.home")
-        val os = System.getProperty("os.name").lowercase()
-        return when {
-            "mac" in os -> File(home, "Library/Application Support/realm")
-            "win" in os -> File(System.getenv("APPDATA") ?: home, "realm")
-            else -> File(System.getenv("XDG_CONFIG_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.config", "realm")
-        }
-    }
-
-    override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = runCatching {
-        val codec = Codec.makeFromData(Data.makeFromBytes(bytes))
-        val img = Image.makeFromEncoded(bytes)
-        val quarterTurns = when (codec.encodedOrigin) {
-            EncodedOrigin.RIGHT_TOP -> 1
-            EncodedOrigin.BOTTOM_RIGHT -> 2
-            EncodedOrigin.LEFT_BOTTOM -> 3
-            else -> 0
-        }
-        val scale = min(1f, maxSize * 1.5f / max(img.width, img.height))
-        if (quarterTurns == 0 && scale == 1f) return@runCatching img.toComposeImageBitmap()
-        val w = (img.width * scale).toInt()
-        val h = (img.height * scale).toInt()
-        val (ow, oh) = if (quarterTurns % 2 == 1) h to w else w to h
-        val surface = Surface.makeRasterN32Premul(ow, oh)
-        surface.canvas.apply {
-            translate(ow / 2f, oh / 2f)
-            rotate(90f * quarterTurns)
-            scale(scale, scale)
-            drawImage(img, -img.width / 2f, -img.height / 2f)
-        }
-        surface.makeImageSnapshot().toComposeImageBitmap()
-    }.getOrNull()
+    override fun decodeImage(bytes: ByteArray, maxSize: Int) = realm.desktop.decodeImage(bytes, maxSize)
 
     override fun formatTime(epochMs: Long) = Dates.time(epochMs)
     override fun formatDay(epochMs: Long) = Dates.day(epochMs)
 
-    private fun ByteArray.indexOf(needle: ByteArray): Int {
-        outer@ for (i in 0..size - needle.size) {
-            for (j in needle.indices) if (this[i + j] != needle[j]) continue@outer
-            return i
-        }
-        return -1
-    }
-
     private fun tmp() = File(System.getProperty("java.io.tmpdir"), "realm").apply { mkdirs() }
     private fun stamp() = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+}
+
+/** Where the desktop app keeps its settings on [osName], given the user's [home] and environment. */
+internal fun configHome(
+    osName: String = System.getProperty("os.name"),
+    env: (String) -> String? = System::getenv,
+    home: String = System.getProperty("user.home"),
+): File {
+    val os = osName.lowercase()
+    return when {
+        "mac" in os -> File(home, "Library/Application Support/realm")
+        "win" in os -> File(env("APPDATA") ?: home, "realm")
+        else -> File(env("XDG_CONFIG_HOME")?.takeIf { it.startsWith("/") } ?: "$home/.config", "realm")
+    }
 }
 
 private class DesktopRecording(private val file: File) : Recording {

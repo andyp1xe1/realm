@@ -8,15 +8,12 @@ let
     fontconfig freetype # text
     alsa-lib # javax.sound: voice recording
   ];
-  # The AWT file dialog is GTK's; GLib aborts the JVM if it can't find GTK's settings schemas.
-  schemas = with pkgs; [ gtk3 gsettings-desktop-schemas ];
 in
 pkgs.mkShell {
   packages = [ pkgs.jdk21 pkgs.go pkgs.nodejs_22 pkgs.ktlint ];
   shellHook = ''
     export JAVA_HOME=${pkgs.jdk21.home}
     export ANDROID_HOME=''${ANDROID_HOME:-$HOME/Android/Sdk}
-    export XDG_DATA_DIRS=${pkgs.lib.concatMapStringsSep ":" (p: "${p}/share/gsettings-schemas/${p.name}") schemas}''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
     export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath desktopLibs}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
   '';
 }

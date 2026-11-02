@@ -1,0 +1,7 @@
+[
+  { "os": "linux", "env": { "HOME": "/home/u" }, "dir": "/home/u/.config/realm" },
+  { "os": "linux", "env": { "HOME": "/home/u", "XDG_CONFIG_HOME": "/x" }, "dir": "/x/realm" },
+  { "os": "linux", "env": { "HOME": "/home/u", "XDG_CONFIG_HOME": "rel" }, "dir": "/home/u/.config/realm" },
+  { "os": "darwin", "env": { "HOME": "/Users/u" }, "dir": "/Users/u/Library/Application Support/realm" },
+  { "os": "windows", "env": { "HOME": "C:\\Users\\u", "APPDATA": "C:\\Users\\u\\AppData\\Roaming" }, "dir": "C:\\Users\\u\\AppData\\Roaming\\realm" }
+]
