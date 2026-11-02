@@ -68,6 +68,14 @@ class UpdateChecksTest {
     }
 
     @Test
+    fun anUnreadableKeptReleaseIsAskedForAgain() = runTest {
+        prefs.set("release", "1700000000 three")
+        assertEquals(3, checks().latest(force = false))
+        assertEquals(1, asked)
+        assertEquals("v1.2.0", checks().knownTag)
+    }
+
+    @Test
     fun offersOnlyANewerReleaseOfThisFork() = runTest {
         val c = checks(version = 3)
         assertEquals(3, c.newerFor(Info(version = 2, scope = "owner"), force = true))

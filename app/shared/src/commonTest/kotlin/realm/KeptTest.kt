@@ -83,7 +83,9 @@ class KeptTest {
         val servers = Servers(this, listOf(fresh, photo, note))
         val home = Home(TestPlatform(prefs, cache), this, servers.engine)
 
-        // Before any answer: the feed, its tile and the link, as they were.
+        assertNotNull(home.server)
+        assertEquals(setOf("own", "realms", "links", "open"), prefs.map.keys)
+
         val main = home.model
         assertNotNull(main)
         assertEquals(listOf(photo, note), main.items.toList())

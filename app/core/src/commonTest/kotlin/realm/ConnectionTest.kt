@@ -1,5 +1,6 @@
 package realm
 
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -98,12 +99,27 @@ class ConnectionTest {
     }
 
     @Test
+    fun anOwnerKeptUnderTheOldKeysIsMovedToOne() {
+        val login = CloudflareLogin(Secret("acc"), Secret("ref"), 5, "a1")
+        val prefs = MapPrefs(
+            "server" to "https://realm.jo.dev",
+            "token" to "t",
+            "cloudflare" to Json.encodeToString(login),
+            "theme" to "dark",
+        )
+        val owner = Connection.ByToken("https://realm.jo.dev", Secret("t"), cloudflare = login)
+        assertEquals(owner, prefs.own())
+        assertEquals(setOf("own", "theme"), prefs.map.keys)
+        assertEquals(owner, MapPrefs(*prefs.map.toList().toTypedArray()).own())
+    }
+
+    @Test
     fun aCloudflareLoginWithNothingDeployedIsKeptAndEndsWithSigningOut() {
-        val prefs = MapPrefs("server" to "https://realm.jo.dev", "token" to "t")
+        val prefs = MapPrefs()
+        prefs.saveOwn(Connection.ByToken("https://realm.jo.dev", Secret("t")))
         val only = Connection.LoginOnly(CloudflareLogin(Secret("acc"), Secret("ref"), 5))
         prefs.saveOwn(only)
         assertEquals(only, MapPrefs(*prefs.map.toList().toTypedArray()).own())
-        assertNull(prefs.get("server")) // no longer signed in to the server it replaced
 
         prefs.saveOwn(null)
         assertNull(prefs.own())

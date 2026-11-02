@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import realm.Home
 import realm.Loaded
 import realm.RealmOn
+import realm.own
 import realm.value
 
 private fun home(cloud: FakeCloud, platform: FakePlatform = FakePlatform()) = Home(platform, CoroutineScope(Ui), cloud.engine)
@@ -99,7 +100,7 @@ internal fun onboarding() {
     run {
         // The run after onboard-cold's: the login kept, for Jo's account.
         val kept = FakePlatform(*platform.kept().toTypedArray())
-        val own = realm.Remembered(kept.prefs, "cloudflare", realm.CloudflareLogin.serializer()).get()
+        val own = kept.prefs.own()?.cloudflare
         check(own?.account == "a1") { "the login wasn't kept for its account: $own" }
         val home = home(FakeCloud(), kept)
         val film = Film(home)
@@ -112,7 +113,7 @@ internal fun onboarding() {
         home.signOut()
         film.roll("onboard-signout", max = 30)
         film.close()
-        check(realm.Remembered(kept.prefs, "cloudflare", realm.CloudflareLogin.serializer()).get() == null) { "signing out kept the login" }
+        check(kept.prefs.own() == null) { "signing out kept the login" }
         film.went("onboard-restart", "Onboarding/-", "Setup/-")
     }
     println("${out.path}/onboard-*.png")
@@ -160,7 +161,7 @@ private fun choosing() {
         film.roll("chooser-switch", every = 2, max = 30)
         film.close()
         check(o.ordered(o.accounts.state.value!!).first().id == "a1") { "the account used last isn't offered first" }
-        val kept = realm.Remembered(platform.prefs, "cloudflare", realm.CloudflareLogin.serializer()).get()
+        val kept = platform.prefs.own()?.cloudflare
         check(kept?.access?.value == "cf" && kept.account == null) { "choosing again didn't keep the same login: $kept" }
         film.went("chooser-switch", "Tabs/-", "Onboarding/-")
     }

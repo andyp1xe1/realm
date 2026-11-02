@@ -108,16 +108,29 @@ private data class ConfigJson(
 
 /** The connection of your own kept by [saveOwn]; null when there's none or it can't be read. */
 fun Prefs.own(): Connection.Own? {
-    val server = get("server")
-    val login = Remembered(this, "cloudflare", CloudflareLogin.serializer()).get()
-    if (server == null) return login?.let { Connection.LoginOnly(it) }
-    return get("token")?.let { Connection.ByToken(server, Secret(it), cloudflare = login) }
-        ?: login?.let { Connection.ByCloudflare(server, it) }
+    val text = get(OWN) ?: return keptBefore()
+    return try {
+        Connection.decode(text) as? Connection.Own
+    } catch (_: ApiException) {
+        null
+    }
 }
 
 /** Keeps [own] for [Prefs.own] to find next time; null forgets it. */
-fun Prefs.saveOwn(own: Connection.Own?) {
-    set("server", (own as? Connection.Owner)?.server)
-    set("token", (own as? Connection.ByToken)?.token?.value)
-    Remembered(this, "cloudflare", CloudflareLogin.serializer()).set(own?.cloudflare)
+fun Prefs.saveOwn(own: Connection.Own?) = set(OWN, own?.let(Connection::encode))
+
+private const val OWN = "own"
+
+private fun Prefs.keptBefore(): Connection.Own? {
+    val server = get("server")
+    val login = Remembered(this, "cloudflare", CloudflareLogin.serializer()).get()
+    val own = when {
+        server == null -> login?.let { Connection.LoginOnly(it) }
+
+        else -> get("token")?.let { Connection.ByToken(server, Secret(it), cloudflare = login) }
+            ?: login?.let { Connection.ByCloudflare(server, it) }
+    }
+    listOf("server", "token", "cloudflare", "server-facts").forEach { set(it, null) }
+    if (own != null) saveOwn(own)
+    return own
 }
