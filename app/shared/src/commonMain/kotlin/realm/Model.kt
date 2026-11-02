@@ -36,6 +36,17 @@ class Pending(val key: Int, val text: String?, val file: LocalFile?, val caption
     var error by mutableStateOf<String?>(null)
 }
 
+/** A row of the feed: something on its way up, or an item. A row keeps its [key] as what was sent lands. */
+sealed interface Row {
+    val key: String
+
+    class Sending(val pending: Pending) : Row {
+        override val key get() = "p${pending.key}"
+    }
+
+    class Posted(val item: Item, override val key: String) : Row
+}
+
 /**
  * One realm's feed, through [api]. Without [loadImages], images download only when asked, as every
  * download spends a link's use. With [cache], it starts from the first page kept last time.
@@ -111,6 +122,10 @@ class Model(
     private var pendingKeys = 0
 
     private val shown = kept?.items.orEmpty().mapTo(HashSet()) { it.id }
+    private val landedAs = mutableMapOf<String, String>()
+
+    /** The rows the feed shows, newest first: what's on its way up, then the items. */
+    val rows: List<Row> get() = pending.asReversed().map(Row::Sending) + items.map { Row.Posted(it, landedAs[it.id] ?: it.id) }
 
     /** True the first time the feed shows the row with [key]; only new rows fade in. */
     fun firstShown(key: String): Boolean = shown.add(key)
@@ -125,12 +140,14 @@ class Model(
      * Asks for the first page again, in place; only a page that differs is shown and kept. The same ask under
      * way is left to finish.
      */
-    fun refresh() {
+    fun refresh() = refresh(quietly = false)
+
+    private fun refresh(quietly: Boolean) {
         if (listJob?.isActive == true && asking == query to filter) return
         listJob?.cancel()
         asking = query to filter
         listJob = scope.launch {
-            loading = true
+            loading = !quietly
             try {
                 val page = api.list(query, filter.kinds, limit = FeedCache.PAGE)
                 if (items.toList() != page.items) {
@@ -147,11 +164,11 @@ class Model(
                 if ("can't read" in (e.message ?: "")) {
                     canRead = false
                     loaded = true
-                } else {
+                } else if (!quietly) {
                     fail(e)
                 }
             } catch (e: Exception) {
-                fail(e)
+                if (!quietly) fail(e)
             } finally {
                 loading = false
             }
@@ -193,18 +210,7 @@ class Model(
     /** Pulls in anything added from other devices since the newest item. */
     suspend fun poll() {
         if (filtering || loading || !canRead) return
-        val newest = items.firstOrNull()
-        if (newest == null) {
-            runCatching { api.list() }.onSuccess { page ->
-                if (items.isEmpty() && !filtering) {
-                    items.addAll(page.items)
-                    next = page.next
-                    loaded = true
-                    if (page.items.isNotEmpty()) keep()
-                }
-            }
-            return
-        }
+        val newest = items.firstOrNull() ?: return refresh(quietly = true)
         val cursor = (newest.created - 60_000).coerceAtLeast(0).toString(36).padStart(9, '0')
         runCatching { api.list(after = cursor, limit = 100) }.onSuccess { page ->
             val before = items.size
@@ -280,7 +286,7 @@ class Model(
                     }
                 }
                 if (p.file != null && item.kind == "image") seedImage(item, p.file)
-                shown += item.id
+                landedAs[item.id] = Row.Sending(p).key
                 Snapshot.withMutableSnapshot {
                     pending.remove(p)
                     prepend(item)

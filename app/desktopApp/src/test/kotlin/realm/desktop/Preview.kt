@@ -436,6 +436,7 @@ fun main(args: Array<String>) {
             }
         },
     )
+    sending()
     modes()
     kotlin.system.exitProcess(0)
 }

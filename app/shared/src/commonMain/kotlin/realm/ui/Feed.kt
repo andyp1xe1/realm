@@ -77,6 +77,7 @@ import realm.Item
 import realm.Model
 import realm.Pending
 import realm.Platform
+import realm.Row
 import realm.humanSize
 
 @Composable
@@ -116,16 +117,19 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp, 
         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.Bottom),
     ) {
         item { Spacer(Modifier.height(8.dp)) }
-        items(model.pending.reversed(), key = { "p${it.key}" }) {
-            Box(Modifier.fadeInOnce(model, "p${it.key}")) { PendingRow(it, model) }
-        }
-        items(model.items.size, key = { model.items[it].id }) { i ->
-            val item = model.items[i]
-            val older = model.items.getOrNull(i + 1)
-            val day = platform.formatDay(item.created)
-            Column(Modifier.fadeInOnce(model, item.id)) {
-                if (older == null || platform.formatDay(older.created) != day) DayHeader(day)
-                ItemRow(item, model)
+        val rows = model.rows
+        items(rows.size, key = { rows[it].key }) { i ->
+            when (val row = rows[i]) {
+                is Row.Sending -> Box(Modifier.fadeInOnce(model, row.key)) { PendingRow(row.pending, model) }
+
+                is Row.Posted -> {
+                    val older = (rows.getOrNull(i + 1) as? Row.Posted)?.item
+                    val day = platform.formatDay(row.item.created)
+                    Column(Modifier.fadeInOnce(model, row.key)) {
+                        if (older == null || platform.formatDay(older.created) != day) DayHeader(day)
+                        ItemRow(row.item, model)
+                    }
+                }
             }
         }
     }
