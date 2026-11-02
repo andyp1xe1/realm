@@ -91,6 +91,8 @@ test("selections: only picked items, editable, die with their last item", async 
   const listed = (await (await call("/api/links")).json()).links[0];
   assert.deepEqual(listed.items, [c.id]);
   const whole = await mkLink(call, { scope: "read" });
+  assert.equal("items" in whole, false);
+  assert.equal("selection" in whole, false);
   assert.equal((await post(call, `/api/links/${whole.token}`, { items: [c.id] }, "PATCH")).status, 400);
 
   await call(`/api/items/${c.id}`, { method: "DELETE" });

@@ -11,11 +11,14 @@ import {
   safeEqual,
   text,
   wantsHtml,
+  linkFromRow,
   type Ctx,
   type Env,
   type Item,
-  type Link,
+  type LinkRow,
+  type OwnerCtx,
   type Realm,
+  type RealmCtx,
   type Upload,
 } from "./common.ts";
 import {
@@ -182,14 +185,13 @@ async function handle(req: Request, env: Env): Promise<Response> {
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     const fixed = !!env.REALM_TOKEN && safeEqual(token, env.REALM_TOKEN);
     if (!fixed && !(await cloudflareOwner(env, token))) throw new HttpError(401, "bad token");
-    const ctx: Ctx = {
+    const ctx: OwnerCtx = {
       req,
       env,
       url,
       scope: "owner",
       link: null,
-      realm: null,
-      base: `${url.origin}/api`,
+      baseUrl: `${url.origin}/api`,
       src: src || "api",
     };
     return owner(ctx, parts.slice(1));
@@ -200,18 +202,19 @@ async function handle(req: Request, env: Env): Promise<Response> {
       "SELECT links.*, realms.name AS realm_name, realms.created AS realm_created FROM links JOIN realms ON realms.id = links.realm WHERE token = ?",
     )
       .bind(parts[1])
-      .first<Link & { realm_name: string; realm_created: number }>();
+      .first<LinkRow & { realm_name: string; realm_created: number }>();
     if (!row || (row.expires && row.expires < Date.now())) throw new HttpError(404, "link not found or expired");
     if (row.max_uses != null && row.uses >= row.max_uses) throw new HttpError(410, "link used up");
-    const { realm_name, realm_created, ...link } = row;
-    const ctx: Ctx = {
+    const { realm_name, realm_created, ...rest } = row;
+    const link = linkFromRow(rest);
+    const ctx: RealmCtx = {
       req,
       env,
       url,
       scope: link.scope,
       link,
       realm: { id: link.realm, name: realm_name, created: realm_created },
-      base: `${url.origin}/s/${link.token}`,
+      baseUrl: `${url.origin}/s/${link.token}`,
       src: link.label ? `link:${link.label}` : "link",
     };
     return route(ctx, parts.slice(2));
@@ -264,7 +267,7 @@ async function sha256(s: string): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(d)));
 }
 
-async function owner(ctx: Ctx, p: string[]): Promise<Response> {
+async function owner(ctx: OwnerCtx, p: string[]): Promise<Response> {
   const m = ctx.req.method;
   const [a, b, ...rest] = p;
 
@@ -282,18 +285,19 @@ async function owner(ctx: Ctx, p: string[]): Promise<Response> {
       if (m === "DELETE") return deleteRealm(ctx, realm);
       throw new HttpError(404, "not found");
     }
-    return route({ ...ctx, realm, base: `${ctx.base}/realms/${encodeURIComponent(realm.id)}` }, rest);
+    return route({ ...ctx, realm, baseUrl: `${ctx.baseUrl}/realms/${encodeURIComponent(realm.id)}` }, rest);
   }
 
   if (a === "links" && !(m === "POST" && !b)) return links(ctx, b);
-  if (a === "info" || (!a && (m === "GET" || m === "HEAD"))) return route(ctx, p);
+  if (a === "info" && !b && m === "GET") return info(ctx);
+  if (!a && (m === "GET" || m === "HEAD")) return help(ctx);
 
   const first = await ctx.env.DB.prepare("SELECT * FROM realms ORDER BY created, id LIMIT 1").first<Realm>();
   if (!first) throw new HttpError(404, "no realms yet; create one with POST /api/realms");
   return route({ ...ctx, realm: first }, p);
 }
 
-async function route(ctx: Ctx, p: string[]): Promise<Response> {
+async function route(ctx: RealmCtx, p: string[]): Promise<Response> {
   const m = ctx.req.method;
   const [a, b, c] = p;
 
@@ -301,7 +305,7 @@ async function route(ctx: Ctx, p: string[]): Promise<Response> {
     if (m !== "GET" && m !== "HEAD") return createFromBody(ctx);
     const only = await soleItem(ctx);
     if (only) return raw(ctx, only);
-    return wantsHtml(ctx.req) ? htmlPage(ctx) : text(agentHelp(ctx), 200, "text/markdown; charset=utf-8");
+    return help(ctx);
   }
 
   if (a === "info" && !b && m === "GET") return info(ctx);
@@ -343,9 +347,18 @@ async function route(ctx: Ctx, p: string[]): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
+function help(ctx: Ctx): Promise<Response> | Response {
+  return wantsHtml(ctx.req) ? htmlPage(ctx) : text(agentHelp(ctx), 200, "text/markdown; charset=utf-8");
+}
+
 async function info(ctx: Ctx): Promise<Response> {
   const l = ctx.link;
-  const out: Record<string, unknown> = { fork: FORK, version: VERSION, scope: ctx.scope, realm: ctx.realm };
+  const out: Record<string, unknown> = {
+    fork: FORK,
+    version: VERSION,
+    scope: ctx.scope,
+    realm: "realm" in ctx ? ctx.realm : null,
+  };
   if (l) {
     Object.assign(out, {
       label: l.label,

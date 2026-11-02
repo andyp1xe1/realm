@@ -1,14 +1,15 @@
-import { SCOPES, text, type Ctx, type Item } from "./common.ts";
+import { SCOPES, text, type Ctx, type Item, type RealmCtx } from "./common.ts";
 import { list } from "./items.ts";
 
 export function agentHelp(ctx: Ctx): string {
-  const B = ctx.realm ? ctx.base : `${ctx.base}/realms/<realm>`;
+  const realm = "realm" in ctx ? ctx.realm : null;
+  const B = realm ? ctx.baseUrl : `${ctx.baseUrl}/realms/<realm>`;
   const auth = ctx.scope === "owner" ? ` -H "Authorization: Bearer $REALM_TOKEN"` : "";
   const exp = ctx.link?.expires ? `Expires ${new Date(ctx.link.expires).toISOString()}.` : "Does not expire.";
   const uses = ctx.link?.max_uses != null ? ` ${ctx.link.max_uses - ctx.link.uses} uses left.` : "";
   const picked = ctx.link?.selection ? " This link sees only the items picked for it." : "";
   const out = [
-    `# realm — ${ctx.realm ? `"${ctx.realm.name}", ` : ""}${ctx.scope} access`,
+    `# realm — ${realm ? `"${realm.name}", ` : ""}${ctx.scope} access`,
     ``,
     `realm is a personal dump of notes and files, kept in realms.${picked} ${ctx.link ? exp + uses : ""}`,
     `Base URL: ${B}`,
@@ -16,13 +17,13 @@ export function agentHelp(ctx: Ctx): string {
     `curl -s${auth} "${B}/info"   # what this access allows, without spending a use`,
     ``,
   ];
-  if (ctx.scope === "owner" && !ctx.realm) {
+  if (!realm) {
     out.push(
       `## Realms`,
-      `curl -s${auth} "${ctx.base}/realms"   → {"realms": [{id, name, created, count, updated}]}`,
-      `curl -s${auth} -X POST "${ctx.base}/realms" -H 'content-type: application/json' -d '{"name":"Trip"}'`,
-      `curl -s${auth} -X PATCH "${ctx.base}/realms/<realm>" -H 'content-type: application/json' -d '{"name":"Holiday"}'`,
-      `curl -s${auth} -X DELETE "${ctx.base}/realms/<realm>"   # deletes everything in it`,
+      `curl -s${auth} "${ctx.baseUrl}/realms"   → {"realms": [{id, name, created, count, updated}]}`,
+      `curl -s${auth} -X POST "${ctx.baseUrl}/realms" -H 'content-type: application/json' -d '{"name":"Trip"}'`,
+      `curl -s${auth} -X PATCH "${ctx.baseUrl}/realms/<realm>" -H 'content-type: application/json' -d '{"name":"Holiday"}'`,
+      `curl -s${auth} -X DELETE "${ctx.baseUrl}/realms/<realm>"   # deletes everything in it`,
       `The routes below work per realm. Without /realms/<realm>, they use the first realm.`,
       ``,
     );
@@ -113,10 +114,10 @@ export async function htmlPage(ctx: Ctx): Promise<Response> {
   const canRead = SCOPES.read.includes(ctx.scope);
   const canWrite = SCOPES.write.includes(ctx.scope);
   let feed = "";
-  if (canRead && ctx.scope !== "owner") {
+  if ("realm" in ctx && canRead && ctx.scope !== "owner") {
     const q = ctx.url.searchParams.get("q") || "";
     const kind = ctx.url.searchParams.get("kind") || "";
-    const sub = new URL(`${ctx.base}/items`);
+    const sub = new URL(`${ctx.baseUrl}/items`);
     if (q) sub.searchParams.set("q", q);
     if (kind) sub.searchParams.set("kind", kind);
     const { items } = (await (await list({ ...ctx, url: sub })).json()) as { items: Item[] };
@@ -146,7 +147,7 @@ export async function htmlPage(ctx: Ctx): Promise<Response> {
         : ctx.scope === "read"
           ? "Read-only"
           : "Shared dump";
-  const name = ctx.realm ? esc(ctx.realm.name) : "";
+  const name = "realm" in ctx ? esc(ctx.realm.name) : "";
   const exp = ctx.link?.expires ? ` · link expires <time data-t="${ctx.link.expires}"></time>` : "";
 
   const body = `<!doctype html><html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -189,7 +190,7 @@ textarea::placeholder,input::placeholder{color:var(--mute)}
 </style>
 <header><h1>${name ? `<span>realm/</span>${name}` : "realm"}</h1><p>${sub}${exp}</p></header>${composer}${feed}
 <script>
-const B=${JSON.stringify(ctx.base)},P=32*1024*1024,R=${canRead},$=id=>document.getElementById(id);
+const B=${JSON.stringify(ctx.baseUrl)},P=32*1024*1024,R=${canRead},$=id=>document.getElementById(id);
 for(const t of document.querySelectorAll('time[data-t]')){const d=new Date(+t.dataset.t);t.textContent=d.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
 function size(n){const u=['B','KB','MB','GB'];let i=0;while(n>=1024&&i<3){n/=1024;i++}return (i?n.toFixed(1):n)+' '+u[i]}
 const C=2*Math.PI*11;
@@ -227,8 +228,8 @@ if($('drop')){
   return text(body, 200, "text/html; charset=utf-8");
 }
 
-function itemHtml(ctx: Ctx, i: Item): string {
-  const raw = `${ctx.base}/items/${i.id}/raw`;
+function itemHtml(ctx: RealmCtx, i: Item): string {
+  const raw = `${ctx.baseUrl}/items/${i.id}/raw`;
   const ext = (i.name || "").split(".").pop()!;
   const icon = i.kind === "image" ? "image" : i.kind === "audio" ? "audio" : i.kind === "video" ? "video" : "file";
   let inner = "";

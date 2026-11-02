@@ -4,10 +4,14 @@ import {
   need,
   newId,
   randomToken,
+  linkFromRow,
   type Ctx,
   type Env,
   type Link,
+  type LinkRow,
+  type OwnerCtx,
   type Realm,
+  type RealmCtx,
   type Scope,
   type Upload,
 } from "./common.ts";
@@ -24,14 +28,14 @@ export async function realmsWithStats(env: Env, id?: string) {
   return results;
 }
 
-async function realmName(ctx: Ctx): Promise<string> {
+async function realmName(ctx: OwnerCtx): Promise<string> {
   const j = (await ctx.req.json().catch(() => ({}))) as { name?: string };
   const name = (j.name || "").trim().slice(0, 60);
   if (!name) throw new HttpError(400, "name required");
   return name;
 }
 
-export async function createRealm(ctx: Ctx): Promise<Response> {
+export async function createRealm(ctx: OwnerCtx): Promise<Response> {
   const realm: Realm = { id: newId(), name: await realmName(ctx), created: Date.now() };
   await ctx.env.DB.prepare("INSERT INTO realms (id, name, created) VALUES (?, ?, ?)")
     .bind(realm.id, realm.name, realm.created)
@@ -39,14 +43,14 @@ export async function createRealm(ctx: Ctx): Promise<Response> {
   return json({ ...realm, count: 0, updated: null }, 201);
 }
 
-export async function renameRealm(ctx: Ctx, realm: Realm): Promise<Response> {
+export async function renameRealm(ctx: OwnerCtx, realm: Realm): Promise<Response> {
   const name = await realmName(ctx);
   await ctx.env.DB.prepare("UPDATE realms SET name = ? WHERE id = ?").bind(name, realm.id).run();
   return json((await realmsWithStats(ctx.env, realm.id))[0]);
 }
 
 /** Deletes the realm with everything in it, its links included. */
-export async function deleteRealm(ctx: Ctx, realm: Realm): Promise<Response> {
+export async function deleteRealm(ctx: OwnerCtx, realm: Realm): Promise<Response> {
   const db = ctx.env.DB;
   const { results: files } = await db
     .prepare("SELECT key FROM items WHERE realm = ? AND key IS NOT NULL")
@@ -71,12 +75,14 @@ export async function deleteRealm(ctx: Ctx, realm: Realm): Promise<Response> {
 /** Owner link management; on a realm's routes it only sees that realm's links. */
 export async function links(ctx: Ctx, token: string | undefined): Promise<Response> {
   need(ctx, "owner");
+  const realm = "realm" in ctx ? ctx.realm.id : null;
   const m = ctx.req.method;
-  if (!token && m === "GET") return listLinks(ctx);
-  if (!token && m === "POST") return createLink(ctx);
+  if (!token && m === "GET") return listLinks(ctx, realm);
+  if (!token && m === "POST" && "realm" in ctx) return createLink(ctx);
   if (token && (m === "DELETE" || m === "PATCH")) {
-    const link = await ctx.env.DB.prepare("SELECT * FROM links WHERE token = ?").bind(token).first<Link>();
-    if (!link || (ctx.realm && link.realm !== ctx.realm.id)) throw new HttpError(404, "no such link");
+    const row = await ctx.env.DB.prepare("SELECT * FROM links WHERE token = ?").bind(token).first<LinkRow>();
+    const link = row && linkFromRow(row);
+    if (!link || (realm && link.realm !== realm)) throw new HttpError(404, "no such link");
     if (m === "PATCH") return patchLink(ctx, link);
     await ctx.env.DB.batch([
       ctx.env.DB.prepare("DELETE FROM link_items WHERE token = ?").bind(token),
@@ -87,7 +93,7 @@ export async function links(ctx: Ctx, token: string | undefined): Promise<Respon
   throw new HttpError(404, "not found");
 }
 
-async function createLink(ctx: Ctx): Promise<Response> {
+async function createLink(ctx: RealmCtx): Promise<Response> {
   const j = (await ctx.req.json().catch(() => ({}))) as {
     scope?: Scope | "item";
     items?: string[];
@@ -104,8 +110,8 @@ async function createLink(ctx: Ctx): Promise<Response> {
   const link: Link = {
     token: randomToken(),
     scope,
-    realm: ctx.realm!.id,
-    selection: items ? 1 : 0,
+    realm: ctx.realm.id,
+    selection: !!items,
     label: j.label?.slice(0, 40) || null,
     expires: j.ttl && j.ttl > 0 ? Date.now() + j.ttl * 1000 : null,
     max_uses: j.uses && j.uses > 0 ? j.uses : null,
@@ -122,7 +128,7 @@ async function createLink(ctx: Ctx): Promise<Response> {
       link.token,
       link.scope,
       link.realm,
-      link.selection,
+      link.selection ? 1 : 0,
       link.label,
       link.expires,
       link.max_uses,
@@ -170,22 +176,22 @@ function selectionStmts(ctx: Ctx, token: string, ids: string[]) {
   ];
 }
 
-async function listLinks(ctx: Ctx): Promise<Response> {
-  const realm = ctx.realm ? " AND links.realm = ?" : "";
-  const args = [Date.now(), ...(ctx.realm ? [ctx.realm.id] : [])];
+async function listLinks(ctx: Ctx, realm: string | null): Promise<Response> {
+  const inRealm = realm ? " AND links.realm = ?" : "";
+  const args = [Date.now(), ...(realm ? [realm] : [])];
   const { results } = await ctx.env.DB.prepare(
-    `SELECT * FROM links WHERE (expires IS NULL OR expires > ?)${realm} ORDER BY created DESC`,
+    `SELECT * FROM links WHERE (expires IS NULL OR expires > ?)${inRealm} ORDER BY created DESC`,
   )
     .bind(...args)
-    .all<Link>();
+    .all<LinkRow>();
   const { results: picks } = await ctx.env.DB.prepare(
-    `SELECT link_items.* FROM link_items JOIN links ON links.token = link_items.token WHERE (expires IS NULL OR expires > ?)${realm}`,
+    `SELECT link_items.* FROM link_items JOIN links ON links.token = link_items.token WHERE (expires IS NULL OR expires > ?)${inRealm}`,
   )
     .bind(...args)
     .all<{ token: string; item: string }>();
   const byLink = new Map<string, string[]>();
   for (const p of picks) byLink.set(p.token, [...(byLink.get(p.token) ?? []), p.item]);
-  return json({ links: results.map((l) => publicLink(ctx, l, byLink.get(l.token) ?? [])) });
+  return json({ links: results.map(linkFromRow).map((l) => publicLink(ctx, l, byLink.get(l.token) ?? [])) });
 }
 
 function publicLink(ctx: Ctx, l: Link, items: string[]) {

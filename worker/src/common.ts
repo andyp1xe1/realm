@@ -27,7 +27,8 @@ export interface Link {
   token: string;
   scope: Scope;
   realm: string;
-  selection: number; // 1 = sees only its link_items
+  /** The link sees only the items in link_items, not its whole realm. */
+  selection: boolean;
   label: string | null;
   expires: number | null;
   max_uses: number | null;
@@ -63,16 +64,35 @@ export interface Upload {
   created: number;
 }
 
-export interface Ctx {
+/** A links row as D1 returns it. */
+export type LinkRow = Omit<Link, "selection"> & { selection: number };
+
+export function linkFromRow(row: LinkRow): Link {
+  return { ...row, selection: row.selection === 1 };
+}
+
+interface CtxBase {
   req: Request;
   env: Env;
   url: URL;
-  scope: Scope;
-  link: Link | null;
-  realm: Realm | null; // null on owner routes above any one realm
-  base: string; // absolute URL prefix for this principal, e.g. https://x/s/abc
+  baseUrl: string;
   src: string;
 }
+
+/** The owner on routes above any one realm. */
+export interface OwnerCtx extends CtxBase {
+  scope: "owner";
+  link: null;
+}
+
+/** A request inside one realm, by the owner or through a link. */
+export interface RealmCtx extends CtxBase {
+  scope: Scope;
+  link: Link | null;
+  realm: Realm;
+}
+
+export type Ctx = OwnerCtx | RealmCtx;
 
 export class HttpError extends Error {
   status: number;

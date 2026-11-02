@@ -10,19 +10,19 @@ import {
   need,
   newId,
   publicItem,
-  type Ctx,
+  type RealmCtx,
   type Env,
   type Item,
   type Upload,
 } from "./common.ts";
 import { consume } from "./realms.ts";
 
-export async function list(ctx: Ctx): Promise<Response> {
+export async function list(ctx: RealmCtx): Promise<Response> {
   need(ctx, "read");
   const q = ctx.url.searchParams;
   const limit = Math.min(Math.max(parseInt(q.get("limit") || "50") || 50, 1), MAX_LIMIT);
   const where = ["items.realm = ?"];
-  const args: unknown[] = [ctx.realm!.id];
+  const args: unknown[] = [ctx.realm.id];
   if (ctx.link?.selection) {
     where.push("items.id IN (SELECT item FROM link_items WHERE token = ?)");
     args.push(ctx.link.token);
@@ -77,7 +77,7 @@ function ftsQuery(s: string): string {
     .join(" ");
 }
 
-export async function createFromBody(ctx: Ctx): Promise<Response> {
+export async function createFromBody(ctx: RealmCtx): Promise<Response> {
   need(ctx, "write");
   const ct = (ctx.req.headers.get("content-type") || "").toLowerCase();
 
@@ -108,7 +108,7 @@ export async function createFromBody(ctx: Ctx): Promise<Response> {
   return json(publicItem(await insertNote(ctx, body)), 201);
 }
 
-async function insertNote(ctx: Ctx, body: string): Promise<Item> {
+async function insertNote(ctx: RealmCtx, body: string): Promise<Item> {
   await consume(ctx);
   const item: Item = {
     id: newId(),
@@ -118,7 +118,7 @@ async function insertNote(ctx: Ctx, body: string): Promise<Item> {
     mime: null,
     size: null,
     key: null,
-    realm: ctx.realm!.id,
+    realm: ctx.realm.id,
     src: ctx.src,
     created: Date.now(),
   };
@@ -127,7 +127,7 @@ async function insertNote(ctx: Ctx, body: string): Promise<Item> {
 }
 
 export async function putFile(
-  ctx: Ctx,
+  ctx: RealmCtx,
   name: string,
   mime: string | null,
   body: Request | File,
@@ -154,7 +154,7 @@ export async function putFile(
     mime: type,
     size: obj?.size ?? null,
     key,
-    realm: ctx.realm!.id,
+    realm: ctx.realm.id,
     src: ctx.src,
     created: Date.now(),
   };
@@ -172,20 +172,20 @@ function insertStmt(env: Env, i: Item) {
   ).bind(i.id, i.kind, i.text, i.name, i.mime, i.size, i.key ?? null, i.realm, i.src, i.created);
 }
 
-export async function getItem(ctx: Ctx, id: string, perm: keyof typeof SCOPES): Promise<Item> {
+export async function getItem(ctx: RealmCtx, id: string, perm: keyof typeof SCOPES): Promise<Item> {
   need(ctx, perm);
   const item = ctx.link?.selection
     ? await ctx.env.DB.prepare(
         "SELECT items.* FROM items JOIN link_items ON link_items.item = items.id AND link_items.token = ? WHERE items.id = ? AND items.realm = ?",
       )
-        .bind(ctx.link.token, id, ctx.realm!.id)
+        .bind(ctx.link.token, id, ctx.realm.id)
         .first<Item>()
-    : await ctx.env.DB.prepare("SELECT * FROM items WHERE id = ? AND realm = ?").bind(id, ctx.realm!.id).first<Item>();
+    : await ctx.env.DB.prepare("SELECT * FROM items WHERE id = ? AND realm = ?").bind(id, ctx.realm.id).first<Item>();
   if (!item) throw new HttpError(404, "no such item");
   return item;
 }
 
-export async function patchItem(ctx: Ctx, id: string): Promise<Response> {
+export async function patchItem(ctx: RealmCtx, id: string): Promise<Response> {
   const item = await getItem(ctx, id, "modify");
   const j = (await ctx.req.json().catch(() => ({}))) as { text?: string | null };
   if (j.text === undefined) throw new HttpError(400, "nothing to change");
@@ -195,7 +195,7 @@ export async function patchItem(ctx: Ctx, id: string): Promise<Response> {
   return json(publicItem({ ...item, text: next }));
 }
 
-export async function deleteItem(ctx: Ctx, id: string): Promise<Response> {
+export async function deleteItem(ctx: RealmCtx, id: string): Promise<Response> {
   const item = await getItem(ctx, id, "modify");
   await ctx.env.DB.batch([
     ctx.env.DB.prepare("DELETE FROM items WHERE id = ?").bind(id),
@@ -208,7 +208,7 @@ export async function deleteItem(ctx: Ctx, id: string): Promise<Response> {
   return json({ ok: true });
 }
 
-export async function raw(ctx: Ctx, id: string): Promise<Response> {
+export async function raw(ctx: RealmCtx, id: string): Promise<Response> {
   const item = await getItem(ctx, id, "read");
   const head = ctx.req.method === "HEAD";
 
@@ -254,7 +254,7 @@ export async function raw(ctx: Ctx, id: string): Promise<Response> {
   return new Response(obj.body, { status: 206, headers });
 }
 
-function fileHeaders(ctx: Ctx, item: Item, size: number, etag: string): Headers {
+function fileHeaders(ctx: RealmCtx, item: Item, size: number, etag: string): Headers {
   const mime = item.mime || "";
   const dl = ctx.url.searchParams.has("dl") || !INLINE.test(mime);
   const h = new Headers({
@@ -281,7 +281,7 @@ function requireLength(req: Request): number {
   return n;
 }
 
-async function chargeBytes(ctx: Ctx, n: number) {
+async function chargeBytes(ctx: RealmCtx, n: number) {
   if (!ctx.link || ctx.link.max_bytes == null) return;
   const r = await ctx.env.DB.prepare("UPDATE links SET bytes = bytes + ? WHERE token = ? AND bytes + ? <= max_bytes")
     .bind(n, ctx.link.token, n)
@@ -299,7 +299,7 @@ function parseRange(h: string | null): R2Range | "invalid" | null {
   return end >= offset ? { offset, length: end - offset + 1 } : "invalid";
 }
 
-export async function startUpload(ctx: Ctx): Promise<Response> {
+export async function startUpload(ctx: RealmCtx): Promise<Response> {
   const j = (await ctx.req.json().catch(() => ({}))) as { name?: string; type?: string; text?: string };
   if (!j.name) throw new HttpError(400, "name required");
   await consume(ctx);
@@ -311,20 +311,20 @@ export async function startUpload(ctx: Ctx): Promise<Response> {
   await ctx.env.DB.prepare(
     "INSERT INTO uploads (id, key, r2id, name, mime, text, realm, src, owner, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   )
-    .bind(id, key, mp.uploadId, name, mime, j.text || null, ctx.realm!.id, ctx.src, ctx.link?.token ?? null, Date.now())
+    .bind(id, key, mp.uploadId, name, mime, j.text || null, ctx.realm.id, ctx.src, ctx.link?.token ?? null, Date.now())
     .run();
   return json({ upload: id }, 201);
 }
 
-async function loadUpload(ctx: Ctx, id: string): Promise<Upload> {
+async function loadUpload(ctx: RealmCtx, id: string): Promise<Upload> {
   const up = await ctx.env.DB.prepare("SELECT * FROM uploads WHERE id = ?").bind(id).first<Upload>();
-  if (!up || up.realm !== ctx.realm!.id || (ctx.scope !== "owner" && up.owner !== ctx.link?.token)) {
+  if (!up || up.realm !== ctx.realm.id || (ctx.scope !== "owner" && up.owner !== ctx.link?.token)) {
     throw new HttpError(404, "no such upload");
   }
   return up;
 }
 
-export async function uploadPart(ctx: Ctx, id: string, n: string): Promise<Response> {
+export async function uploadPart(ctx: RealmCtx, id: string, n: string): Promise<Response> {
   const up = await loadUpload(ctx, id);
   const part = parseInt(n);
   if (!(part >= 1 && part <= 10000)) throw new HttpError(400, "part must be 1..10000");
@@ -337,7 +337,7 @@ export async function uploadPart(ctx: Ctx, id: string, n: string): Promise<Respo
   return json({ part: res.partNumber, etag: res.etag });
 }
 
-export async function completeUpload(ctx: Ctx, id: string): Promise<Response> {
+export async function completeUpload(ctx: RealmCtx, id: string): Promise<Response> {
   const up = await loadUpload(ctx, id);
   const j = (await ctx.req.json().catch(() => ({}))) as { parts?: { part: number; etag: string }[] };
   if (!j.parts?.length) throw new HttpError(400, "parts required");
@@ -361,7 +361,7 @@ export async function completeUpload(ctx: Ctx, id: string): Promise<Response> {
   return json(publicItem(item), 201);
 }
 
-export async function abortUpload(ctx: Ctx, id: string): Promise<Response> {
+export async function abortUpload(ctx: RealmCtx, id: string): Promise<Response> {
   const up = await loadUpload(ctx, id);
   await ctx.env.BUCKET.resumeMultipartUpload(up.key, up.r2id)
     .abort()
