@@ -307,6 +307,23 @@ test("PDFs open inline under a CSP that blocks scripts, without sandbox", async 
   assert.doesNotMatch(csp, /sandbox/);
 });
 
+test("a read link's page links the URLs in notes and shows the rest of the text as written", async () => {
+  const { call } = setup();
+  await call("/api/realms/main/items", {
+    method: "POST",
+    body: "see https://example.com/?q=a&b=<c>, or https://x.test/a&.",
+  });
+  const p = new URL((await mkLink(call, { scope: "read" })).url).pathname;
+  const html = await (await call(p, { headers: { accept: "text/html" } })).text();
+  assert.ok(
+    html.includes(
+      `<p>see <a href="https://example.com/?q=a&amp;b=" rel=noreferrer target=_blank>https://example.com/?q=a&amp;b=</a>&lt;c&gt;, ` +
+        `or <a href="https://x.test/a&amp;" rel=noreferrer target=_blank>https://x.test/a&amp;</a>.</p>`,
+    ),
+    html.match(/<p>see.*<\/p>/)?.[0],
+  );
+});
+
 test("etag revalidation returns 304", async () => {
   const { call } = setup();
   const f = await (await put(call, "/api/realms/main/files/a.txt", "AAA")).json();

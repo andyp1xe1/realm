@@ -12,13 +12,17 @@ const dist = join(root, "dist");
 const { rawConfig: config } = experimental_readRawConfig({ config: join(root, "wrangler.jsonc") });
 
 const out = mkdtempSync(join(tmpdir(), "realm-worker-"));
-execFileSync(join(root, "node_modules/.bin/wrangler"), ["deploy", "--dry-run", "--outdir", out], {
-  cwd: root,
-  stdio: ["ignore", "ignore", "inherit"],
-});
+execFileSync(
+  join(root, "node_modules/.bin/wrangler"),
+  ["deploy", "--dry-run", "--upload-source-maps=false", "--outdir", out],
+  {
+    cwd: root,
+    stdio: ["ignore", "ignore", "inherit"],
+  },
+);
 const bundles = readdirSync(out).filter((f) => f.endsWith(".js"));
 if (bundles.length !== 1) throw new Error(`expected one bundle from wrangler, got ${bundles.join(", ")}`);
-const code = readFileSync(join(out, bundles[0]), "utf8").replace(/\n\/\/# sourceMappingURL=.*\n?$/, "\n");
+const code = readFileSync(join(out, bundles[0]), "utf8");
 rmSync(out, { recursive: true });
 
 const manifest = {

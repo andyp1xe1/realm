@@ -241,16 +241,16 @@ function itemHtml(ctx: RealmCtx, i: Item): string {
       `<a class=file href="${raw}?dl"><span class=tile>${svg(icon)}</span><span><b>${esc(i.name)}</b>` +
       `<small>${fmtSize(i.size || 0)}${ext && ext.length <= 5 && ext !== i.name ? " · " + esc(ext.toUpperCase()) : ""}</small></span></a>`;
   }
-  if (i.text) inner += `<p>${linkify(esc(i.text))}</p>`;
+  if (i.text) inner += `<p>${linkify(i.text)}</p>`;
   const src = i.src && i.src !== "api" ? ` · ${esc(i.src)}` : "";
   return `<article><div class="card${pic ? " pic" : ""}">${inner}</div><span class=meta><time data-t="${i.created}"></time>${src}</span></article>`;
 }
 
-function linkify(escaped: string): string {
-  return escaped.replace(
-    /https?:\/\/(?:(?!&(?:quot|#39|lt|gt);)[^\s<>"'])+(?<![.,;:!?)\]])/g,
-    (u) => `<a href="${u}" rel=noreferrer target=_blank>${u}</a>`,
-  );
+function linkify(text: string): string {
+  return text
+    .split(/(https?:\/\/[^\s<>"']+(?<![.,;:!?)\]]))/)
+    .map((part, i) => (i % 2 ? `<a href="${esc(part)}" rel=noreferrer target=_blank>${esc(part)}</a>` : esc(part)))
+    .join("");
 }
 
 function esc(s: string): string {

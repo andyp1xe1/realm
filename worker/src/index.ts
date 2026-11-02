@@ -3,6 +3,7 @@
 import {
   HttpError,
   FORK,
+  Lru,
   VERSION,
   cors,
   json,
@@ -138,46 +139,53 @@ async function migrate(db: D1Database) {
   }
 }
 
-export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    if (req.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
-    try {
+type Owners = Lru<string, { ok: boolean; until: number }>;
+
+/** The worker as one isolate runs it; `owners` caches answers about Cloudflare logins, by token hash. */
+export function realmWorker(owners: Owners = new Lru(500)) {
+  return {
+    async fetch(req: Request, env: Env): Promise<Response> {
+      if (req.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
+      try {
+        await ready(env);
+        return cors(await handle(req, env, owners));
+      } catch (e) {
+        if (e instanceof HttpError) return cors(json({ error: e.message }, e.status));
+        console.error(e);
+        return cors(json({ error: "internal error" }, 500));
+      }
+    },
+
+    /** Daily: abort multipart uploads nobody finished, delete files R2 refused before, forget dead links. */
+    async scheduled(_event: unknown, env: Env): Promise<void> {
       await ready(env);
-      return cors(await handle(req, env));
-    } catch (e) {
-      if (e instanceof HttpError) return cors(json({ error: e.message }, e.status));
-      console.error(e);
-      return cors(json({ error: "internal error" }, 500));
-    }
-  },
+      const cutoff = Date.now() - 24 * 3600 * 1000;
+      const { results } = await env.DB.prepare("SELECT * FROM uploads WHERE created < ?").bind(cutoff).all<Upload>();
+      for (const up of results) {
+        await env.BUCKET.resumeMultipartUpload(up.key, up.r2id)
+          .abort()
+          .catch(() => {});
+        await env.DB.prepare("DELETE FROM uploads WHERE id = ?").bind(up.id).run();
+      }
+      await env.DB.batch([
+        env.DB.prepare(
+          "DELETE FROM links WHERE (expires IS NOT NULL AND expires < ?) OR (max_uses IS NOT NULL AND uses >= max_uses)",
+        ).bind(Date.now()),
+        env.DB.prepare("DELETE FROM link_items WHERE token NOT IN (SELECT token FROM links)"),
+        env.DB.prepare("DELETE FROM owners WHERE until < ?").bind(Date.now()),
+      ]);
+      const { results: doomed } = await env.DB.prepare("SELECT key FROM doomed").all<{ key: string }>();
+      await purge(
+        env,
+        doomed.map(({ key }) => key),
+      );
+    },
+  };
+}
 
-  /** Daily: abort multipart uploads nobody finished, delete files R2 refused before, forget dead links. */
-  async scheduled(_event: unknown, env: Env): Promise<void> {
-    await ready(env);
-    const cutoff = Date.now() - 24 * 3600 * 1000;
-    const { results } = await env.DB.prepare("SELECT * FROM uploads WHERE created < ?").bind(cutoff).all<Upload>();
-    for (const up of results) {
-      await env.BUCKET.resumeMultipartUpload(up.key, up.r2id)
-        .abort()
-        .catch(() => {});
-      await env.DB.prepare("DELETE FROM uploads WHERE id = ?").bind(up.id).run();
-    }
-    await env.DB.batch([
-      env.DB.prepare(
-        "DELETE FROM links WHERE (expires IS NOT NULL AND expires < ?) OR (max_uses IS NOT NULL AND uses >= max_uses)",
-      ).bind(Date.now()),
-      env.DB.prepare("DELETE FROM link_items WHERE token NOT IN (SELECT token FROM links)"),
-      env.DB.prepare("DELETE FROM owners WHERE until < ?").bind(Date.now()),
-    ]);
-    const { results: doomed } = await env.DB.prepare("SELECT key FROM doomed").all<{ key: string }>();
-    await purge(
-      env,
-      doomed.map(({ key }) => key),
-    );
-  },
-};
+export default realmWorker();
 
-async function handle(req: Request, env: Env): Promise<Response> {
+async function handle(req: Request, env: Env, owners: Owners): Promise<Response> {
   const url = new URL(req.url);
   let parts: string[];
   try {
@@ -191,7 +199,7 @@ async function handle(req: Request, env: Env): Promise<Response> {
     const auth = req.headers.get("authorization") || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     const fixed = !!env.REALM_TOKEN && safeEqual(token, env.REALM_TOKEN);
-    if (!fixed && !(await cloudflareOwner(env, token))) throw new HttpError(401, "bad token");
+    if (!fixed && !(await cloudflareOwner(env, owners, token))) throw new HttpError(401, "bad token");
     const ctx: OwnerCtx = {
       req,
       env,
@@ -231,10 +239,7 @@ async function handle(req: Request, env: Env): Promise<Response> {
   throw new HttpError(404, "not found");
 }
 
-/** Cached answers about Cloudflare logins, by token hash. */
-export const owners = new Map<string, { ok: boolean; until: number }>();
-
-async function cloudflareOwner(env: Env, token: string): Promise<boolean> {
+async function cloudflareOwner(env: Env, owners: Owners, token: string): Promise<boolean> {
   if (!env.REALM_ACCOUNT || !token) return false;
   const key = await sha256(token);
   const now = Date.now();
@@ -261,7 +266,6 @@ async function cloudflareOwner(env: Env, token: string): Promise<boolean> {
   await res.body?.cancel();
   const ok = res.ok;
   const until = Date.now() + (ok ? 5 * 60_000 : 30_000);
-  if (owners.size > 500) owners.clear();
   owners.set(key, { ok, until });
   await env.DB.prepare("INSERT OR REPLACE INTO owners (key, ok, until) VALUES (?, ?, ?)")
     .bind(key, ok ? 1 : 0, until)

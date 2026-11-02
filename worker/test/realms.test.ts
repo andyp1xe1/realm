@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import worker, { MIGRATIONS, owners } from "../src/index.ts";
+import worker, { MIGRATIONS, realmWorker } from "../src/index.ts";
+import { Lru } from "../src/common.ts";
 import { mockD1, mockR2 } from "./mock.ts";
 import { TOKEN, O, setup, mkLink, put, post, tick } from "./setup.ts";
 
@@ -161,14 +162,15 @@ test("a Cloudflare login that can manage the worker is the owner", async () => {
   }) as typeof fetch;
   try {
     const env = { DB: mockD1(), BUCKET: mockR2(), REALM_ACCOUNT: "acc1" } as never;
+    let isolate = realmWorker();
     const call = (token: string) =>
-      worker.fetch(new Request(O + "/api/realms", { headers: { authorization: `Bearer ${token}` } }), env);
+      isolate.fetch(new Request(O + "/api/realms", { headers: { authorization: `Bearer ${token}` } }), env);
 
     const asked = () => seen.filter((u) => u.includes("cloudflare")).length;
     assert.equal((await call("cf-owner")).status, 200);
     assert.equal((await call("cf-owner")).status, 200);
     assert.equal(asked(), 1); // remembered in this isolate
-    owners.clear(); // as if a fresh isolate, or another location
+    isolate = realmWorker();
     assert.equal((await call("cf-owner")).status, 200);
     assert.equal(asked(), 1); // remembered in the database too
     assert.equal((await call("cf-stranger")).status, 401);
@@ -208,4 +210,13 @@ test("only a realm's own routes reach its items, and links share items by a list
   assert.equal((await post(call, "/api/realms/main/links", { scope: "item", items: [f.id] })).status, 400);
   assert.equal((await post(call, "/api/realms/main/links", { items: [f.id] })).status, 201);
   assert.doesNotMatch(await (await call("/api")).text(), /first realm/);
+});
+
+test("the login cache keeps the most recently used logins", () => {
+  const cache = new Lru<string, number>(2);
+  cache.set("a", 1);
+  cache.set("b", 2);
+  cache.get("a");
+  cache.set("c", 3);
+  assert.deepEqual([cache.get("a"), cache.get("b"), cache.get("c")], [1, undefined, 3]);
 });

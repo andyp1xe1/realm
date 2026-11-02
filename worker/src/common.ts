@@ -94,6 +94,28 @@ export interface RealmCtx extends CtxBase {
 
 export type Ctx = OwnerCtx | RealmCtx;
 
+/** A map that keeps only the `max` entries used most recently. */
+export class Lru<K, V> {
+  #entries = new Map<K, V>();
+  #max: number;
+
+  constructor(max: number) {
+    this.#max = max;
+  }
+
+  get(key: K): V | undefined {
+    const value = this.#entries.get(key);
+    if (value !== undefined) this.set(key, value);
+    return value;
+  }
+
+  set(key: K, value: V) {
+    this.#entries.delete(key);
+    this.#entries.set(key, value);
+    if (this.#entries.size > this.#max) this.#entries.delete(this.#entries.keys().next().value!);
+  }
+}
+
 export class HttpError extends Error {
   status: number;
   constructor(status: number, message: string) {

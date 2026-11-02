@@ -7,7 +7,7 @@
   // no database_id: `wrangler deploy` creates the database (and the bucket) on first deploy
   "d1_databases": [{ "binding": "DB", "database_name": "realm" }],
   "triggers": {
-    "crons": ["17 4 * * *"], // daily cleanup of abandoned uploads and dead links
+    "crons": ["17 4 * * *"], // daily cleanup of abandoned uploads, files R2 refused to delete, and dead links
   },
   // secrets: REALM_ACCOUNT (set by `realm login`, lets Cloudflare logins in as owner),
   //          REALM_TOKEN (optional fixed owner token: `npx wrangler secret put REALM_TOKEN`)
