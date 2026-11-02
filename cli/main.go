@@ -94,6 +94,7 @@ type Link struct {
 type Client struct {
 	base   string
 	server string
+	realm  string
 	token  string
 	viaCF  bool
 	http   *http.Client
@@ -115,59 +116,60 @@ func main() {
 		fmt.Print(usage)
 		os.Exit(2)
 	}
-	cmd, args := args[0], args[1:]
+	check(run(realm, args[0], args[1:]))
+}
+
+func run(realm, cmd string, args []string) error {
 	switch cmd {
 	case "-h", "--help", "help":
 		fmt.Print(usage)
-		return
+		return nil
 	case "login":
-		check(login(args))
-		return
+		return login(args)
 	case "connect":
-		check(connect(args))
-		return
+		return connect(args)
 	case "logout":
-		check(logout())
-		return
+		return logout()
 	case "get":
 		if len(args) > 0 && isLink(args[0]) {
-			check(getLink(args))
-			return
+			return getLink(args)
 		}
 	}
-	c, err := loadClient(realm)
-	check(err)
-	switch cmd {
-	case "status", "whoami":
-		err = c.status()
-	case "realms":
-		err = c.realms(args)
-	case "use":
-		err = c.use(args)
-	case "add", "a":
-		err = c.add(args)
-	case "ls", "list", "find", "search":
-		err = c.ls(args)
-	case "get":
-		err = c.get(args)
-	case "cat":
-		err = c.cat(args)
-	case "edit":
-		err = c.edit(args)
-	case "rm", "del":
-		err = c.rm(args)
-	case "link", "share":
-		err = c.link(args)
-	case "links":
-		err = c.links()
-	case "revoke":
-		err = c.revoke(args)
-	case "help-agent":
-		err = c.stream("GET", "", nil, os.Stdout)
-	default:
-		err = fmt.Errorf("unknown command %q (try realm help)", cmd)
+	if f, ok := aboveRealms[cmd]; ok {
+		c, err := loadClient(realm, false)
+		if err != nil {
+			return err
+		}
+		return f(c, args)
 	}
-	check(err)
+	if f, ok := inRealm[cmd]; ok {
+		c, err := loadClient(realm, true)
+		if err != nil {
+			return err
+		}
+		return f(c, args)
+	}
+	return fmt.Errorf("unknown command %q (try realm help)", cmd)
+}
+
+var aboveRealms = map[string]func(*Client, []string) error{
+	"status": func(c *Client, _ []string) error { return c.status() },
+	"whoami": func(c *Client, _ []string) error { return c.status() },
+	"realms": (*Client).realms,
+	"use":    (*Client).use,
+}
+
+var inRealm = map[string]func(*Client, []string) error{
+	"add": (*Client).add, "a": (*Client).add,
+	"ls": (*Client).ls, "list": (*Client).ls, "find": (*Client).ls, "search": (*Client).ls,
+	"get":  (*Client).get,
+	"cat":  (*Client).cat,
+	"edit": (*Client).edit,
+	"rm":   (*Client).rm, "del": (*Client).rm,
+	"link": (*Client).link, "share": (*Client).link,
+	"links":      func(c *Client, _ []string) error { return c.links() },
+	"revoke":     (*Client).revoke,
+	"help-agent": func(c *Client, _ []string) error { return c.stream("GET", "", nil, os.Stdout) },
 }
 
 func check(err error) {
@@ -197,7 +199,7 @@ func login(args []string) error {
 	}
 	c := newClient(cfg)
 	var info Info
-	if err := c.do("GET", "/info", nil, &info); err != nil {
+	if err := c.at(c.server).do("GET", "/info", nil, &info); err != nil {
 		if hasStatus(err, http.StatusNotFound) {
 			return errors.New("worker too old: redeploy it")
 		}
@@ -254,7 +256,7 @@ func warnMismatch(info Info) {
 	}
 }
 
-func loadClient(realm string) (*Client, error) {
+func loadClient(realm string, needsRealm bool) (*Client, error) {
 	cfg := readConfig()
 	if v := os.Getenv("REALM_URL"); v != "" {
 		cfg = config{URL: v}
@@ -266,16 +268,26 @@ func loadClient(realm string) (*Client, error) {
 		return nil, errors.New("not logged in: realm login, or realm connect <link>")
 	}
 	c := newClient(cfg)
-	if realm != "" {
-		if c.server == "" {
+	if c.server == "" {
+		if realm != "" {
 			return nil, errors.New("-r needs realm login, not a link")
 		}
-		r, err := c.findRealm(realm)
-		if err != nil {
-			return nil, err
-		}
-		c.base = c.server + "/realms/" + url.PathEscape(r.ID)
+		return c, nil
 	}
+	var r *Realm
+	var err error
+	switch {
+	case realm != "":
+		r, err = c.findRealm(realm)
+	case c.realm == "" && needsRealm:
+		r, err = c.soleRealm()
+	default:
+		return c, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.inRealm(r.ID)
 	return c, nil
 }
 
@@ -285,9 +297,8 @@ func newClient(cfg config) *Client {
 		c.base = strings.TrimRight(cfg.URL, "/")
 	} else {
 		c.server = strings.TrimSuffix(strings.TrimRight(cfg.URL, "/"), "/api") + "/api"
-		c.base = c.server
 		if cfg.Realm != "" {
-			c.base += "/realms/" + url.PathEscape(cfg.Realm)
+			c.inRealm(cfg.Realm)
 		}
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
@@ -378,6 +389,11 @@ func (c *Client) stream(method, path string, body io.Reader, w io.Writer) error 
 	defer res.Body.Close()
 	_, err = io.Copy(w, res.Body)
 	return err
+}
+
+func (c *Client) inRealm(id string) {
+	c.realm = id
+	c.base = c.server + "/realms/" + url.PathEscape(id)
 }
 
 func (c *Client) at(base string) *Client {

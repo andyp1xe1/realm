@@ -126,10 +126,11 @@ var ownerPoll = 2 * time.Second
 
 func ownerInfo(c *Client, claimed bool) (Info, error) {
 	var info Info
-	err := c.do("GET", "/info", nil, &info)
+	srv := c.at(c.server)
+	err := srv.do("GET", "/info", nil, &info)
 	for try := 1; claimed && try < 5 && hasStatus(err, http.StatusUnauthorized); try++ {
 		time.Sleep(ownerPoll)
-		err = c.do("GET", "/info", nil, &info)
+		err = srv.do("GET", "/info", nil, &info)
 	}
 	if err != nil {
 		return info, fmt.Errorf("the worker refused your Cloudflare login: %w", err)

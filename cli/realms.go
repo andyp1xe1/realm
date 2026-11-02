@@ -11,23 +11,28 @@ import (
 )
 
 func (c *Client) status() error {
+	ask := c
+	if c.server != "" && c.realm == "" {
+		ask = c.at(c.server)
+	}
 	var info Info
-	if err := c.do("GET", "/info", nil, &info); err != nil {
+	if err := ask.do("GET", "/info", nil, &info); err != nil {
 		return err
 	}
-	realm := info.Realm
 	if c.server != "" {
 		fmt.Println("server ", strings.TrimSuffix(c.server, "/api"))
-		if realm == nil {
-			if rs, err := c.realmList(); err == nil && len(rs) > 0 {
-				realm = &rs[0]
+		if c.realm == "" {
+			r, err := c.soleRealm()
+			if err != nil {
+				fmt.Println("realm  ", err)
 			}
+			info.Realm = r
 		}
 	} else {
 		fmt.Println("link   ", c.base)
 	}
-	if realm != nil {
-		fmt.Println("realm  ", realm.Name)
+	if info.Realm != nil {
+		fmt.Println("realm  ", info.Realm.Name)
 	}
 	access := map[string]string{
 		"owner": "everything", "full": "read, add, edit and delete", "read": "read only", "drop": "add only",
@@ -113,15 +118,17 @@ func (c *Client) findRealm(q string) (*Realm, error) {
 	return nil, fmt.Errorf("%q could be %s", q, strings.Join(names, ", "))
 }
 
-func (c *Client) current(rs []Realm) string {
-	if i := strings.Index(c.base, "/realms/"); i >= 0 {
-		id, _ := url.PathUnescape(c.base[i+len("/realms/"):])
-		return id
+func (c *Client) soleRealm() (*Realm, error) {
+	rs, err := c.realmList()
+	switch {
+	case err != nil:
+		return nil, err
+	case len(rs) == 0:
+		return nil, errors.New("no realms yet: realm realms add <name>")
+	case len(rs) > 1:
+		return nil, errors.New("pick one first: realm use <realm> (see realm realms)")
 	}
-	if len(rs) > 0 {
-		return rs[0].ID
-	}
-	return ""
+	return &rs[0], nil
 }
 
 func (c *Client) realms(args []string) error {
@@ -139,14 +146,13 @@ func (c *Client) realms(args []string) error {
 		if err != nil {
 			return err
 		}
-		cur := c.current(rs)
 		width := 0
 		for _, r := range rs {
 			width = max(width, len([]rune(r.Name)))
 		}
 		for _, r := range rs {
 			mark := " "
-			if r.ID == cur {
+			if r.ID == c.realm {
 				mark = "*"
 			}
 			when := ""
