@@ -33,7 +33,8 @@ if [ ${#ts[@]} -gt 0 ]; then
     cd worker || exit 1
     [ -x node_modules/.bin/oxfmt ] || { echo "run npm install in worker/ first"; exit 1; }
     [ -n "$fix" ] && node_modules/.bin/oxfmt "${ts[@]}" >/dev/null
-    node_modules/.bin/oxfmt --list-different "${ts[@]}" | sed 's/^/not oxfmt'\''d: /' | grep . && exit 1
+    unformatted=$(node_modules/.bin/oxfmt --list-different "${ts[@]}")
+    [ -z "$unformatted" ] || { sed 's/^/not oxfmt'\''d: /' <<<"$unformatted"; exit 1; }
     mapfile -t code < <(printf '%s\n' "${ts[@]}" | grep -E '\.(ts|js)$')
     if [ ${#code[@]} -gt 0 ]; then node_modules/.bin/oxlint --deny-warnings "${code[@]}" || exit 1; fi
     node_modules/.bin/tsc -p .
