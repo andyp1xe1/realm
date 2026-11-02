@@ -254,4 +254,4 @@ private fun ColumnScope.Replace(l: Login.Replace) {
 
 /** Fading in and opening out downward, the sheet growing to fit: for a deploy's next step. */
 private fun opening() = fadeIn(tween(STEP_MILLIS)) +
-    expandVertically(tween(STEP_MILLIS), Alignment.Top) // grows: deploy steps (approved by Andre Chicu, until 2027-11-02)
+    expandVertically(tween(STEP_MILLIS), Alignment.Top) // grows: deploy steps

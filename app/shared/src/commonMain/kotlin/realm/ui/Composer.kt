@@ -453,5 +453,4 @@ private fun StagedTile(file: LocalFile, platform: Platform, onRemove: () -> Unit
 }
 
 /** The compact composer, as what's in it changes, keeping its bottom edge. */
-private fun Modifier.growUpward() =
-    animateContentSize(alignment = Alignment.BottomCenter) // grows: what you add to it (approved by Andre Chicu, until 2027-11-02)
+private fun Modifier.growUpward() = animateContentSize(alignment = Alignment.BottomCenter) // grows: what you add to it

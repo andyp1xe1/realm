@@ -39,13 +39,14 @@ Each rule, and what makes it hold. "Review" means nothing fails when it's skippe
 | Data arriving never grows the layout: no `expandVertically`, `expandIn`, `expandHorizontally`, or `animateContentSize` in `app/shared`. | `.githooks/grows`, from `./lint` and the pre-commit hook; the `settings-*` checks in `:desktopApp:preview`, which fail if the settings sheet changes height |
 | Data a screen shows is fetched before the screen opens (as the app starts, on signing in, as a realm opens), not when it opens; the overview fetches the first page of each feed whose tile is in view, two at a time, item metadata only. | Review |
 | A text button in the flow of the text is `InlineButton` from `ui/Buttons.kt`, never a button with `contentPadding = PaddingValues(0…)`. | `.githooks/grows` |
+| Comments are only concise docs on a module's public API, where the name and signature don't say it, and one description at the top of each module. No inline comments, no comments on private code, no history, no names or dates. | Review |
 | The Go CLI in `cli/` is in maintenance: keep its commands working, add no features. | Review |
 | A commit message is one line, starting with a capital letter, with no `type:` prefix. | `.githooks/commit-msg` |
 | A commit message has no agent attribution. | `.githooks/commit-msg` |
 | A commit message says what changed for someone using realm, in plain words. | Review |
 | A pushed tag is a release, `vMAJOR.MINOR.PATCH`, or a release candidate, `vMAJOR.MINOR.PATCH-rc.N`. | `.githooks/pre-push`; the release workflow ignores other tags |
 
-An exception to a lint goes on the offending line, with a reason, a human's approval, and the date it lapses: `// grows: <reason> (approved by <human>, until <YYYY-MM-DD>)`. An agent writes `approved by PENDING`, which lasts 14 days at most, and asks.
+An exception to a lint goes on the offending line with its reason: `// grows: <reason>`.
 
 ## Releases
 
