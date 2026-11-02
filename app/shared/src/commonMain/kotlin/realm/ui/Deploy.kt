@@ -1,11 +1,10 @@
 package realm.ui
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -30,14 +29,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import realm.CloudflareSetup
 import realm.Existing
@@ -176,11 +175,11 @@ private fun Step.words(): String = when (this) {
     is Step.Subdomain -> "Giving your account $name.workers.dev"
     is Step.Bucket -> "Setting up the R2 bucket $name"
     is Step.Database -> "Setting up the D1 database $name"
-    is Step.Upload -> "Uploading the worker from release $tag"
+    is Step.Upload -> "Uploading the worker, release $tag"
     Step.Schedule -> "Scheduling its daily cleanup"
     is Step.WorkersDev -> "Turning on ${origin.removePrefix("https://")}"
     is Step.Domain -> "Putting it on $hostname"
-    is Step.Waiting -> "Waiting for ${origin.removePrefix("https://")} to answer"
+    is Step.Waiting -> "Waiting for ${origin.removePrefix("https://")}"
 }
 
 @Composable
@@ -188,32 +187,38 @@ private fun ColumnScope.Deploying(l: Login.Deploying) {
     Title(if (l.plan is Plan.Update) "Updating realm" else "Deploying realm")
     Spacer(Modifier.height(12.dp))
     l.steps.forEachIndexed { i, step ->
-        key(i) {
-            val shown = remember { MutableTransitionState(false).apply { targetState = true } }
-            AnimatedVisibility(
-                shown,
-                enter = opening(),
-            ) {
-                Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-                        if (i < l.steps.lastIndex) {
-                            Icon(Icons.Outlined.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                        } else {
-                            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                        }
+        val state = when {
+            i < l.current -> StepState.Done
+            i == l.current -> StepState.Running
+            else -> StepState.Pending
+        }
+        val color by animateColorAsState(
+            when (state) {
+                StepState.Done -> MaterialTheme.colorScheme.onSurfaceVariant
+                StepState.Running -> MaterialTheme.colorScheme.onSurface
+                StepState.Pending -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            },
+            tween(STEP_MILLIS),
+        )
+        Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Crossfade(state, Modifier.size(18.dp), animationSpec = tween(STEP_MILLIS)) {
+                Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+                    when (it) {
+                        StepState.Done -> Icon(Icons.Outlined.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                        StepState.Running -> CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        StepState.Pending -> {}
                     }
-                    Spacer(Modifier.width(10.dp))
-                    val done = i < l.steps.lastIndex
-                    Text(
-                        step.words(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                    )
                 }
+            }
+            Spacer(Modifier.width(10.dp))
+            Changing(step.words()) {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
+
+private enum class StepState { Done, Running, Pending }
 
 @Composable
 private fun ColumnScope.Replace(l: Login.Replace) {
@@ -239,6 +244,3 @@ private fun ColumnScope.Replace(l: Login.Replace) {
         TextButton(onClick = { l.answer(true) }) { Text("Delete them", color = MaterialTheme.colorScheme.error) }
     }
 }
-
-private fun opening() = fadeIn(tween(STEP_MILLIS)) +
-    expandVertically(tween(STEP_MILLIS), Alignment.Top) // grows: deploy steps

@@ -11,8 +11,6 @@ import kotlin.test.assertTrue
 class LandingTest {
     private val zone = Zone("z1", "jo.dev")
     private val login = CloudflareLogin(Secret("cf-token"), Secret("r1"), Cloudflare.now() + 3600)
-    private val deployedSteps =
-        listOf(Step.Upload(Semver(1, 0, 0)), Step.Domain("notes.jo.dev"), Step.Waiting("https://realm.jo.workers.dev"))
 
     /**
      * A worker just deployed on workers.dev whose custom domain notes.jo.dev has an A record in the way, until
@@ -51,15 +49,14 @@ class LandingTest {
         return Deployed(ACCOUNT, "https://realm.jo.workers.dev", Answer.Owner(Info(version = 3, scope = "owner")), conflict)
     }
 
-    private class Run(val landed: Landed, val progress: List<List<Step>>, val asked: List<ReplaceQuestion>)
+    private class Run(val landed: Landed, val progress: List<Step>, val asked: List<ReplaceQuestion>)
 
     private suspend fun FakeClouds.land(plan: Plan.Ready, deployed: Deployed, vararg answers: Boolean): Run {
-        val progress = mutableListOf<List<Step>>()
+        val progress = mutableListOf<Step>()
         val asked = mutableListOf<ReplaceQuestion>()
         val landed = api().land(
             plan,
             deployed,
-            deployedSteps,
             login,
             "test",
             { CloudflareSession(it.login) {} },
@@ -80,14 +77,7 @@ class LandingTest {
         assertEquals(listOf("Main", "Lisbon trip"), s.realms.map { it.name })
         assertEquals("https://realm.jo.workers.dev", run.asked.single().origin)
         assertEquals(listOf("DELETE cf/zones/z1/dns_records/r1"), c.routes.filter { it.startsWith("DELETE") })
-        val upload = Step.Upload(Semver(1, 0, 0))
-        assertEquals(
-            listOf(
-                listOf(upload, Step.Domain("notes.jo.dev")),
-                listOf(upload, Step.Domain("notes.jo.dev"), Step.Waiting("https://notes.jo.dev")),
-            ),
-            run.progress,
-        )
+        assertEquals(listOf(Step.Domain("notes.jo.dev"), Step.Waiting("https://notes.jo.dev")), run.progress)
     }
 
     @Test
@@ -107,6 +97,7 @@ class LandingTest {
 
         assertNull(run.asked[0].problem)
         assertEquals("An unknown error has occurred", run.asked[1].problem?.message)
+        assertEquals(listOf(Step.Domain("notes.jo.dev"), Step.Domain("notes.jo.dev"), Step.Waiting("https://notes.jo.dev")), run.progress)
         assertEquals("https://notes.jo.dev", assertIs<Landed.SignedInTo>(run.landed).signedIn.connection.server)
     }
 

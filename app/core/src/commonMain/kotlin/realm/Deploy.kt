@@ -77,60 +77,79 @@ class D1Limit :
 
 class NeedsSubdomain : ApiException("Pick a workers.dev subdomain for your Cloudflare account first.")
 
-/** Deploys [plan]'s release and waits for it to answer; safe to run again, and a [Plan.Update] keeps the worker's data and secrets. */
+/** The steps deploying [this] with [choices] takes, in order; [deploy] reports each as it starts. */
+fun Plan.Ready.steps(choices: Choices = Choices()): List<Step> {
+    val m = release.manifest
+    val newSubdomain = newSubdomain(choices)
+    val subdomain = found.subdomain ?: newSubdomain
+    val hostname = choices.domain?.hostname ?: found.domains.firstOrNull()?.hostname
+    val origin = hostname?.let { "https://$it" } ?: subdomain?.let { CloudflareApi.workersDev(it) }
+    return listOfNotNull(newSubdomain?.let { Step.Subdomain(it) }) +
+        m.buckets.map { Step.Bucket(it.bucketName) } +
+        m.databases.map { Step.Database(it.databaseName) } +
+        listOfNotNull(
+            Step.Upload(release.tag),
+            Step.Schedule,
+            subdomain?.takeIf { wantsWorkersDev }?.let { Step.WorkersDev(CloudflareApi.workersDev(it)) },
+            choices.domain?.let { Step.Domain(it.hostname) },
+            origin?.let { Step.Waiting(it) },
+        )
+}
+
+private val Plan.Ready.wantsWorkersDev get() = this is Plan.Fresh || (found.domains.isEmpty() && !found.workersDevOn)
+
+private fun Plan.Ready.newSubdomain(choices: Choices) =
+    choices.subdomain?.trim()?.lowercase()?.ifEmpty { null }.takeIf { found.subdomain == null }
+
+/**
+ * Deploys [plan]'s release and waits for it to answer; safe to run again, and a [Plan.Update] keeps the worker's
+ * data and secrets. [progress] gets each of [steps] as it starts, a [Step.Waiting] at the origin it came to.
+ */
 suspend fun CloudflareApi.deploy(plan: Plan.Ready, choices: Choices = Choices(), progress: suspend (Step) -> Unit = {}): Deployed {
     val found = plan.found
     val account = found.account
-    val m = plan.release.manifest
     val a = "/accounts/${account.id}/workers"
-    val wantsWorkersDev = plan is Plan.Fresh || (found.domains.isEmpty() && !found.workersDevOn)
-    val newSubdomain = choices.subdomain?.trim()?.lowercase()?.ifEmpty { null }.takeIf { found.subdomain == null }
-    val subdomain = found.subdomain ?: newSubdomain
-    if (wantsWorkersDev && subdomain == null) throw NeedsSubdomain()
+    val subdomain = found.subdomain ?: plan.newSubdomain(choices)
+    if (plan.wantsWorkersDev && subdomain == null) throw NeedsSubdomain()
+    val databases = mutableMapOf<String, String>()
+    var domain: DomainOutcome? = null
+    for (step in plan.steps(choices)) {
+        if (step !is Step.Waiting) progress(step)
+        when (step) {
+            is Step.Subdomain -> call<JsonElement?>(HttpMethod.Put, "$a/subdomain", buildJsonObject { put("subdomain", step.name) })
 
-    if (newSubdomain != null) {
-        progress(Step.Subdomain(newSubdomain))
-        call<JsonElement?>(HttpMethod.Put, "$a/subdomain", buildJsonObject { put("subdomain", newSubdomain) })
-    }
-    for (b in m.buckets) {
-        progress(Step.Bucket(b.bucketName))
-        ensureBucket(account, b.bucketName)
-    }
-    val databases = m.databases.associate { d ->
-        progress(Step.Database(d.databaseName))
-        d.databaseName to ensureDatabase(account, d.databaseName)
-    }
+            is Step.Bucket -> ensureBucket(account, step.name)
 
-    progress(Step.Upload(plan.release.tag))
-    upload(account, plan.release, databases)
-    progress(Step.Schedule)
-    call<JsonElement?>(
-        HttpMethod.Put,
-        "$a/scripts/${Cloudflare.WORKER}/schedules",
-        buildJsonArray { m.crons.forEach { addJsonObject { put("cron", it) } } },
-    )
-    if (wantsWorkersDev && subdomain != null) {
-        progress(Step.WorkersDev(CloudflareApi.workersDev(subdomain)))
-        call<JsonElement?>(
-            HttpMethod.Post,
-            "$a/scripts/${Cloudflare.WORKER}/subdomain",
-            buildJsonObject {
-                put("enabled", true)
-                put("previews_enabled", false)
-            },
-        )
-    }
-    val domain = choices.domain?.let {
-        progress(Step.Domain(it.hostname))
-        attachDomain(account, it)
-    }
+            is Step.Database -> databases[step.name] = ensureDatabase(account, step.name)
 
-    val hostname = (domain as? DomainOutcome.Attached)?.domain?.hostname ?: found.domains.firstOrNull()?.hostname
-    val origin = hostname?.let { "https://$it" }
-        ?: subdomain?.let { CloudflareApi.workersDev(it) }
-        ?: throw NeedsSubdomain()
-    progress(Step.Waiting(origin))
-    return Deployed(account, origin, waitForOwner(origin), domain)
+            is Step.Upload -> upload(account, plan.release, databases)
+
+            Step.Schedule -> call<JsonElement?>(
+                HttpMethod.Put,
+                "$a/scripts/${Cloudflare.WORKER}/schedules",
+                buildJsonArray { plan.release.manifest.crons.forEach { addJsonObject { put("cron", it) } } },
+            )
+
+            is Step.WorkersDev -> call<JsonElement?>(
+                HttpMethod.Post,
+                "$a/scripts/${Cloudflare.WORKER}/subdomain",
+                buildJsonObject {
+                    put("enabled", true)
+                    put("previews_enabled", false)
+                },
+            )
+
+            is Step.Domain -> domain = choices.domain?.let { attachDomain(account, it) }
+
+            is Step.Waiting -> {
+                val hostname = (domain as? DomainOutcome.Attached)?.domain?.hostname ?: found.domains.firstOrNull()?.hostname
+                val origin = hostname?.let { "https://$it" } ?: subdomain?.let { CloudflareApi.workersDev(it) } ?: throw NeedsSubdomain()
+                progress(Step.Waiting(origin))
+                return Deployed(account, origin, waitForOwner(origin), domain)
+            }
+        }
+    }
+    throw NeedsSubdomain()
 }
 
 /** Polls the worker at [origin] until it takes this login as its owner, for at most [within]. */

@@ -93,14 +93,15 @@ class CloudflareSetup internal constructor(
 
     private fun run(session: CloudflareSession, plan: Plan.Ready, choices: Choices, failed: (ApiException) -> Unit) {
         start(failed) {
-            login = Login.Deploying(plan, emptyList())
+            var deploying = Login.Deploying(plan, plan.steps(choices), 0)
+            login = deploying
+            val on: (Step) -> Unit = {
+                deploying = deploying.at(it)
+                login = deploying
+            }
             CloudflareApi(session, engine).use { cf ->
-                val steps = mutableListOf<Step>()
                 val done = try {
-                    cf.deploy(plan, choices) {
-                        steps += it
-                        login = Login.Deploying(plan, steps.toList())
-                    }
+                    cf.deploy(plan, choices, on)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -112,11 +113,10 @@ class CloudflareSetup internal constructor(
                     cf.land(
                         plan,
                         done,
-                        steps,
                         session.login,
                         platform.name,
                         home::sessionFor,
-                        progress = { login = Login.Deploying(plan, it) },
+                        progress = on,
                         agrees = { q ->
                             val answer = CompletableDeferred<Boolean>()
                             login = Login.Replace(plan, q, answer)

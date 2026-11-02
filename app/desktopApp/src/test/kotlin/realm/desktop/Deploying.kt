@@ -51,7 +51,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
                                 },
                             )
                         }
-                        CloudflareSheet(home.cloudflare)
+                        CloudflareSheet(home.cloudflare, Modifier.onSizeChanged { cloudflareHeight = it.height })
                     }
                 }
             }
@@ -64,6 +64,10 @@ internal class Film(val home: Home, settings: Boolean = false) {
     /** The clock animations run on, in ms: 16 more each frame. */
     val ms: Long get() = t / 1_000_000
     private var sheetHeight = 0
+    private var cloudflareHeight = 0
+
+    /** The Cloudflare sheet's height in pixels as each frame drew it. */
+    val cloudflareHeights = mutableListOf<Int>()
 
     /** The settings sheet's height in pixels as each frame drew it; 0 before it was laid out. */
     val sheetHeights = mutableListOf<Int>()
@@ -83,6 +87,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
         drawn += step to (home.server != null)
         screens += "${home.screen}/$step"
         sheetHeights += sheetHeight
+        cloudflareHeights += cloudflareHeight
         indicated += indicators.showing
     }
 
@@ -155,11 +160,31 @@ internal class Film(val home: Home, settings: Boolean = false) {
         check(seen == steps.toList()) { "$name went $seen" }
     }
 
+    /**
+     * Checks the Cloudflare sheet kept one height through each run of frames showing [step], once the switch to
+     * it, [SWITCH_FRAMES] frames, is over.
+     */
+    fun steady(name: String, step: String) {
+        val runs = mutableListOf<MutableList<Int>>()
+        for (i in drawn.indices.filter { drawn[it].first == step }) {
+            if (runs.lastOrNull()?.last() == i - 1) runs.last() += i else runs += mutableListOf(i)
+        }
+        check(runs.isNotEmpty()) { "$name never showed $step" }
+        for (run in runs) {
+            val after = run.drop(SWITCH_FRAMES).map { cloudflareHeights[it] }
+            println("$name $step: ${run.size} frames, then ${after.distinct().joinToString("/")}px")
+            check(after.distinct().size <= 1) { "$name: the sheet changed height while showing $step: ${after.distinct()}" }
+        }
+    }
+
     private fun save(name: String, img: org.jetbrains.skia.Image) =
         File(out, "$name.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
 
     fun close() = scene.close()
 }
+
+/** Frames the sheet takes to switch from one step to the next: its 300ms crossfade and size change, and a little more. */
+private const val SWITCH_FRAMES = 24
 
 /**
  * deploy-N: logging in finds no worker, onboarding fades in and checks what deploying needs, Deploy runs its
@@ -179,6 +204,7 @@ internal fun deploying() {
         film.roll("deploy", max = 40)
         film.close()
         film.went("deploy", "Setup/-", "Setup/LoggingIn", "Onboarding/-", "Onboarding/Deploying", "Tabs/-")
+        film.steady("deploy", "Deploying")
     }
     run {
         // A worker there already: logging in signs in to it, as before, with nothing to deploy.
@@ -210,6 +236,7 @@ internal fun deploying() {
         println("signed in to ${home.server?.base}")
         check(home.server?.base == "https://realm.jo.dev/api") { "signed in to ${home.server?.base}, not realm.jo.dev" }
         film.close()
+        film.steady("conflict", "Deploying")
         film.went(
             "conflict",
             "Setup/-",

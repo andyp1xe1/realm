@@ -15,26 +15,24 @@ data class ReplaceQuestion(val conflict: DomainOutcome.Conflict, val origin: Str
 
 /**
  * Finishes [deployed]: replaces DNS records in the way of its custom domain only while [agrees] says so, then
- * signs in to a fresh worker with [login]. [progress] gets every step so far as it starts.
+ * signs in to a fresh worker with [login]. [progress] gets each step of a retry as it starts: [Step.Domain], then
+ * [Step.Waiting] once it's on.
  */
 suspend fun CloudflareApi.land(
     plan: Plan.Ready,
     deployed: Deployed,
-    steps: List<Step>,
     login: CloudflareLogin,
     source: String,
     session: (Connection.ByCloudflare) -> CloudflareSession,
-    progress: suspend (List<Step>) -> Unit,
+    progress: suspend (Step) -> Unit,
     agrees: suspend (ReplaceQuestion) -> Boolean,
 ): Landed {
     var done = deployed
     var conflict = done.domain as? DomainOutcome.Conflict
-    val before = steps.takeWhile { it !is Step.Domain }
     var problem: ApiException? = null
     while (conflict != null && agrees(ReplaceQuestion(conflict, done.origin, problem))) {
         val hostname = conflict.choice.hostname
-        val trying = before + Step.Domain(hostname)
-        progress(trying)
+        progress(Step.Domain(hostname))
         problem = null
         try {
             when (val out = attachDomain(done.account, conflict.choice, conflict)) {
@@ -42,7 +40,7 @@ suspend fun CloudflareApi.land(
 
                 is DomainOutcome.Attached -> {
                     val origin = "https://${out.domain.hostname}"
-                    progress(trying + Step.Waiting(origin))
+                    progress(Step.Waiting(origin))
                     done = done.copy(origin = origin, answer = waitForOwner(origin), domain = out)
                     conflict = null
                 }

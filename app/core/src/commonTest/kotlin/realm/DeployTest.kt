@@ -89,6 +89,27 @@ class DeployTest {
     }
 
     @Test
+    fun aDeployGoesThroughTheStepsItsPlanListsUpFront() = runTest {
+        val c = clouds { route ->
+            when (route) {
+                "PUT $CF/accounts/a1/workers/domains" ->
+                    cf("""{"id":"d1","hostname":"notes.jo.dev","zone_id":"z1","zone_name":"jo.dev","service":"realm"}""")
+
+                "GET notes.jo.dev/api/info" -> json(owner)
+
+                else -> null
+            }
+        }
+        val plan = Plan.Fresh(RELEASE, found())
+        val choices = Choices(domain = DomainChoice(Zone("z1", "jo.dev"), "notes"))
+        val steps = mutableListOf<Step>()
+        c.api().deploy(plan, choices) { steps += it }
+
+        assertEquals(plan.steps(choices), steps)
+        assertEquals(listOf(Step.Domain("notes.jo.dev"), Step.Waiting("https://notes.jo.dev")), steps.takeLast(2))
+    }
+
+    @Test
     fun anUpdateKeepsTheWorkersSecretsAndAddresses() = runTest {
         val c = clouds(d1 = """[{"uuid":"db1","name":"realm"}]""")
         val plan = Plan.Update(

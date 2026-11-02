@@ -21,8 +21,25 @@ sealed interface Login {
 
     class Failed(val message: String) : Login
 
-    /** [steps] so far, the last one under way. */
-    class Deploying(val plan: Plan.Ready, val steps: List<Step>) : Login
+    /** Deploying [plan]: all its [steps] from the start, those before [current] done and [current] under way. */
+    class Deploying(val plan: Plan.Ready, val steps: List<Step>, val current: Int) : Login {
+        /**
+         * On to [step], in its row; a [Step.Waiting] takes the waiting row whatever origin it came to, and trying
+         * a [Step.Domain] again means waiting on that domain once more.
+         */
+        fun at(step: Step): Deploying {
+            val i = steps.indexOf(step).takeIf { it >= 0 } ?: steps.indexOfFirst { it is Step.Waiting && step is Step.Waiting }
+            if (i < 0) return this
+            val next = steps.map {
+                when {
+                    it is Step.Waiting && step is Step.Waiting -> step
+                    it is Step.Waiting && step is Step.Domain -> Step.Waiting("https://${step.hostname}")
+                    else -> it
+                }
+            }
+            return Deploying(plan, next, i)
+        }
+    }
 
     /** Deployed, but DNS records stand in the way of the custom domain: [answer] whether they may go. */
     class Replace(val plan: Plan.Ready, val question: ReplaceQuestion, private val agrees: CompletableDeferred<Boolean>) : Login {
