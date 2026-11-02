@@ -15,7 +15,6 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.attribute.PosixFilePermissions
-import java.util.prefs.Preferences
 
 /**
  * The desktop app's settings, kept between runs: the Cloudflare login, the connection, the realms and the share
@@ -24,8 +23,8 @@ import java.util.prefs.Preferences
  *
  * A file that can't be read is kept aside as `app.json.bad`, and the app starts as if nothing were kept.
  */
-class SettingsFile(private val file: File, oldNode: String = "realm") : Prefs {
-    private val values: MutableMap<String, String> = if (file.exists()) read() else migrate(oldNode)
+class SettingsFile(private val file: File) : Prefs {
+    private val values: MutableMap<String, String> = if (file.exists()) read() else mutableMapOf()
 
     @Synchronized override fun get(key: String): String? = values[key]
 
@@ -45,20 +44,6 @@ class SettingsFile(private val file: File, oldNode: String = "realm") : Prefs {
         val kept = runCatching { Files.move(file.toPath(), bad.toPath(), REPLACE_EXISTING) }.isSuccess
         logFailure("Reading the settings", IOException("$file isn't a JSON object of strings" + if (kept) "; kept it as $bad" else ""))
         mutableMapOf()
-    }
-
-    /**
-     * Copies what java.util.prefs kept in [node], and leaves the node as it is. Remove this, and `java.prefs`
-     * from the build's modules, once every desktop install has started on a release with this file, a year
-     * after it ships (2027-11).
-     */
-    private fun migrate(node: String): MutableMap<String, String> {
-        val root = Preferences.userRoot()
-        val kept = mutableMapOf<String, String>()
-        runCatching {
-            if (root.nodeExists(node)) root.node(node).let { old -> old.keys().forEach { k -> old.get(k, null)?.let { kept[k] = it } } }
-        }.onFailure { logFailure("Reading the settings an older version kept", it) }
-        return kept.also { write(it) }
     }
 
     private fun write(values: Map<String, String> = this.values) {

@@ -156,7 +156,7 @@ object Cloudflare {
 
     /**
      * Checks that [api] takes its Cloudflare login as the owner's. A REALM_ACCOUNT just set takes a few seconds
-     * to reach the worker; one that never takes the login is from before Cloudflare logins.
+     * to reach the worker, so it's asked a few times.
      */
     suspend fun checkOwner(api: Api): Info {
         repeat(5) { attempt ->
@@ -169,7 +169,7 @@ object Cloudflare {
             }
             if (attempt < 4) delay(2_000)
         }
-        throw ApiException("That worker is too old for Cloudflare login. Redeploy it, then log in again.")
+        throw ApiException("That worker doesn't take this Cloudflare login as its owner. Redeploy it, then log in again.")
     }
 
     fun now() = Clock.System.now().epochSeconds

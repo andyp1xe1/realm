@@ -164,7 +164,7 @@ private suspend fun CloudflareApi.existing(account: Account, domains: List<Domai
             origin,
             when {
                 e.status == 401 -> "That worker doesn't take Cloudflare logins. Redeploy it with wrangler, then try again."
-                e.status == 404 -> "That worker is too old to say what it runs."
+                e.status == 404 -> "That worker doesn't say what it runs. Redeploy it."
                 else -> "That worker didn't say what it runs: ${e.message}"
             },
         )
@@ -187,7 +187,7 @@ private suspend fun CloudflareApi.ownerInfo(account: Account, api: Api): Info = 
     try {
         Cloudflare.checkOwner(api)
     } catch (still: ApiException) {
-        throw ApiException(still.message ?: "", 401) // it never took the login: from before Cloudflare logins
+        throw ApiException(still.message ?: "", 401) // it never took the login
     }
 }
 

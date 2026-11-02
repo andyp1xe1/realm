@@ -88,7 +88,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     val isEmpty get() = server == null && shared.isEmpty()
 
     init {
-        migratePrefs()
         when (val own = prefs.own()) {
             null -> {}
 
@@ -118,18 +117,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** Whether there's a newer worker for [api]; only the owner's Cloudflare login can deploy it. */
     private fun checkForUpdate(force: Boolean, api: Api? = server) {
         api?.let { cloudflare.checkForUpdate(it, canDeploy = session?.login?.account != null, force) }
-    }
-
-    /** Before realms, the app kept one url: a server (with a token) or a share link. */
-    private fun migratePrefs() {
-        val url = prefs.get("url") ?: return
-        if ("/s/" in url) {
-            knownLinks.set(listOf(url))
-            prefs.set("token", null)
-        } else {
-            prefs.set("server", url)
-        }
-        prefs.set("url", null)
     }
 
     // ---------- the overview ----------

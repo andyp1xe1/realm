@@ -41,10 +41,10 @@ class SignInTest {
     }
 
     @Test
-    fun aWorkerFromBeforeInfoAsksForARedeploy() = runTest {
+    fun anAddressWithNoRealmServerSaysSo() = runTest {
         val server = FakeServer { bare404() }
         val e = assertFailsWith<ApiException> { signInWithToken("https://realm.jo.dev", "t", "test", server.engine) }
-        assertTrue("redeploy" in e.message!!, e.message)
+        assertTrue("no realm server" in e.message!!, e.message)
     }
 
     @Test

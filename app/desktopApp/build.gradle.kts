@@ -38,7 +38,7 @@ compose.desktop {
             targetFormats(TargetFormat.AppImage, TargetFormat.Dmg, TargetFormat.Msi)
             packageName = "realm"
             packageVersion = "1.0.0"
-            modules("java.desktop", "java.prefs", "jdk.unsupported")
+            modules("java.desktop", "jdk.unsupported")
             linux {
                 // Releases pass the tag without its v: `-Prealm.version=1.2.0` or `1.2.0-rc.1`. Only Linux takes it:
                 // the AppImage and the uber jar accept any version, but Dmg and Msi need MAJOR > 0 and no -rc

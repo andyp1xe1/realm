@@ -7,8 +7,6 @@ import java.io.File
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermissions
-import java.util.prefs.Preferences
-import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -19,14 +17,10 @@ class SettingsFileTest {
     private val tmp = Files.createTempDirectory("realm-settings").toFile()
     private val file = File(tmp, "realm/app.json")
 
-    // No such node, so nothing to migrate unless a test makes one; never the real "realm" node.
-    private val oldNode = "realm-test-${Random.nextLong().toULong()}"
-
-    private fun open() = SettingsFile(file, oldNode)
+    private fun open() = SettingsFile(file)
 
     @AfterTest fun cleanUp() {
         tmp.deleteRecursively()
-        Preferences.userRoot().let { if (it.nodeExists(oldNode)) it.node(oldNode).removeNode() }
     }
 
     @Test fun aValueOf100KbRoundTripsAndSurvivesARestart() {
@@ -80,21 +74,5 @@ class SettingsFileTest {
         file.writeText("""{"links": 3}""")
         assertNull(open().get("links"))
         assertTrue(File(file.path + ".bad").isFile)
-    }
-
-    @Test fun theFirstStartCopiesWhatJavaPrefsKeptAndLeavesItThere() {
-        val node = Preferences.userRoot().node(oldNode)
-        node.put("cloudflare", "login")
-        node.put("links", "[\"sam.dev\"]")
-        node.flush()
-
-        val s = open()
-        assertEquals("login", s.get("cloudflare"))
-        assertEquals("[\"sam.dev\"]", s.get("links"))
-        assertEquals("login", node.get("cloudflare", null))
-
-        // Once the file exists, the old node is no longer read: a sign-out stays signed out.
-        s.set("cloudflare", null)
-        assertNull(open().get("cloudflare"))
     }
 }

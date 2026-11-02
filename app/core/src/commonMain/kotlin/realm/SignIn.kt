@@ -63,8 +63,8 @@ suspend fun signInWithToken(server: String, token: String, source: String, engin
             val info = try {
                 api.info()
             } catch (e: ApiException) {
-                // A worker from before realms has no /info.
-                if (e.status == 404) throw ApiException("That server needs updating: redeploy the worker.", 404)
+                // Every realm server answers /info; whatever is there isn't one.
+                if (e.status == 404) throw ApiException("There's no realm server at that address.", 404)
                 throw e
             }
             if (info.scope != "owner") throw ApiException("not an owner token")
@@ -162,11 +162,8 @@ suspend fun connectLink(link: String, source: String, engine: HttpClientEngine? 
 
 /** An error in words that say what to do. */
 fun explain(e: Exception): String = when (e.message) {
-    // A worker from before realms has no /info.
-    "not found" -> "That server needs updating: redeploy the worker."
-
+    "not found" -> "That isn't there anymore."
     "bad token" -> "That token doesn't work for this server."
-
     else -> e.message ?: "Can't reach the server"
 }
 
