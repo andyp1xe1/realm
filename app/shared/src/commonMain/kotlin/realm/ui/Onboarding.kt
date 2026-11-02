@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -194,11 +195,13 @@ private fun AccountRow(account: Account, o: State) {
 
 private val RowHeight = 64.dp
 
+private enum class Status { Met, Warning, Unmet }
+
 @Composable
-private fun Requirement(ok: Boolean, title: String, detail: String, refreshing: Boolean, action: (@Composable () -> Unit)? = null) {
+private fun Requirement(status: Status, title: String, detail: String, refreshing: Boolean, action: (@Composable () -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-            val mark = @Composable { Changing(ok) { Mark(it) } }
+            val mark = @Composable { Changing(status) { Mark(it) } }
             if (refreshing) Delayed(instead = mark) { CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp) } else mark()
         }
         Spacer(Modifier.width(12.dp))
@@ -219,11 +222,11 @@ private fun Requirement(ok: Boolean, title: String, detail: String, refreshing: 
 }
 
 @Composable
-private fun Mark(ok: Boolean) {
-    if (ok) {
-        Icon(Icons.Outlined.Check, "Met", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-    } else {
-        Icon(Icons.Outlined.ErrorOutline, "Not met", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+private fun Mark(status: Status) {
+    when (status) {
+        Status.Met -> Icon(Icons.Outlined.Check, "Met", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+        Status.Warning -> Icon(Icons.Outlined.WarningAmber, "Warning", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.tertiary)
+        Status.Unmet -> Icon(Icons.Outlined.ErrorOutline, "Not met", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
     }
 }
 
@@ -253,13 +256,13 @@ private fun Dashboard(text: String, url: String) {
 private fun Rows(r: Requirements, o: State, refreshing: Boolean) {
     if (r.deployed) {
         val name = r.account.name.ifBlank { r.account.id }
-        return Requirement(true, "realm is on $name already", "Sign in to it to use it.", refreshing)
+        return Requirement(Status.Met, "realm is on $name already", "Sign in to it to use it.", refreshing)
     }
     when (r.r2) {
-        R2Check.On -> Requirement(true, "R2 is turned on", "Your files go in its bucket.", refreshing)
+        R2Check.On -> Requirement(Status.Met, "R2 is turned on", "Your files go in its bucket.", refreshing)
 
         R2Check.Off -> Requirement(
-            false,
+            Status.Unmet,
             "R2 isn't turned on for this account",
             "Turn it on in the dashboard, then check again.",
             refreshing,
@@ -268,46 +271,56 @@ private fun Rows(r: Requirements, o: State, refreshing: Boolean) {
         }
     }
     when (val s = r.subdomain) {
-        is SubdomainCheck.Has -> Requirement(true, "workers.dev subdomain", "${s.name}.workers.dev", refreshing)
+        is SubdomainCheck.Has -> Requirement(Status.Met, "workers.dev subdomain", "${s.name}.workers.dev", refreshing)
 
         SubdomainCheck.Missing -> {
             val typed = validSubdomain(o.subdomain)
             if (typed != null) {
-                Requirement(true, "workers.dev subdomain", "$typed.workers.dev, given to your account as realm deploys.", refreshing)
+                Requirement(Status.Met, "workers.dev subdomain", "$typed.workers.dev, given to your account as realm deploys.", refreshing)
             } else {
-                Requirement(false, "No workers.dev subdomain", "Type one under Address, or open Workers in the dashboard.", refreshing) {
+                Requirement(
+                    Status.Unmet,
+                    "No workers.dev subdomain",
+                    "Type one under Address, or open Workers in the dashboard.",
+                    refreshing,
+                ) {
                     Dashboard("Open Workers", SubdomainCheck.Missing.URL)
                 }
             }
         }
     }
     when (val d = r.database) {
-        is DatabaseCheck.Reuses -> Requirement(true, "A D1 database", "realm uses the database ${d.name} that's there.", refreshing)
+        is DatabaseCheck.Reuses -> Requirement(Status.Met, "A D1 database", "realm uses the database ${d.name} that's there.", refreshing)
 
         is DatabaseCheck.Room -> Requirement(
-            true,
+            Status.Met,
             "Room for a D1 database",
             "${d.count} of the free plan's $D1_FREE_LIMIT used.",
             refreshing,
         )
 
-        is DatabaseCheck.Full -> Requirement(
-            false,
-            "No room for a D1 database",
-            "It has ${d.count}, the free plan's most. Delete one, then check again.",
+        is DatabaseCheck.AtFreeLimit -> Requirement(
+            Status.Warning,
+            "At the free plan's D1 limit",
+            "It has ${d.count}, the free plan's most, so deploying may fail. Delete one, or deploy on a paid plan.",
             refreshing,
-        ) { Dashboard("Open D1", DatabaseCheck.Full.URL) }
+        ) { Dashboard("Open D1", DatabaseCheck.AtFreeLimit.URL) }
     }
     when (val rel = r.release) {
         is ReleaseCheck.Ready ->
-            Requirement(true, "A release to deploy", "${rel.release.tag}, realm ${rel.release.manifest.version}", refreshing)
+            Requirement(Status.Met, "A release to deploy", "${rel.release.tag}, realm ${rel.release.manifest.version}", refreshing)
 
         is ReleaseCheck.NeedsNewerApp ->
-            Requirement(false, "This app is too old to deploy", "Release ${rel.newer} needs a newer app. Update the app.", refreshing)
+            Requirement(
+                Status.Unmet,
+                "This app is too old to deploy",
+                "Release ${rel.newer} needs a newer app. Update the app.",
+                refreshing,
+            )
 
-        ReleaseCheck.None -> Requirement(false, "No release to deploy", "realm has no release yet.", refreshing)
+        ReleaseCheck.None -> Requirement(Status.Unmet, "No release to deploy", "realm has no release yet.", refreshing)
 
-        is ReleaseCheck.Failed -> Requirement(false, "Can't find a release to deploy", rel.message, refreshing)
+        is ReleaseCheck.Failed -> Requirement(Status.Unmet, "Can't find a release to deploy", rel.message, refreshing)
     }
 }
 

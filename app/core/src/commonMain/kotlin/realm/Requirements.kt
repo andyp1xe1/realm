@@ -28,7 +28,8 @@ sealed interface DatabaseCheck {
     /** There's room: the account has [count] of the free plan's [D1_FREE_LIMIT]. */
     data class Room(val count: Int) : DatabaseCheck
 
-    data class Full(val count: Int) : DatabaseCheck {
+    /** The account has [count], as many as the free plan allows: deploying works only on a paid plan. */
+    data class AtFreeLimit(val count: Int) : DatabaseCheck {
         companion object {
             const val URL = "https://dash.cloudflare.com/?to=/:account/workers/d1"
         }
@@ -89,14 +90,14 @@ suspend fun CloudflareApi.requirements(account: Account): Requirements {
         DatabaseCheck.Reuses(databaseNames.first())
     } else {
         val count = call<List<D1>>(HttpMethod.Get, "$a/d1/database?per_page=$D1_PAGE").size
-        if (count + missing.size > D1_FREE_LIMIT) DatabaseCheck.Full(count) else DatabaseCheck.Room(count)
+        if (count + missing.size > D1_FREE_LIMIT) DatabaseCheck.AtFreeLimit(count) else DatabaseCheck.Room(count)
     }
     return Requirements(account, deployed, r2, subdomain, database, release, zones(account), buckets)
 }
 
-/** Whether every requirement is met, the address aside. */
+/** Whether every requirement is met, the address aside. A database count at [D1_FREE_LIMIT] only warns, since a paid plan allows more. */
 val Requirements.met: Boolean
-    get() = !deployed && r2 == R2Check.On && database !is DatabaseCheck.Full && release is ReleaseCheck.Ready
+    get() = !deployed && r2 == R2Check.On && release is ReleaseCheck.Ready
 
 /** The deploy [choices] make, or null unless every requirement is [met] and the picked names are valid. */
 fun Requirements.deployment(choices: Choices): Deployment? {

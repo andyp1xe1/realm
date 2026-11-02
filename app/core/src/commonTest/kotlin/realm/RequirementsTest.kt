@@ -90,10 +90,19 @@ class RequirementsTest {
     }
 
     @Test
-    fun tenDatabasesOnTheFreePlanLeaveNoRoom() = runTest {
-        val full = account { route, seen -> databases(route, seen, 10) }.api().requirements(ACCOUNT)
-        assertEquals(DatabaseCheck.Full(10), full.database)
-        assertNull(full.deployment(Choices()))
+    fun theFreePlansDatabaseLimitWarnsAndLeavesRefusingToCloudflare() = runTest {
+        val twelve = account { route, seen ->
+            when (route) {
+                "POST $CF/accounts/a1/r2/buckets" -> cf("""{"name":"realm"}""")
+                "POST $CF/accounts/a1/d1/database" -> cfError(HttpStatusCode.Forbidden, 7406, "limit")
+                else -> databases(route, seen, 12)
+            }
+        }
+        val full = twelve.api().requirements(ACCOUNT)
+        assertEquals(DatabaseCheck.AtFreeLimit(12), full.database)
+        assertTrue(full.met)
+        val d = assertNotNull(full.deployment(Choices()))
+        assertFailsWith<D1Limit> { twelve.api().deploy(d.plan, d.choices) }
 
         val nine = account { route, seen -> databases(route, seen, 9) }.api().requirements(ACCOUNT)
         assertEquals(DatabaseCheck.Room(9), nine.database)

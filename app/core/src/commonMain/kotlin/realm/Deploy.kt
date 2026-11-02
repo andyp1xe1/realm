@@ -63,7 +63,10 @@ class R2NotEnabled : ApiException("Turn on R2 in the Cloudflare dashboard, then 
     }
 }
 
-class D1Limit : ApiException("Your Cloudflare account has 10 D1 databases, as many as the free plan allows. Delete one, then try again.")
+class D1Limit :
+    ApiException(
+        "Your Cloudflare account has as many D1 databases as its plan allows, $D1_FREE_LIMIT on the free plan. Delete one, then try again.",
+    )
 
 class NeedsSubdomain : ApiException("Pick a workers.dev subdomain for your Cloudflare account first.")
 
