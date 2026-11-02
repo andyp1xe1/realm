@@ -30,7 +30,8 @@ class Seen(val route: String, val url: Url, val headers: Map<String, String?>, v
  */
 class FakeClouds(private val answer: suspend MockRequestHandleScope.(route: String, seen: Seen) -> HttpResponseData?) {
     val seen = mutableListOf<Seen>()
-    val engine = MockEngine(MockEngineConfig().apply { dispatcher = Dispatchers.Unconfined }.also { it.addHandler { req -> respondTo(req) } })
+    val engine =
+        MockEngine(MockEngineConfig().apply { dispatcher = Dispatchers.Unconfined }.also { it.addHandler { req -> respondTo(req) } })
 
     private suspend fun MockRequestHandleScope.respondTo(req: HttpRequestData): HttpResponseData {
         val s = Seen(
@@ -40,7 +41,8 @@ class FakeClouds(private val answer: suspend MockRequestHandleScope.(route: Stri
             req.body.toByteArray(),
         )
         seen += s
-        return answer(s.route, s) ?: recorded(s.route)?.let { json(it) } ?: cfError(HttpStatusCode.NotFound, 7003, "No route for ${s.route}")
+        return answer(s.route, s) ?: recorded(s.route)?.let { json(it) }
+            ?: cfError(HttpStatusCode.NotFound, 7003, "No route for ${s.route}")
     }
 
     /** The routes called, in order, without the Cloudflare API's prefix. */

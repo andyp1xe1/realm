@@ -23,7 +23,7 @@ private fun checked(name: String, cloud: FakeCloud): Home {
 
 /**
  * onboard-cold-N: setup fades through to onboarding, its rows' room kept (a skeleton if checking is slow), then checked. onboard-ready:
- * everything met, Deploy on. onboard-r2-off, onboard-d1-full: Deploy dimmed, with the dashboard to fix it.
+ * everything met, Deploy on. onboard-r2-off: Deploy dimmed, with the dashboard to fix it. onboard-d1-full: a warning, Deploy on.
  * onboard-subdomain-empty, -typed: no workers.dev subdomain until one is typed. onboard-retry-N: a deploy fails
  * and stays on onboarding, logged in, then Retry deploys and signs in. onboard-restart-N: the next run opens
  * on onboarding. onboard-signout-N: settings from onboarding, then signing out back to setup.
@@ -46,7 +46,9 @@ internal fun onboarding() {
         film.went("onboard-cold", "Setup/-", "Setup/LoggingIn", "Onboarding/-")
     }
     check(checked("onboard-r2-off", FakeCloud(r2 = false)).onboarding.deployment == null) { "Deploy is on with R2 off" }
-    check(checked("onboard-d1-full", FakeCloud(databases = 10)).onboarding.deployment == null) { "Deploy is on with no room for D1" }
+    check(checked("onboard-d1-full", FakeCloud(databases = 10)).onboarding.deployment != null) {
+        "Deploy is off at the free plan's D1 limit, which only warns"
+    }
     run {
         val home = home(FakeCloud(subdomain = null))
         val film = Film(home)
