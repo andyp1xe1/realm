@@ -3,6 +3,7 @@ package realm
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -13,22 +14,43 @@ class UpdateChecksTest {
     private val prefs = MapPrefs()
     private val day = 24 * 60 * 60L
 
+    private var failing = 0
+    private val info = Info(version = 2, scope = "owner")
+
     private fun checks(version: Int = 3) = UpdateChecks(prefs, {
         asked++
+        if (failing > 0) {
+            failing--
+            error("GitHub is down")
+        }
         Release(Semver(1, 2, 0), MANIFEST.copy(version = version), "abc".encodeToByteArray(), null)
     }) { now }
 
     @Test
-    fun looksAtMostOnceADayUnlessAsked() {
+    fun looksAtMostOnceADayUnlessAsked() = runTest {
         val c = checks()
         assertTrue(c.due(force = false))
+        c.newerFor(info, force = false)
         now += day - 1
         assertFalse(c.due(force = false))
         assertTrue(c.due(force = true))
-        now += day
+        now += 1
         assertTrue(c.due(force = false))
+        c.newerFor(info, force = false)
+        assertFalse(c.due(force = false))
         c.reset()
         assertTrue(c.due(force = false))
+    }
+
+    @Test
+    fun aFailedLookDoesNotCount() = runTest {
+        val c = checks()
+        failing = 1
+        assertTrue(c.due(force = false))
+        assertFailsWith<IllegalStateException> { c.newerFor(info, force = false) }
+        assertTrue(c.due(force = false))
+        assertEquals(3, c.newerFor(info, force = false))
+        assertFalse(c.due(force = false))
     }
 
     @Test
