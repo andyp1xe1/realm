@@ -79,12 +79,9 @@ suspend fun CloudflareApi.requirements(account: Account): Requirements {
 
     val deployed = hasScript(account)
     val subdomain = subdomain(account)?.let { SubdomainCheck.Has(it) } ?: SubdomainCheck.Missing
-    val (buckets, r2) = try {
-        val all = call<BucketList>(HttpMethod.Get, "$a/r2/buckets?per_page=1000").buckets.map { it.name }.toSet()
-        bucketNames.filter { it in all }.toSet() to R2Check.On
-    } catch (e: CloudflareError) {
-        if (R2_OFF in e.codes) emptySet<String>() to R2Check.Off else throw e
-    }
+    val all = buckets(account)
+    val buckets = bucketNames.filter { it in all.orEmpty() }.toSet()
+    val r2 = if (all == null) R2Check.Off else R2Check.On
     val missing = databaseNames.filter { database(account, it) == null }
     val database = if (missing.isEmpty()) {
         DatabaseCheck.Reuses(databaseNames.first())

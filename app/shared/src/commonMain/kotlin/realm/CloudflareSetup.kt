@@ -67,7 +67,7 @@ class CloudflareSetup internal constructor(
                 val release = latestRelease(engine)
                 val plan = CloudflareApi(session, engine).use { it.planUpdate(it.account(id), release) }
                 if (plan is Plan.Fresh) throw ApiException("There's no realm worker on that account any more.")
-                Login.Confirm(session, plan, Choices(), R2NotEnabled().takeIf { !plan.found.r2Enabled })
+                Login.Confirm(session, plan, Choices(), null)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -81,6 +81,7 @@ class CloudflareSetup internal constructor(
     fun deploy(choices: Choices) {
         val confirm = login as? Login.Confirm ?: return
         val plan = confirm.plan as? Plan.Ready ?: return
+        if (!confirm.canDeploy) return
         run(confirm.session, plan, choices) { e -> login = Login.Confirm(confirm.session, plan, choices, e) }
     }
 

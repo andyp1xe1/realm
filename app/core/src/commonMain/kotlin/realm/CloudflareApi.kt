@@ -84,6 +84,13 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
             .filter { it.service == Cloudflare.WORKER }
             .sortedBy { it.hostname }
 
+    /** The names of the account's R2 buckets; null when R2 is off on it, which only its owner can change. */
+    suspend fun buckets(account: Account): Set<String>? = try {
+        call<BucketList>(HttpMethod.Get, "/accounts/${account.id}/r2/buckets?per_page=1000").buckets.map { it.name }.toSet()
+    } catch (e: CloudflareError) {
+        if (R2_OFF in e.codes) null else throw e
+    }
+
     /** The account's workers.dev subdomain, like "jo" in realm.jo.workers.dev; null when it has none yet. */
     suspend fun subdomain(account: Account): String? = try {
         call<Subdomain>(HttpMethod.Get, "/accounts/${account.id}/workers/subdomain").subdomain

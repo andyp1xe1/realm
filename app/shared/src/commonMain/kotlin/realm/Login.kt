@@ -14,7 +14,10 @@ sealed interface Login {
     data object Planning : Login
 
     /** [plan], to confirm before anything is written; [problem] is why the last try stopped. */
-    class Confirm(val session: CloudflareSession, val plan: Plan, val choices: Choices, val problem: ApiException?) : Login
+    class Confirm(val session: CloudflareSession, val plan: Plan, val choices: Choices, val problem: ApiException?) : Login {
+        /** R2 is on, which only the account's owner can do; nothing else stops a [Plan.Ready]. */
+        val canDeploy: Boolean get() = plan is Plan.Ready && plan.found.r2Enabled
+    }
 
     class Failed(val message: String) : Login
 

@@ -116,24 +116,19 @@ fun decide(release: Release, found: Found): Plan = when (val script = found.scri
 
 /** What deploying [release] on [account] would do. Only reads. */
 suspend fun CloudflareApi.plan(account: Account, release: Release): Plan {
-    val a = "/accounts/${account.id}"
     val subdomain = subdomain(account)
     val domains = domains(account)
     val hasScript = hasScript(account)
     val workersDevOn = hasScript && workersDevOn(account)
     val script = if (hasScript) existing(domains, subdomain.takeIf { workersDevOn }) else null
-    val (buckets, r2Enabled) = try {
-        call<BucketList>(HttpMethod.Get, "$a/r2/buckets?per_page=1000").buckets.map { it.name }.toSet() to true
-    } catch (e: CloudflareError) {
-        if (R2_OFF in e.codes) emptySet<String>() to false else throw e
-    }
+    val buckets = buckets(account)
     val databases = release.manifest.databases.map { it.databaseName }.filter { database(account, it) != null }.toSet()
     val found = Found(
         account = account,
         script = script,
-        buckets = release.manifest.buckets.map { it.bucketName }.filter { it in buckets }.toSet(),
+        buckets = release.manifest.buckets.map { it.bucketName }.filter { it in buckets.orEmpty() }.toSet(),
         databases = databases,
-        r2Enabled = r2Enabled,
+        r2Enabled = buckets != null,
         subdomain = subdomain,
         workersDevOn = workersDevOn,
         zones = zones(account),

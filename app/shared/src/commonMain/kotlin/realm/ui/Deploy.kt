@@ -143,18 +143,15 @@ private fun ColumnScope.Confirm(l: Login.Confirm, cloudflare: CloudflareSetup) {
     if (plan.create.isNotEmpty()) Fact("New", plan.create.words())
     if (plan.reuse.isNotEmpty()) Fact("Kept", plan.reuse.words())
 
-    l.problem?.let { p ->
-        if (p is R2NotEnabled) {
-            Problem("R2 is off on $account. Turn it on in the Cloudflare dashboard, then update again.")
-            val uri = LocalUriHandler.current
-            TextButton(onClick = { uri.openUri(R2NotEnabled.URL) }) { Text("Open the dashboard") }
-        } else {
-            Problem(p.message.orEmpty())
-        }
+    if (!found.r2Enabled) {
+        Fact("Needs", "R2 turned on for $account")
+        val uri = LocalUriHandler.current
+        TextButton(onClick = { uri.openUri(R2NotEnabled.URL) }) { Text("Open the dashboard") }
     }
+    l.problem?.let { Problem(it.message.orEmpty()) }
     Buttons {
         TextButton(onClick = cloudflare::dismiss) { Text("Cancel") }
-        Button(onClick = { cloudflare.deploy(l.choices) }, shape = MaterialTheme.shapes.small) { Text("Update") }
+        Button(onClick = { cloudflare.deploy(l.choices) }, enabled = l.canDeploy, shape = MaterialTheme.shapes.small) { Text("Update") }
     }
 }
 

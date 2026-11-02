@@ -256,6 +256,18 @@ internal fun updating() {
     refused.roll("refused", max = 200) { home.cloudflare.login is Login.Confirm }
     refused.roll("refused", max = 30)
     refused.close()
-    println("${out.path}/update-*.png, refused-*.png")
+
+    val off = Home(FakePlatform(), CoroutineScope(Ui), FakeCloud(worker = """{"version":2,"scope":"owner"}""", r2 = false).engine)
+    off.cloudflare.logIn()
+    val r2 = Film(off)
+    r2.until { off.cloudflare.update != null }
+    off.cloudflare.startUpdate()
+    r2.roll("update-r2-off", max = 200) { off.cloudflare.login is Login.Confirm }
+    r2.roll("update-r2-off", max = 30)
+    r2.close()
+    val confirm = off.cloudflare.login as Login.Confirm
+    check(confirm.problem == null) { "update-r2-off: R2 being off shows as a failure: ${confirm.problem}" }
+    check(!confirm.canDeploy) { "update-r2-off: Update is on with R2 off" }
+    println("${out.path}/update-*.png, refused-*.png, update-r2-off-*.png")
     managing()
 }
