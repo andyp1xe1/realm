@@ -1,5 +1,4 @@
-// Filmstrips of logging in with Cloudflare and deploying the worker, against stand-ins for Cloudflare, GitHub
-// and the worker it deploys, all on one MockEngine. Nothing real is called.
+// Filmstrips of logging in with Cloudflare and deploying the worker, against [FakeCloud]. Nothing real is called.
 package realm.desktop
 
 import androidx.compose.foundation.layout.Box
@@ -16,16 +15,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Density
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.MockRequestHandleScope
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.TextContent
-import io.ktor.http.headersOf
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import org.jetbrains.skia.EncodedImageFormat
 import realm.Choices
 import realm.Home
@@ -40,192 +30,6 @@ import realm.ui.SettingsDialog
 import realm.ui.SetupOrTabs
 import realm.value
 import java.io.File
-
-/**
- * Jo's Cloudflare account and everything deploying talks to. [worker] is what the realm worker answers its
- * owner, null while there's none; deploying makes it version 3. [r2] off answers bucket writes as R2 does
- * when it's not turned on. notes.jo.dev has an A record in the way until it's deleted. With [accounts] 3,
- * the login also has Studio's two accounts, a2 and a3, neither with realm. [databases] other D1 databases
- * are on each account; [subdomain] is Jo's workers.dev subdomain, null for none; the upload fails while
- * [uploadFails].
- */
-internal class FakeCloud(
-    var worker: String? = null,
-    val r2: Boolean = true,
-    val accounts: Int = 1,
-    var release: Int = 3,
-    val databases: Int = 0,
-    var subdomain: String? = "jo",
-    var uploadFails: Boolean = false,
-    /** How much longer than usual each read takes, as on a slow network. */
-    var slowness: Long = 0,
-) {
-    private var record = true
-    private var workersDev = true
-    private var hostname = ""
-    private val domains = mutableListOf<String>()
-    private val gh = "github.com/andyp1xe1/realm/releases/download/v1.2.0"
-
-    val engine = MockEngine { req ->
-        val path = "${req.method.value} ${req.url.host}${req.url.encodedPath}".replace("api.cloudflare.com/client/v4", "cf")
-        // Every account's routes are a1's, with what only Jo's has told apart below.
-        val account = Regex("cf/accounts/(a[0-9])").find(path)?.groupValues?.get(1)
-        val jo = account == null || account == "a1"
-        val route = if (account == null) path else path.replace("cf/accounts/$account", "cf/accounts/a1")
-        val sub = if (jo) subdomain else "studio$account"
-        // Each write takes a moment, as Cloudflare's do, so every step is on screen for a few frames.
-        delay(if (req.method.value == "GET") 40 + slowness else 450)
-        when {
-            route == "POST dash.cloudflare.com/oauth2/token" -> json("""{"access_token":"cf","refresh_token":"r","expires_in":3600}""")
-
-            route == "GET api.github.com/repos/andyp1xe1/realm/releases" -> json(
-                """[{"tag_name":"v1.2.0","assets":[{"name":"worker.json","browser_download_url":"https://$gh/worker.json"},
-                    {"name":"worker.js","browser_download_url":"https://$gh/worker.js"}]}]""",
-            )
-
-            route == "GET $gh/worker.json" -> json(
-                """{"version":$release,"name":"realm","main_module":"worker.js","compatibility_date":"2026-10-01",
-                    "sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-                    "r2_buckets":[{"binding":"BUCKET","bucket_name":"realm"}],
-                    "d1_databases":[{"binding":"DB","database_name":"realm"}],"crons":["17 4 * * *"]}""",
-            )
-
-            route == "GET $gh/worker.js" -> respond("abc")
-
-            route == "GET cf/accounts" ->
-                cf(
-                    if (accounts == 1) {
-                        """[{"id":"a1","name":"Jo's account"}]"""
-                    } else {
-                        """[{"id":"a1","name":"Jo's account"},{"id":"a2","name":"Studio"},{"id":"a3","name":"Studio"}]"""
-                    },
-                )
-
-            route.endsWith("/workers/scripts") -> cf(if (worker != null && jo) """[{"id":"realm"}]""" else "[]")
-
-            route == "GET cf/accounts/a1/workers/subdomain" ->
-                sub?.let { cf("""{"subdomain":"$it"}""") }
-                    ?: cfError(10007, "This account has no workers.dev subdomain", HttpStatusCode.NotFound)
-
-            route == "PUT cf/accounts/a1/workers/subdomain" -> {
-                subdomain = Regex(""""subdomain":"([^"]+)"""").find((req.body as TextContent).text)!!.groupValues[1]
-                cf("""{"subdomain":"$subdomain"}""")
-            }
-
-            route == "GET cf/accounts/a1/workers/domains" -> cf(if (jo) "[${domains.joinToString(",")}]" else "[]")
-
-            route.startsWith("DELETE cf/accounts/a1/workers/domains/") -> {
-                domains.removeAll { "\"id\":\"${route.substringAfterLast('/')}\"" in it }
-                cf("null")
-            }
-
-            route == "GET cf/accounts/a1/workers/scripts/realm/subdomain" -> cf("""{"enabled":$workersDev}""")
-
-            route == "POST cf/accounts/a1/workers/scripts/realm/subdomain" -> {
-                workersDev = """"enabled":true""" in (req.body as TextContent).text
-                cf("""{"enabled":$workersDev}""")
-            }
-
-            route == "GET cf/accounts/a1/workers/scripts/realm/secrets" -> cf("""[{"name":"REALM_ACCOUNT"}]""")
-
-            // A worker that's there has its storage too.
-            route == "GET cf/accounts/a1/r2/buckets" ->
-                if (r2) {
-                    cf(
-                        if (worker != null &&
-                            jo
-                        ) {
-                            """{"buckets":[{"name":"realm"}]}"""
-                        } else {
-                            """{"buckets":[]}"""
-                        },
-                    )
-                } else {
-                    cfError(10042, "Please enable R2")
-                }
-
-            route == "GET cf/accounts/a1/d1/database" -> {
-                val realm = if (worker != null && jo) listOf("""{"uuid":"db1","name":"realm"}""") else emptyList()
-                val others = if (req.url.parameters["name"] !=
-                    null
-                ) {
-                    emptyList()
-                } else {
-                    (1..databases).map { """{"uuid":"o$it","name":"notes-$it"}""" }
-                }
-                cf((realm + others).joinToString(",", "[", "]"))
-            }
-
-            route == "GET cf/zones" -> cf(
-                if (req.url.parameters["account.id"] ==
-                    "a1"
-                ) {
-                    """[{"id":"z1","name":"jo.dev","status":"active"}]"""
-                } else {
-                    "[]"
-                },
-            )
-
-            route == "POST cf/accounts/a1/r2/buckets" -> if (r2) cf("""{"name":"realm"}""") else cfError(10042, "Please enable R2")
-
-            route == "POST cf/accounts/a1/d1/database" ->
-                if (databases >=
-                    10
-                ) {
-                    cfError(7406, "You have reached the maximum number of databases")
-                } else {
-                    cf("""{"uuid":"db1","name":"realm"}""")
-                }
-
-            route == "PUT cf/accounts/a1/workers/scripts/realm" ->
-                if (uploadFails) {
-                    cfError(10021, "Uploading the script failed. Try again in a minute.", HttpStatusCode.InternalServerError)
-                } else {
-                    worker = """{"version":3,"scope":"owner"}"""
-                    cf("""{"id":"realm"}""")
-                }
-
-            route == "PUT cf/accounts/a1/workers/domains" -> {
-                hostname = Regex(""""hostname":"([^"]+)"""").find((req.body as TextContent).text)!!.groupValues[1]
-                if (record) {
-                    cfError(100117, "Hostname already has DNS records")
-                } else {
-                    val d = """{"id":"d-$hostname","hostname":"$hostname","zone_id":"z1","service":"realm"}"""
-                    domains += d
-                    cf(d)
-                }
-            }
-
-            route == "GET cf/zones/z1/dns_records" ->
-                cf(if (record) """[{"id":"r1","type":"A","name":"$hostname","content":"192.0.2.1"}]""" else "[]")
-
-            route == "DELETE cf/zones/z1/dns_records/r1" -> {
-                record = false
-                cf("""{"id":"r1"}""")
-            }
-
-            " cf/" in route -> cf("{}")
-
-            // the schedule
-
-            route.endsWith("/api/info") -> worker?.let { json(it) } ?: json("""{"error":"not found"}""", HttpStatusCode.NotFound)
-
-            route.endsWith("/api/realms") -> json("""{"realms":[{"id":"main","name":"Main","created":1,"count":0}]}""")
-
-            route.endsWith("/links") -> json("""{"links":[]}""")
-
-            else -> json("""{"items":[],"next":null}""")
-        }
-    }
-
-    private fun MockRequestHandleScope.json(body: String, status: HttpStatusCode = HttpStatusCode.OK) =
-        respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
-
-    private fun MockRequestHandleScope.cf(result: String) = json("""{"success":true,"errors":[],"result":$result}""")
-
-    private fun MockRequestHandleScope.cfError(code: Int, message: String, status: HttpStatusCode = HttpStatusCode.Conflict) =
-        json("""{"success":false,"errors":[{"code":$code,"message":"$message"}],"result":null}""", status)
-}
 
 /** A scene of the app's first screen with the Cloudflare sheet over it, and frames taken as real time passes. */
 internal class Film(val home: Home, settings: Boolean = false) {
@@ -395,7 +199,7 @@ internal fun deploying() {
         home.cloudflare.logIn()
         film.until { home.onboarding.deployment != null }
         film.roll("conflict", max = 20)
-        home.onboarding.zone = home.onboarding.requirements.state.value!!.zones.single() // jo.dev, realm.jo.dev
+        home.onboarding.zone = home.onboarding.requirements.state.value!!.zones.first { it.name == "jo.dev" }
         film.roll("conflict", max = 30)
         home.onboarding.deploy()
         film.roll("conflict", every = 6, max = 600) { home.cloudflare.login is Login.Replace }

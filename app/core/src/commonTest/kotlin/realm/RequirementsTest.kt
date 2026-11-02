@@ -33,7 +33,6 @@ class RequirementsTest {
     ) = FakeClouds { route, seen ->
         override(route, seen) ?: when (route) {
             "GET $CF/accounts/a1/workers/scripts" -> if (deployed) null else cf("""[{"id":"notes"}]""")
-            "GET $gh" -> json(RecordedGitHub.RELEASES)
             "GET $dl/worker.json" -> asset(manifest)
             "GET $dl/worker.js" -> asset("abc")
             else -> null

@@ -5,9 +5,7 @@ import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 
 /** A stand-in server: answers each request by its path, and keeps the requests for a test to look at. */
 class FakeServer(private val routes: MockRequestHandleScope.(path: String) -> HttpResponseData) {
@@ -17,9 +15,6 @@ class FakeServer(private val routes: MockRequestHandleScope.(path: String) -> Ht
         routes(req.url.encodedPath)
     }
 }
-
-fun MockRequestHandleScope.json(body: String, status: HttpStatusCode = HttpStatusCode.OK) =
-    respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
 
 /** What a realm worker says about a route it doesn't have. */
 fun MockRequestHandleScope.notFound() = json("""{"error":"not found"}""", HttpStatusCode.NotFound)

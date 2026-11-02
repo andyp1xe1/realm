@@ -27,7 +27,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     // Ktor logs through SLF4J; this prints warnings to the terminal (src/main/resources/simplelogger.properties).
     runtimeOnly(libs.slf4j.simple)
-    testImplementation(libs.ktor.client.mock)
+    testImplementation(project(":fixtures"))
     testImplementation(kotlin("test"))
 }
 
