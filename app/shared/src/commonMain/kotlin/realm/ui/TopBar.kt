@@ -49,14 +49,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import realm.Model
 
-/** Height of the top bar; its title starts where the content's gutter does, plus a little. */
 val TopBarHeight = 56.dp
 
 /**
- * The one bar over the feed and the overview. It stays put while the page under it zooms: going out to
- * the overview, the feed's buttons close up and settings opens out, sliding the others aside, while the
- * tabs button holds its corner. [model] is the open feed's, or null in the overview. [update] puts a dot on
- * settings, where the server update is offered.
+ * The bar over the feed and the overview. [model] is the open feed's, or null in the overview; [update] dots settings.
  */
 @Composable
 fun TopBar(
@@ -73,7 +69,6 @@ fun TopBar(
             SearchField(model)
         } else {
             BarTitle(title, Modifier.weight(1f))
-            // An empty realm offers the agents in its middle instead; they move up here once it's known to have things in it.
             BarItem(model != null && model.loaded && !model.isEmpty) { ShareButton(onClick = { model?.sharing = true }) }
             BarItem(model != null) { IconButton(onClick = { model?.searching = true }) { Icon(Icons.Outlined.Search, "Search") } }
             BarItem(model == null) {
@@ -88,7 +83,6 @@ fun TopBar(
     }
 }
 
-/** A button that opens out into the bar, pushing its neighbours aside, and closes up again; in step with the zoom. */
 @Composable
 private fun RowScope.BarItem(visible: Boolean, content: @Composable () -> Unit) {
     AnimatedVisibility(
@@ -99,7 +93,6 @@ private fun RowScope.BarItem(visible: Boolean, content: @Composable () -> Unit) 
     ) { content() }
 }
 
-/** "realm", and in a feed "/Main" after it, sliding in and out; "realm" mutes while a name follows it. */
 @Composable
 private fun BarTitle(realm: String?, modifier: Modifier = Modifier) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
@@ -130,7 +123,6 @@ private fun BarTitle(realm: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/** The bar while searching a feed: back, the field, and clear. */
 @Composable
 private fun RowScope.SearchField(model: Model) {
     val focus = remember { FocusRequester() }

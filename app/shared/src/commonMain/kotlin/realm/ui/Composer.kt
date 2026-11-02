@@ -87,13 +87,9 @@ import realm.humanSize
 import realm.readAll
 import kotlin.math.roundToInt
 
-/** Compact: one row under the feed. Expanded: covers the feed for writing; opened by hand or by long text. */
 private enum class Mode { Compact, Auto, Manual }
 
-/**
- * The composer's height with only the field in it: its own padding, the card's, and a row of controls. The feed
- * keeps this much room below it from the first frame, so it doesn't shift once the composer has measured itself.
- */
+/** The composer's height with only the field in it, which the feed keeps free below it from the first frame. */
 val ComposerHeight = 4.dp + 4.dp + ControlHeight + 4.dp + 8.dp
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -121,7 +117,6 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
     }
     LaunchedEffect(Unit) { if (desktop) focus.requestFocus() }
 
-    // Shared/dropped text is appended to whatever is being typed, never sent on its own.
     LaunchedEffect(model.incomingText) {
         val t = model.incomingText ?: return@LaunchedEffect
         model.incomingText = null
@@ -130,8 +125,6 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
         focus.requestFocus()
     }
 
-    // Long text opens the editor by itself, and closes it again if it shrinks back. A manual open stays open.
-    // The expanded field is wider, so it only collapses at ≤2 lines to avoid flapping at the threshold.
     LaunchedEffect(lines, value.text.isEmpty()) {
         when {
             mode == Mode.Compact && lines >= 4 -> mode = Mode.Auto
@@ -172,8 +165,6 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
         }
     }
 
-    // Long text would only open the editor again, so the shrink is off until it's short enough (≤2 lines here,
-    // where it closes by itself too). Back and Escape are still taken, so they don't leave with the text.
     val canShrink = lines <= 2
     fun shrink() {
         if (canShrink) collapse()
@@ -212,31 +203,23 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
         }
     }
 
-    // 0 = compact, 1 = the editor filling the screen.
     val grow by animateFloatAsState(if (expanded) 1f else 0f, tween(260, easing = FastOutSlowInEasing))
     var compactPx by remember { mutableIntStateOf(0) }
     SideEffect { onOpen(grow) }
-    // The editor's layout stays up until it has finished shrinking, so closing plays opening backwards.
     val editorShown = expanded || grow > 0f
 
     Column(
         modifier
-            // The height as drawn, mid-animation included, so the feed rides up and down with the composer's
-            // compact changes. Not while the editor is open, opening or closing: it covers the feed, which
-            // stays exactly where it was.
             .onSizeChanged { if (!expanded && grow == 0f) onCompactHeight(with(density) { it.height.toDp() }) }
             .background(MaterialTheme.colorScheme.background)
             .then(
                 if (editorShown) {
-                    // Opening or closing the editor: laid out afresh at each height in between, so the card's
-                    // top and the text stay in view as it grows, and the buttons stay on the bottom row.
                     Modifier.layout { measurable, constraints ->
                         val h = (compactPx + (constraints.maxHeight - compactPx) * grow).roundToInt()
                         val p = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
                         layout(p.width, h) { p.place(0, 0) }
                     }
                 } else {
-                    // Compact changes (recording, attachments, the editing label) grow upward from the bottom edge.
                     Modifier.growUpward().onSizeChanged { compactPx = it.height }
                 },
             )
@@ -275,9 +258,7 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                 )
             } else {
                 Column(Modifier.padding(4.dp)) {
-                    // Compact: attachments sit above the text, like a message being composed.
                     if (!editorShown && staged.isNotEmpty()) Tray(model)
-                    // One Row and one Field in both modes, so focus, cursor and the soft keyboard survive the switch.
                     Row(
                         if (editorShown) Modifier.weight(1f) else Modifier,
                         verticalAlignment = Alignment.Bottom,
@@ -302,8 +283,6 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                     val mod = e.isCtrlPressed || e.isMetaPressed
                                     when {
-                                        // Ctrl+Enter always sends. Plain Enter sends from the compact desktop composer;
-                                        // in the expanded editor it's a newline.
                                         e.key == Key.Enter && (mod || (desktop && !expanded && !e.isShiftPressed)) -> {
                                             send()
                                             true
@@ -334,7 +313,6 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                                 },
                         )
                         if (editorShown) {
-                            // Top-right corner, level with the first line of text: no header row eating space.
                             IconButton(onClick = ::shrink, Modifier.align(Alignment.Top), enabled = canShrink) {
                                 Icon(Icons.Outlined.FullscreenExit, "Shrink composer")
                             }
@@ -348,12 +326,10 @@ fun Composer(model: Model, modifier: Modifier = Modifier, onCompactHeight: (Dp) 
                             SendOrMic()
                         }
                     }
-                    // Expanded: attachments sit with the actions, under the writing area.
                     if (editorShown && staged.isNotEmpty()) Tray(model)
                     if (editorShown) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             AttachButtons()
-                            // Editing can't attach, so its label and cancel take the attach buttons' spot.
                             if (editing != null) {
                                 IconButton(onClick = ::cancelEdit) { Icon(Icons.Outlined.Close, "Cancel edit") }
                                 EditingLabel(editing.name, Modifier.weight(1f, fill = false))
@@ -388,11 +364,8 @@ private fun EditingLabel(fileName: String?, modifier: Modifier = Modifier) {
     )
 }
 
-// ---------- staged attachments ----------
-
 private val TileSize = 64.dp
 
-/** Files waiting to be sent: thumbnails for images, type tiles otherwise, each removable. */
 @Composable
 private fun Tray(model: Model) {
     LazyRow(
@@ -452,5 +425,4 @@ private fun StagedTile(file: LocalFile, platform: Platform, onRemove: () -> Unit
     }
 }
 
-/** The compact composer, as what's in it changes, keeping its bottom edge. */
 private fun Modifier.growUpward() = animateContentSize(alignment = Alignment.BottomCenter) // grows: what you add to it

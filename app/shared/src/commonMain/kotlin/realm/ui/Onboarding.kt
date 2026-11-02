@@ -1,6 +1,3 @@
-// Onboarding: logged in with Cloudflare, with no realm worker yet. What deploying sets up, each requirement
-// checked as soon as the screen opens, where realm will answer, and Deploy, dimmed until all of it is there.
-// What's checked shows with Loading: rows of the same height hold their room, then fade through in place.
 package realm.ui
 
 import androidx.compose.animation.AnimatedContent
@@ -68,11 +65,7 @@ import realm.validSubdomain
 import realm.value
 import realm.Onboarding as State
 
-/**
- * The whole screen in place of setup, with settings in its corner for the account and signing out: choosing
- * an account, then, on one with no realm, deploying it. The one fades through to the other. What deploying
- * needs scrolls; Deploy stays at the bottom of the screen, in reach however tall that is.
- */
+/** Logged in with Cloudflare with no realm: choosing an account, then deploying to it. */
 @Composable
 fun OnboardingScreen(home: Home, modifier: Modifier = Modifier) {
     val o = home.onboarding
@@ -85,7 +78,6 @@ fun OnboardingScreen(home: Home, modifier: Modifier = Modifier) {
                 Spacer(Modifier.height(12.dp))
                 AnimatedContent(
                     o.account,
-                    // Choosing an account fades through to its checks, the screen fitting what comes.
                     transitionSpec = {
                         (fadeIn(tween(STEP_MILLIS * 2 / 3, delayMillis = STEP_MILLIS / 3)) togetherWith fadeOut(tween(STEP_MILLIS / 3)))
                             .using(SizeTransform(clip = true))
@@ -106,7 +98,6 @@ fun OnboardingScreen(home: Home, modifier: Modifier = Modifier) {
 
 private const val STEP_MILLIS = 300
 
-/** Why checking or deploying failed, in the colour of a problem. */
 @Composable
 internal fun ColumnScope.Problem(text: String?) {
     if (text == null) return
@@ -114,7 +105,6 @@ internal fun ColumnScope.Problem(text: String?) {
     Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
 }
 
-/** Deploy, dimmed until every requirement is met; Retry after a failed deploy; Sign in if realm is there already. */
 @Composable
 private fun DeployButton(o: State) {
     val signIn = o.requirements.state.value?.deployed == true
@@ -137,7 +127,6 @@ private fun DeployButton(o: State) {
     }
 }
 
-/** What deploying sets up, the account, each requirement, Check again, where realm will answer, and Deploy. */
 @Composable
 private fun ColumnScope.Checks(account: Account, o: State) {
     val state = o.requirements.state
@@ -163,7 +152,6 @@ private fun ColumnScope.Checks(account: Account, o: State) {
     Problem(o.problem)
 }
 
-/** Deployed, but its new address isn't answering yet: what's happening, while signing in is tried again. */
 @Composable
 private fun ColumnScope.ComingUp(origin: String) {
     Spacer(Modifier.height(12.dp))
@@ -183,7 +171,6 @@ internal fun Label(text: String) {
     Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-/** Which Cloudflare account realm goes on, by name once the login's accounts are known, and using another. */
 @Composable
 private fun AccountRow(account: Account, o: State) {
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -205,14 +192,11 @@ private fun AccountRow(account: Account, o: State) {
     }
 }
 
-/** How tall a requirement's row is, met or not, so checking never moves what's under it. */
 private val RowHeight = 64.dp
 
-/** Whether a requirement is met: [ok], or not, with [action] to fix it beside it; turning while it's checked again. */
 @Composable
 private fun Requirement(ok: Boolean, title: String, detail: String, refreshing: Boolean, action: (@Composable () -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
-        // Checked again, the mark stays until the check is slow, then turns; it changes only if the answer does.
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             val mark = @Composable { Changing(ok) { Mark(it) } }
             if (refreshing) Delayed(instead = mark) { CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp) } else mark()
@@ -243,7 +227,6 @@ private fun Mark(ok: Boolean) {
     }
 }
 
-/** A requirement's row before it's checked. */
 @Composable
 private fun RequirementSkeleton(fraction: Float) {
     Row(Modifier.fillMaxWidth().height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
@@ -260,7 +243,6 @@ private fun RowsSkeleton() {
     listOf(0.45f, 0.6f, 0.55f, 0.4f).forEach { RequirementSkeleton(it) }
 }
 
-/** Opens a page of the Cloudflare dashboard, where only the user can fix this. */
 @Composable
 private fun Dashboard(text: String, url: String) {
     val uri = LocalUriHandler.current
@@ -329,11 +311,6 @@ private fun Rows(r: Requirements, o: State, refreshing: Boolean) {
     }
 }
 
-/**
- * Where realm will answer: workers.dev, or a domain of the account's with a subdomain, realm unless changed
- * (blank is the domain itself). An account with no workers.dev subdomain picks one too: realm answers there
- * as well. Each shows the address it comes to.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ColumnScope.Address(r: Requirements, o: State) {
@@ -389,7 +366,6 @@ private fun ColumnScope.Address(r: Requirements, o: State) {
     }
 }
 
-/** The room [Address] takes on an account with a workers.dev subdomain, before it's known. */
 @Composable
 private fun ColumnScope.AddressSkeleton() {
     Label("Address")

@@ -72,7 +72,6 @@ import realm.Api
 import realm.Link
 import realm.Model
 
-// Brand marks from @lobehub/icons (static-svg), 24x24 viewBox. Claude keeps its colour; the rest follow the theme.
 private fun brand(path: String, color: Color = Color.Black) = brand(path to color)
 
 private fun brand(vararg paths: Pair<String, Color>) =
@@ -95,7 +94,6 @@ private val Cursor =
         "M22.106 5.68L12.5.135a.998.998 0 00-.998 0L1.893 5.68a.84.84 0 00-.419.726v11.186c0 .3.16.577.42.727l9.607 5.547a.999.999 0 00.998 0l9.608-5.547a.84.84 0 00.42-.727V6.407a.84.84 0 00-.42-.726zm-.603 1.176L12.228 22.92c-.063.108-.228.064-.228-.061V12.34a.59.59 0 00-.295-.51l-9.11-5.26c-.107-.062-.063-.228.062-.228h18.55c.264 0 .428.286.296.514z",
     )
 
-// Where realms live: drawn in the sign-in art, and for signing in with Cloudflare once that exists.
 internal val Cloudflare = brand(
     "M16.493 17.4c.135-.52.08-.983-.161-1.338-.215-.328-.592-.519-1.05-.519l-8.663-.109a.148.148 0 01-.135-.082c-.0" +
         "27-.054-.027-.109-.027-.163.027-.082.108-.164.189-.164l8.744-.11c1.05-.054 2.153-.9 2.556-1.937l.511-1.31c.027" +
@@ -114,10 +112,9 @@ private val GitHub =
         "M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z",
     )
 
-/** Icon to whether it keeps its own colour. */
 private val AgentIcons = listOf(Claude to true, OpenAI to false, OpenCode to false, Cursor to false)
 
-/** A pill of stacked agent badges that fan out on hover (or press, on touch). [expanded] pins them open, for previews. */
+/** Stacked agent badges that fan out on hover or press. [expanded] pins them open. */
 @Composable
 fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier, expanded: Boolean = false) {
     val interaction = remember { MutableInteractionSource() }
@@ -125,7 +122,6 @@ fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier, expanded: Bo
     val pressed by interaction.collectIsPressedAsState()
     val active = hovered || pressed
     val badge = 24.dp
-    // Stacked fans out on hover; already fanned out (the empty state) spreads a little further.
     val step by animateDpAsState(
         when {
             expanded && active -> badge + 8.dp
@@ -174,10 +170,7 @@ private val SCOPES = listOf(
 
 private enum class Format(val label: String) { Link("Link"), Prompt("Prompt"), Docs("Prompt + docs") }
 
-/**
- * Create a share link, or pick an active one, and copy it as a bare link or as a prompt for an agent.
- * Connected through a share link, there's nothing to create: that link is handed on as is.
- */
+/** Creates or picks a share link and copies it, bare or as a prompt for an agent. */
 @Composable
 fun ShareDialog(model: Model, title: String, onDismiss: () -> Unit) = Sheet(onDismiss) { ShareSheet(model, onDismiss, title = title) }
 
@@ -187,13 +180,12 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
     val api = model.api
     val scope = rememberCoroutineScope()
     var access by remember { mutableStateOf("read") }
-    var ttl by remember { mutableIntStateOf(1) } // which of TTLS: a day
+    var ttl by remember { mutableIntStateOf(1) }
     var label by remember { mutableStateOf("") }
     var url by remember { mutableStateOf(if (model.isOwner) initialUrl else api.base) }
     var format by remember { mutableStateOf(Format.Prompt) }
     val docs = remember { mutableStateMapOf<String, String>() }
     var busy by remember { mutableStateOf(false) }
-    // Usually loaded already, when the realm opened; this catches links made elsewhere since.
     if (model.isOwner) LaunchedEffect(Unit) { model.loadLinks() }
 
     val link = url
@@ -204,7 +196,6 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
         else -> docs[link]
     }
 
-    // The link documents itself; fetching that is what "Prompt + docs" copies.
     LaunchedEffect(link, format) {
         if (link == null || format != Format.Docs || link in docs) return@LaunchedEffect
         val a = Api(link, null, model.platform.name)
@@ -269,7 +260,6 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
             CopyBox(text) { model.platform.copyText(it) }
         }
 
-        // Fetched as the realm opened, so usually known by now; until then, room for a couple.
         if (model.isOwner) {
             Loading(model.links.state, skeleton = { Active { repeat(2) { LinkRowSkeleton() } } }) { links ->
                 if (links.isNotEmpty()) {
@@ -307,7 +297,6 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
     }
 }
 
-/** Monospace text with a copy button in its corner; the button turns into a check for a moment after copying. */
 @Composable
 private fun CopyBox(text: String?, onCopy: (String) -> Unit) {
     var copied by remember(text) { mutableStateOf(false) }
@@ -346,7 +335,6 @@ private fun CopyBox(text: String?, onCopy: (String) -> Unit) {
     }
 }
 
-/** The active links, under their heading. */
 @Composable
 private fun Active(list: @Composable () -> Unit) = Column {
     Spacer(Modifier.height(20.dp))
@@ -355,7 +343,6 @@ private fun Active(list: @Composable () -> Unit) = Column {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { list() }
 }
 
-/** The room a [LinkRow] takes, before the links are known. */
 @Composable
 private fun LinkRowSkeleton() {
     Row(
@@ -366,7 +353,7 @@ private fun LinkRowSkeleton() {
             SkeletonLine(0.5f, style = MaterialTheme.typography.bodyMedium)
             SkeletonLine(0.35f, style = MaterialTheme.typography.labelSmall)
         }
-        Spacer(Modifier.size(36.dp)) // the revoke button
+        Spacer(Modifier.size(36.dp))
     }
 }
 
@@ -382,7 +369,6 @@ private fun LinkRow(l: Link, model: Model, selected: Boolean, onSelect: () -> Un
             .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Refreshed, a link's row fades only if it changed.
         Changing(l, Modifier.weight(1f)) { shown ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(

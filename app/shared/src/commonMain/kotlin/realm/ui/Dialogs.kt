@@ -36,7 +36,7 @@ internal fun Sheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, content
     }
 }
 
-/** Asks before something that can't be taken back. [action] names the button: "Delete", "Revoke", "Remove". */
+/** Asks before something that can't be undone. [action] names the button. */
 @Composable
 fun Confirm(title: String, body: String, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit, modifier: Modifier = Modifier) =
     Sheet(onDismiss, modifier) {
@@ -62,7 +62,6 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit, modifier: Modifier = Modif
         if (server != null) {
             ServerSection(home, onClose = onDismiss)
             Spacer(Modifier.height(16.dp))
-            // Signed in with Cloudflare: the chooser, with the same login.
             if (home.session?.login?.account != null) {
                 InlineButton("Use another Cloudflare account", {
                     onDismiss()
@@ -92,13 +91,11 @@ fun SettingsDialog(home: Home, onDismiss: () -> Unit, modifier: Modifier = Modif
     }
 }
 
-/** Logged in with Cloudflare with nothing deployed yet: which account, and signing out, which ends the login. */
 @Composable
 private fun CloudflareAccount(home: Home, onDismiss: () -> Unit) = Column {
     val o = home.onboarding
     Text("Logged in to Cloudflare", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Loading(o.accounts.state, skeleton = { SkeletonLine(0.5f) }) { accounts ->
-        // The account chosen, else the ones the login was given, by name.
         val chosen = o.account?.let { a -> accounts.firstOrNull { it.id == a.id } ?: a }
         val names = (chosen?.let(::listOf) ?: accounts).joinToString(", ") { it.name.ifBlank { it.id } }
         Text(names, maxLines = 2, overflow = TextOverflow.Ellipsis)

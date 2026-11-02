@@ -137,12 +137,11 @@ fun App(platform: Platform, modifier: Modifier = Modifier) {
     }
 }
 
-/** The current realm's feed, or the tab overview zoomed out from it, under the one top bar both share. */
+/** The current realm's feed, or the tab overview, under one shared top bar. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun Tabs(home: Home, modifier: Modifier = Modifier) {
     var settings by remember { mutableStateOf(false) }
-    // Keyed by the realm, not the Space: a fresh Space each recomposition would restart the animation.
     val current = home.openKey.takeUnless { home.showingTabs || home.model == null }
     val open = current?.let { k -> home.spaces.firstOrNull { it.key == k } }
     Column(modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -158,7 +157,6 @@ fun Tabs(home: Home, modifier: Modifier = Modifier) {
         SharedTransitionLayout(Modifier.weight(1f)) {
             AnimatedContent(
                 current,
-                // The overview fades in as the tab shrinks into it, and out as a tab grows from it.
                 transitionSpec = { fadeIn(tween(TAB_ZOOM_MILLIS)) togetherWith fadeOut(tween(TAB_ZOOM_MILLIS)) },
                 contentAlignment = Alignment.TopCenter,
             ) { key ->
@@ -187,7 +185,6 @@ fun Tabs(home: Home, modifier: Modifier = Modifier) {
 /** One realm's feed, below the top bar. */
 @Composable
 fun Main(model: Model, title: String, modifier: Modifier = Modifier) {
-    // Links load with the realm, so the share sheet opens at its full height instead of growing once they arrive.
     LaunchedEffect(model) { if (model.isOwner) model.loadLinks() }
     LaunchedEffect(model.query, model.filter) {
         if (model.query.isNotEmpty()) delay(250)
@@ -233,7 +230,6 @@ fun Main(model: Model, title: String, modifier: Modifier = Modifier) {
             }
         }
         Box(Modifier.fillMaxWidth().height(2.dp)) {
-            // A refresh shows the bar only once it's slow: what's known is on show meanwhile.
             if (model.loading) {
                 Delayed {
                     LinearProgressIndicator(
@@ -247,7 +243,6 @@ fun Main(model: Model, title: String, modifier: Modifier = Modifier) {
 
         var composerHeight by remember { mutableStateOf(ComposerHeight) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            // The feed fades out as the editor opens over it, and back in as it closes.
             var editorOpen by remember { mutableFloatStateOf(0f) }
             val faded = Modifier.fillMaxSize().graphicsLayer { alpha = 1f - editorOpen }
             Feed(model, faded, bottomPadding = composerHeight, onShare = { model.sharing = true })
@@ -258,16 +253,15 @@ fun Main(model: Model, title: String, modifier: Modifier = Modifier) {
     if (model.sharing) ShareDialog(model, title) { model.sharing = false }
 }
 
-/** The name, on its own: setup and the about dialog. */
 @Composable
 fun Wordmark(modifier: Modifier = Modifier, size: Int = 20) {
     Text("realm", modifier, fontSize = size.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
 }
 
-/** Outlined fields are 56dp; buttons in the same form match them. */
+/** Height of outlined fields; buttons in the same form match it. */
 val FormHeight = 56.dp
 
-/** First run: nothing signed in, nothing connected. Log in with Cloudflare, or connect with a token. */
+/** First run: log in with Cloudflare, or connect with a token. */
 @Composable
 fun Setup(home: Home, modifier: Modifier = Modifier) {
     var withToken by remember { mutableStateOf(false) }
@@ -290,10 +284,9 @@ fun Setup(home: Home, modifier: Modifier = Modifier) {
     if (withToken) Sheet({ withToken = false }) { TokenSheet(home) { withToken = false } }
 }
 
-/** Cloudflare's orange, for the button that logs in with it. */
 private val CloudflareOrange = Color(0xFFF38020)
 
-/** The main way in: log in with a Cloudflare account. [busy] while the browser is out; tapping again starts over. */
+/** Logs in with Cloudflare. [busy] while the browser is out; tapping again starts over. */
 @Composable
 fun CloudflareButton(onClick: () -> Unit, modifier: Modifier = Modifier, busy: Boolean = false) {
     Button(
@@ -308,7 +301,6 @@ fun CloudflareButton(onClick: () -> Unit, modifier: Modifier = Modifier, busy: B
     }
 }
 
-/** The other way in: a server URL and owner token, or a share link. Opens [TokenSheet]. */
 @Composable
 fun TokenButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     OutlinedButton(
@@ -321,7 +313,6 @@ fun TokenButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** The token sheet's content on its own, for previews. */
 @Composable
 fun TokenSheetPreview(home: Home) = TokenSheet(home) {}
 
@@ -341,8 +332,7 @@ private fun TokenSheet(home: Home, onDone: () -> Unit) {
 }
 
 /**
- * One field for either way in: a server URL asks for its owner token and signs in, a share link
- * (…/s/<token>) connects as one more tile. [onDone] runs after either succeeds.
+ * One field for a server URL, which then asks for its owner token, or a share link. [onDone] runs after either succeeds.
  */
 @Composable
 fun SignInForm(home: Home, modifier: Modifier = Modifier, linksOnly: Boolean = false, onDone: () -> Unit = {}) {

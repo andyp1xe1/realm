@@ -1,5 +1,3 @@
-// The server you're signed in to, in settings: what it runs, checking for a newer one, and, signed in with
-// Cloudflare, the addresses it answers on. What's fetched shows with Loading; each change fades through in place.
 package realm.ui
 
 import androidx.compose.animation.AnimatedContent
@@ -53,25 +51,18 @@ import realm.ServerSettings
 import realm.UpdateCheck
 import realm.Zone
 
-/** How long a part of the section takes to fade through to what it shows next. */
 private const val SWAP_MILLIS = 300
 
-/** Fades through, the section growing or shrinking to fit; a change that keeps the same kind of content stays put. */
 private fun AnimatedContentTransitionScope<*>.swap(): ContentTransform =
     (fadeIn(tween(SWAP_MILLIS * 2 / 3, delayMillis = SWAP_MILLIS / 3)) togetherWith fadeOut(tween(SWAP_MILLIS / 3)))
         .using(SizeTransform(clip = true))
 
-/**
- * Settings' part about your own server: the address the app uses, then what it runs and, signed in with
- * Cloudflare, its updates and addresses: known already, fetched with the app, or a skeleton until they are.
- * [onClose] puts settings away, before a sheet of its own opens.
- */
+/** Settings' part about your own server. [onClose] puts settings away before a sheet of its own opens. */
 @Composable
 fun ServerSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val settings = home.serverSettings
     val server = home.server ?: return
-    LaunchedEffect(server) { settings.refresh() } // in place: what's known stays meanwhile
-    // Signed in with Cloudflare, the section has addresses: the skeleton holds room for them.
+    LaunchedEffect(server) { settings.refresh() }
     val managed = home.session?.login?.account != null
     Column(modifier) {
         Text("Signed in to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -80,7 +71,6 @@ fun ServerSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifier
     }
 }
 
-/** The room [Details] takes before anything's known: what it runs, the newest release, and one address. */
 @Composable
 private fun DetailsSkeleton(managed: Boolean) = Column {
     Spacer(Modifier.height(12.dp))
@@ -97,7 +87,6 @@ private fun DetailsSkeleton(managed: Boolean) = Column {
     }
 }
 
-/** [Fact] before its text is known. */
 @Composable
 private fun FactSkeleton(label: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
@@ -136,7 +125,6 @@ private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> U
     Addresses(facts.origin, addresses, settings)
 }
 
-/** A small turning circle beside what's under way; the words say what. */
 @Composable
 private fun Turning(text: String) {
     Row(Modifier.heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -146,14 +134,12 @@ private fun Turning(text: String) {
     }
 }
 
-/** Check for updates, and what it found, in place of the button. */
 @Composable
 private fun Updates(check: Check, home: Home, onClose: () -> Unit) {
     AnimatedContent(check, transitionSpec = { swap() }, contentKey = { it::class }) { c ->
         Column {
             when (c) {
                 Check.NotYet -> {
-                    // The quiet notice from the daily check, until the button asks again.
                     home.cloudflare.update?.let { u ->
                         Text("Server update: realm ${u.from} → ${u.to}", style = MaterialTheme.typography.bodyMedium)
                     }
@@ -192,19 +178,13 @@ private fun ColumnScope.Found(result: UpdateCheck, home: Home, onClose: () -> Un
     }
 }
 
-/**
- * Each address the worker answers on, the one in use marked, and workers.dev while it's off; then adding
- * one, or what's being done. The last address it answers on can't be taken away.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ColumnScope.Addresses(inUse: String, a: Addresses, settings: ServerSettings) {
     val task = settings.task
-    // Nothing to do to an address while another change is under way.
     val busy = task != null && task != AddressTask.Adding && task !is AddressTask.Failed
     (listOfNotNull(a.workersDev) + a.origins).distinct().forEach { origin ->
         val on = origin in a.origins
-        // The address fills its line; on a narrow screen the actions wrap under it rather than cut it short.
         FlowRow(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -271,7 +251,6 @@ private fun ColumnScope.Addresses(inUse: String, a: Addresses, settings: ServerS
     }
 }
 
-/** Asking before the worker comes off an address, then saying so while it does. */
 @Composable
 private fun Removing(t: AddressTask.Removing, workersDev: Boolean, settings: ServerSettings) {
     val host = t.origin.removePrefix("https://")
@@ -291,7 +270,6 @@ private fun Removing(t: AddressTask.Removing, workersDev: Boolean, settings: Ser
     }
 }
 
-/** Cancel, and [yes] in the colour of something that can't be taken back. */
 @Composable
 private fun Answer(yes: String, onNo: () -> Unit, onYes: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -300,7 +278,6 @@ private fun Answer(yes: String, onNo: () -> Unit, onYes: () -> Unit) {
     }
 }
 
-/** A domain of the account's and a subdomain, realm unless changed; blank is the domain itself. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ColumnScope.AddDomain(zones: List<Zone>, settings: ServerSettings) {

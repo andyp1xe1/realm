@@ -84,21 +84,15 @@ import realm.Item
 import realm.Model
 import realm.Space
 
-/**
- * The overview, below the top bar: every realm and connected link as a tile, like a browser's tab overview.
- * The current one is outlined.
- */
+/** The tab overview: every realm and connected link as a tile, the current one outlined. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun Grid(home: Home, modifier: Modifier = Modifier) {
     var adding by remember { mutableStateOf(false) }
     val spaces = home.spaces
-    // Start scrolled to the current tab, so the feed has a tile on screen to zoom into.
     val grid = rememberLazyGridState(initialFirstVisibleItemIndex = spaces.indexOfFirst { it.key == home.openKey } + 1)
     LaunchedEffect(Unit) { home.refresh() }
-    // The feeds of the tiles in view, fetched ahead of a tap on one, as the overview shows and scrolls.
     LaunchedEffect(grid) { snapshotFlow { grid.layoutInfo.visibleItemsInfo.map { it.key } }.collect(home::prefetch) }
-    // A tile just made or connected: bring it into view, let it arrive, then zoom into it from there.
     LaunchedEffect(home.fresh) {
         val key = home.fresh ?: return@LaunchedEffect
         val i = home.spaces.indexOfFirst { it.key == key }
@@ -110,7 +104,6 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
 
     Column(modifier.widthIn(max = PageWidth).fillMaxSize()) {
         Box(Modifier.fillMaxWidth().height(2.dp)) {
-            // A refresh shows the bar only once it's slow: what's known is on show meanwhile.
             if (home.loading) {
                 Delayed {
                     LinearProgressIndicator(
@@ -122,7 +115,6 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
             }
         }
         home.incoming?.let { IncomingBanner(it) { home.incoming = null } }
-        // Tiles draw their feed laid out this wide, then shrink it, so it matches the feed they zoom into.
         val page = LocalWindowInfo.current.containerDpSize.width.coerceAtMost(PageWidth)
         LazyVerticalGrid(
             GridCells.Adaptive(150.dp),
@@ -134,7 +126,6 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
         ) {
             item(key = "add") { AddTile(if (home.server != null) "New realm" else "Add a link") { adding = true } }
             items(spaces, key = { it.key }) {
-                // When a tile goes, the ones after it slide over rather than jump.
                 Tile(
                     home,
                     it,
@@ -169,16 +160,13 @@ private fun IncomingBanner(incoming: Incoming, onCancel: () -> Unit) {
     }
 }
 
-/** How long a new tile takes to fade and grow into place before it opens. */
 private const val TILE_ARRIVE_MILLIS = 300
 
-/** Tiles are square. */
 private const val TILE_RATIO = 1f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: Boolean, modifier: Modifier = Modifier) {
-    // A new tile fades and grows into place, a deleted one fades and shrinks away; the rest are simply there.
     val leaving = space.key in home.leaving
     val arrive = remember(space.key) { Animatable(if (space.key == home.fresh) 0f else 1f) }
     LaunchedEffect(space.key, leaving) {
@@ -199,7 +187,6 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
         Box {
             Surface(
                 shape = MaterialTheme.shapes.large,
-                // The page's own colour: the tile is a picture of the page.
                 color = MaterialTheme.colorScheme.background,
                 border = if (current) {
                     BorderStroke(
@@ -263,7 +250,6 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
             }
         }
         Spacer(Modifier.height(8.dp))
-        // Each line fades through to what a refresh found only if it's different, as the picture above does.
         Changing(space.name) { name ->
             Text(
                 name,
@@ -348,7 +334,6 @@ private fun SharedBadge(modifier: Modifier = Modifier) {
     ) { Icon(Icons.Outlined.Link, "Shared with you", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
-/** What's inside: for a realm you can read (a link to picked items too), a shrunken picture of its feed; otherwise what the link is for. */
 @Composable
 private fun TilePreview(home: Home, space: Space, page: Dp) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
@@ -365,20 +350,16 @@ private fun TilePreview(home: Home, space: Space, page: Dp) {
         else -> {
             val items = home.preview(space)
             LaunchedEffect(items) { items.filter { it.kind == "image" }.forEach { home.tiles.loadThumb(space, it) } }
-            // Refreshed, a tile fades through to what it shows now only if that changed; the rest stay still.
             Changing(items to home.isEmpty(space)) { (shown, empty) -> Preview(home, space, page, shown, empty) }
         }
     }
 }
 
-/** A tile's picture of [items], the latest of [space]'s feed, laid out as the page is, or the empty-realm art. */
 @Composable
 private fun Preview(home: Home, space: Space, page: Dp, items: List<Item>, empty: Boolean) {
     Miniature(page) {
         Column(Modifier.fillMaxSize()) {
-            // Pinned to the bottom like the feed, so what doesn't fit is the oldest, cut off at the top.
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                // As on the page: the empty-realm art, centred above the composer.
                 if (empty) EmptyRealm(Modifier.align(Alignment.Center), still = true)
                 if (items.isNotEmpty()) {
                     FeedPicture(
@@ -389,7 +370,6 @@ private fun Preview(home: Home, space: Space, page: Dp, items: List<Item>, empty
                     )
                 }
             }
-            // Where the composer sits on the real page.
             if (space.canWrite) {
                 Box(
                     Modifier.fillMaxWidth().padding(8.dp).height(56.dp)
@@ -400,7 +380,6 @@ private fun Preview(home: Home, space: Space, page: Dp, items: List<Item>, empty
     }
 }
 
-/** Lays [content] out [width] wide, as on the real page, then shrinks it to the space it's given. */
 @Composable
 private fun Miniature(width: Dp, content: @Composable () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {

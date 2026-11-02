@@ -1,5 +1,3 @@
-// The sheet for deploying the worker with a Cloudflare login: what updating would do, a deploy's progress, and
-// DNS records in the way. Its content fades through from one step to the next.
 package realm.ui
 
 import androidx.compose.animation.AnimatedContent
@@ -49,7 +47,7 @@ import realm.R2NotEnabled
 import realm.Resource
 import realm.Step
 
-/** Whatever deploying or updating is asking or doing, in one sheet; nothing while the browser is out. */
+/** What deploying or updating is asking or doing; nothing while the browser is out. */
 @Composable
 fun CloudflareSheet(cloudflare: CloudflareSetup, modifier: Modifier = Modifier) {
     val login = cloudflare.login
@@ -57,7 +55,6 @@ fun CloudflareSheet(cloudflare: CloudflareSetup, modifier: Modifier = Modifier) 
     Sheet(cloudflare::dismiss, modifier) {
         AnimatedContent(
             login,
-            // Steps fade through, the sheet growing or shrinking to the next; a step that only moves on stays put.
             transitionSpec = {
                 (fadeIn(tween(STEP_MILLIS * 2 / 3, delayMillis = STEP_MILLIS / 3)) togetherWith fadeOut(tween(STEP_MILLIS / 3)))
                     .using(SizeTransform(clip = true))
@@ -95,7 +92,6 @@ private fun ColumnScope.Buttons(content: @Composable () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) { content() }
 }
 
-/** The plan is being worked out: its place stays blank, under a thin bar, until it fades in. */
 @Composable
 private fun ColumnScope.Planning() {
     Title("Update realm")
@@ -120,16 +116,14 @@ private fun List<Resource>.words() = map { it.words() }.let {
     }
 }
 
-/** One line of the plan: what it's about, muted, then what. */
 @Composable
 internal fun Fact(label: String, text: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Text(label, Modifier.width(96.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Changing(text) { Text(it, style = MaterialTheme.typography.bodyMedium) } // a refresh fades only what it changed
+        Changing(text) { Text(it, style = MaterialTheme.typography.bodyMedium) }
     }
 }
 
-/** What updating would do, and Update. Nothing is written before that. */
 @Composable
 private fun ColumnScope.Confirm(l: Login.Confirm, cloudflare: CloudflareSetup) {
     val plan = l.plan
@@ -164,7 +158,6 @@ private fun ColumnScope.Confirm(l: Login.Confirm, cloudflare: CloudflareSetup) {
     }
 }
 
-/** Deploying would overwrite or downgrade what's there, or can't tell: why, and nothing to do but close. */
 @Composable
 private fun ColumnScope.Refused(l: Login.Confirm, cloudflare: CloudflareSetup) {
     val reason = (l.plan as Plan.Refused).reason
@@ -193,7 +186,6 @@ private fun Step.words(): String = when (this) {
     is Step.Waiting -> "Waiting for ${origin.removePrefix("https://")} to answer"
 }
 
-/** Each step as it starts, fading in under the last: done ones ticked, the current one turning. */
 @Composable
 private fun ColumnScope.Deploying(l: Login.Deploying) {
     Title(if (l.plan is Plan.Update) "Updating realm" else "Deploying realm")
@@ -226,7 +218,6 @@ private fun ColumnScope.Deploying(l: Login.Deploying) {
     }
 }
 
-/** DNS records stand in the way of the custom domain: shown, and deleted only if the user says so. */
 @Composable
 private fun ColumnScope.Replace(l: Login.Replace) {
     val q = l.question
@@ -252,6 +243,5 @@ private fun ColumnScope.Replace(l: Login.Replace) {
     }
 }
 
-/** Fading in and opening out downward, the sheet growing to fit: for a deploy's next step. */
 private fun opening() = fadeIn(tween(STEP_MILLIS)) +
     expandVertically(tween(STEP_MILLIS), Alignment.Top) // grows: deploy steps

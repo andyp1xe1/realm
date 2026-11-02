@@ -15,13 +15,10 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 
-/** Height of every single-line control in the app: icon buttons, fields, the composer row. */
+/** Height of every single-line control: icon buttons, fields, the composer row. */
 val ControlHeight = 48.dp
 
-/**
- * A bare text field: no container, no indicator, text vertically centred in [ControlHeight] so it lines up
- * with 48dp icon buttons beside it. Grows downward for multi-line text.
- */
+/** A bare text field, one line centred in [ControlHeight]; grows downward for more. */
 @Composable
 fun Field(
     value: TextFieldValue,
@@ -48,7 +45,6 @@ fun Field(
         keyboardActions = keyboardActions,
         onTextLayout = { onLines(it.lineCount) },
         decorationBox = { inner ->
-            // (48dp − 22sp line height) / 2 ≈ 13dp keeps one line dead centre.
             Box(
                 Modifier.heightIn(min = ControlHeight).padding(horizontal = 4.dp, vertical = 13.dp),
                 contentAlignment = if (alignTop) Alignment.TopStart else Alignment.CenterStart,

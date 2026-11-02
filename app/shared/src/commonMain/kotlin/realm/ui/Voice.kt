@@ -101,7 +101,7 @@ import kotlin.time.TimeSource
 private val BarWidth = 3.dp
 private val BarGap = 2.dp
 
-/** Semi-tall recording card: a rolling waveform of mic levels, the timer, cancel and send. */
+/** The recording card: a rolling waveform, the timer, cancel and send. */
 @Composable
 fun RecordingPanel(rec: Recording, onCancel: () -> Unit, onSend: () -> Unit, modifier: Modifier = Modifier) {
     var elapsed by remember { mutableLongStateOf(0L) }
@@ -131,7 +131,6 @@ fun RecordingPanel(rec: Recording, onCancel: () -> Unit, onSend: () -> Unit, mod
             val slots = (size.width / step).toInt()
             val shown = levels.takeLast(slots)
             val mid = size.height / 2
-            // Newest bar at the right edge; empty slots on the left are drawn as a quiet baseline.
             for (i in 0 until slots) {
                 val level = shown.getOrNull(i - (slots - shown.size))
                 val h = if (level == null) w else maxOf(w, level * size.height)

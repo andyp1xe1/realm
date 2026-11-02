@@ -1,4 +1,3 @@
-// What can be done to an item in the feed, from its menu.
 package realm.ui
 
 import androidx.compose.material3.DropdownMenu
@@ -13,7 +12,6 @@ import androidx.compose.runtime.setValue
 import realm.Item
 import realm.Model
 
-/** An item's menu: open, save, copy, edit, share a link to it, delete; [onView] shows a long note whole. */
 @Composable
 internal fun ItemMenu(item: Item, model: Model, open: Boolean, onDismiss: () -> Unit, onView: () -> Unit) {
     var linkStep by remember(open) { mutableStateOf(false) }

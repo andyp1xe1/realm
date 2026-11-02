@@ -1,5 +1,3 @@
-// The account chooser: logged in with Cloudflare to several accounts, each with whether realm runs there,
-// checked as the chooser opens, each row holding its room until it's known. The one used last comes first.
 package realm.ui
 
 import androidx.compose.foundation.layout.Arrangement
@@ -27,7 +25,6 @@ import realm.Login
 import realm.RealmOn
 import realm.Onboarding as State
 
-/** Which account to use: each one's realm, or none yet; logging in again in the browser grants more. */
 @Composable
 internal fun ColumnScope.Chooser(home: Home) {
     val o = home.onboarding
@@ -42,7 +39,6 @@ internal fun ColumnScope.Chooser(home: Home) {
     Loading(o.accounts.state, skeleton = { Column { repeat(2) { AccountSkeleton() } } }) { accounts ->
         Column {
             o.ordered(accounts).forEach { a ->
-                // Accounts go by their names; an id only tells apart two with the same one.
                 val clash = accounts.count { it.name == a.name } > 1
                 AccountChoice(a, clash, o)
             }
@@ -56,10 +52,8 @@ internal fun ColumnScope.Chooser(home: Home) {
     Problem(o.problem)
 }
 
-/** How tall an account's row is, while it's checked and once it is. */
 private val ChoiceHeight = 64.dp
 
-/** One account to choose: its name, then whether realm runs there, once that's known; tapping it chooses it. */
 @Composable
 private fun AccountChoice(a: Account, clash: Boolean, o: State) {
     val realm = o.realms[a.id]?.state ?: Loaded.Unknown
@@ -97,7 +91,6 @@ private fun RealmOn.words() = when (this) {
     is RealmOn.NoAddress -> why
 }
 
-/** An account's row before the login's accounts are known. */
 @Composable
 private fun AccountSkeleton() {
     Column(Modifier.fillMaxWidth().height(ChoiceHeight).padding(horizontal = 12.dp), verticalArrangement = Arrangement.Center) {

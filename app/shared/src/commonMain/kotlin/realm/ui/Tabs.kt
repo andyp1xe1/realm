@@ -29,24 +29,19 @@ import realm.Home
 import realm.Screen
 import realm.screen
 
-/** How long a tab takes to zoom in or out; the overview fades over the same time. */
+/** How long a tab takes to zoom in or out. */
 const val TAB_ZOOM_MILLIS = 380
 
-/** Widest a page gets; the feed and the tab overview share it. */
+/** Widest a page gets, on the feed and the overview. */
 val PageWidth = 820.dp
 
-/** Space between the page edge and its content, on the feed and the tab overview alike. */
 val PageGutter = 12.dp
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 internal val LocalSharedTransition = compositionLocalOf<SharedTransitionScope?> { null }
 internal val LocalTabTransition = compositionLocalOf<AnimatedVisibilityScope?> { null }
 
-/**
- * Ties a realm's feed and its tile together, so switching between them zooms one into the other
- * like a browser's tabs. Scales rather than re-lays out, so the feed shrinks as a picture of itself.
- * Without a transition around it (previews), it does nothing.
- */
+/** Zooms between a realm's feed and its tile; does nothing outside a shared transition. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun Modifier.tabBounds(key: String, shape: Shape): Modifier {
@@ -57,18 +52,13 @@ fun Modifier.tabBounds(key: String, shape: Shape): Modifier {
             rememberSharedContentState("tab:$key"),
             visibility,
             boundsTransform = { _, _ -> tween(TAB_ZOOM_MILLIS) },
-            // By width, from the bottom: a tile is the bottom of its page (newest items, composer), shrunk.
             resizeMode = scaleToBounds(ContentScale.FillWidth, Alignment.BottomCenter),
             clipInOverlayDuringTransition = OverlayClip(shape),
         )
     }
 }
 
-/**
- * Setup until something is signed in or connected, then the realms; onboarding while logged in with Cloudflare
- * with nothing deployed yet. Between them it fades through: the outgoing screen fades out quickly, then the
- * incoming one fades in as it grows into place.
- */
+/** Setup until something is signed in or connected, then the realms, or onboarding while nothing is deployed. */
 @Composable
 fun SetupOrTabs(home: Home, modifier: Modifier = Modifier) {
     AnimatedContent(
@@ -91,10 +81,8 @@ fun SetupOrTabs(home: Home, modifier: Modifier = Modifier) {
     }
 }
 
-/** How long signing in or out takes to fade from setup to the realms, or back. */
 const val FADE_THROUGH_MILLIS = 300
 
-/** A rounded square with the number of tabs in it, in the same corner on both screens. */
 @Composable
 fun TabsButton(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     IconButton(onClick = onClick, modifier = modifier) {

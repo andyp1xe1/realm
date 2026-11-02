@@ -86,7 +86,6 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp, 
     val state = model.listState
     val platform = model.platform
 
-    // Newest at the bottom, like a chat. Index 0 is the bottom-most row.
     val nearTop by remember {
         derivedStateOf {
             val info = state.layoutInfo
@@ -100,7 +99,6 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp, 
         if (state.firstVisibleItemIndex < 4) state.animateScrollToItem(0)
     }
 
-    // Known to be empty, not just not loaded yet. Stays up through a reload, so it doesn't blink out and back.
     if (model.items.isEmpty() && model.pending.isEmpty() && model.loaded) {
         Box(modifier.fillMaxSize().padding(bottom = bottomPadding), contentAlignment = Alignment.Center) {
             when {
@@ -117,11 +115,9 @@ fun Feed(model: Model, modifier: Modifier = Modifier, bottomPadding: Dp = 0.dp, 
         state = state,
         reverseLayout = true,
         contentPadding = PaddingValues(bottom = bottomPadding),
-        // Bottom: a short feed sits on the composer like a chat, not at the top with a gap below.
         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.Bottom),
     ) {
         item { Spacer(Modifier.height(8.dp)) }
-        // Rows fade in the first time they're shown: the first page, older pages, other devices, what you send.
         items(model.pending.reversed(), key = { "p${it.key}" }) {
             Box(Modifier.fadeInOnce(model, "p${it.key}")) { PendingRow(it, model) }
         }
@@ -144,7 +140,6 @@ private fun metaText(item: Item, platform: Platform) = buildString {
     item.src?.takeIf { it != platform.name }?.let { append(" · ").append(it) }
 }
 
-/** What's in an item's bubble; [image] is the picture, once there is one. */
 @Composable
 private fun ItemBody(item: Item, image: ImageBitmap?) {
     val name = item.name
@@ -160,10 +155,7 @@ private fun ItemBody(item: Item, image: ImageBitmap?) {
     }
 }
 
-/**
- * The feed as a plain picture: the same rows, oldest first, with nothing to tap and nothing lazy.
- * Tab tiles draw it at page size and shrink it, so it zooms seamlessly into the real feed.
- */
+/** The feed as a still picture, oldest first, for tab tiles to shrink. */
 @Composable
 fun FeedPicture(items: List<Item>, platform: Platform, image: (Item) -> ImageBitmap?, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -181,10 +173,6 @@ fun FeedPicture(items: List<Item>, platform: Platform, image: (Item) -> ImageBit
     }
 }
 
-/**
- * Fades a row in the first time this realm shows it. Rows scrolled back into view, or seen again after a trip
- * through the tabs, are already there.
- */
 @Composable
 private fun Modifier.fadeInOnce(model: Model, key: String): Modifier {
     val alpha = remember(key) { Animatable(if (model.firstShown(key)) 0f else 1f) }
@@ -206,7 +194,6 @@ private fun DayHeader(day: String) {
     }
 }
 
-/** The rounded card every row sits in, sent or still sending. */
 @Composable
 private fun Bubble(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Surface(
@@ -217,7 +204,6 @@ private fun Bubble(modifier: Modifier = Modifier, content: @Composable () -> Uni
     )
 }
 
-/** The small line under a bubble: time · source, or the sending state. */
 @Composable
 private fun Meta(
     text: String,
@@ -257,7 +243,6 @@ private fun ItemRow(item: Item, model: Model) {
                     .combinedClickable(onClick = tap, onLongClick = { menu = true }),
             ) {
                 if (isInlineImage(item)) LaunchedEffect(item.id) { model.loadImage(item) }
-                // Refreshed, a row fades through to the item as it is now only if it changed, as an edit elsewhere.
                 Changing(item) { ItemBody(it, model.image(it.id)) }
             }
             ItemMenu(item, model, menu, onDismiss = { menu = false }, onView = { viewing = true })
@@ -312,7 +297,6 @@ private fun Caption(text: String?) {
 @Composable
 private fun ImageContent(item: Item, image: ImageBitmap?) {
     Column(Modifier.widthIn(max = 340.dp).fillMaxWidth()) {
-        // The picture fades in over its placeholder once it has loaded.
         Crossfade(image, animationSpec = tween(260)) { bmp ->
             if (bmp != null) {
                 val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.5f, 2.5f)
@@ -335,7 +319,6 @@ private fun ImageContent(item: Item, image: ImageBitmap?) {
     }
 }
 
-/** Icon tile + name + details. The tile holds the type icon, or the progress ring while uploading. */
 @Composable
 private fun FileRow(
     title: String,
@@ -375,7 +358,6 @@ private fun fileDetails(size: Long?, name: String?) =
     listOfNotNull(humanSize(size).ifEmpty { null }, name?.substringAfterLast('.', "")?.takeIf { it.length in 1..5 }?.uppercase())
         .joinToString(" · ")
 
-/** Something on its way up. Drawn exactly like the item it will become, so nothing jumps when it lands. */
 @Composable
 private fun PendingRow(p: Pending, model: Model) {
     val failed = p.error != null

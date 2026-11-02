@@ -1,8 +1,3 @@
-// Showing fetched data: the one supported way. In order of preference: what was kept from last time, shown at
-// once and changed in place only where a refresh found something different; nothing while it's fetched, in the
-// room it will take, then the content fading in; and only once that's taken INDICATOR_DELAY_MILLIS, a skeleton
-// or spinner fading in, so a fast fetch never flashes one. Data arriving never grows the layout: no
-// expandVertically or animateContentSize for it (.githooks/grows).
 package realm.ui
 
 import androidx.compose.animation.AnimatedContent
@@ -38,16 +33,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import realm.Loaded
 
-/** How long something can take to arrive before a skeleton or spinner fades in to say it's still coming. */
+/** How long something can take before a skeleton or spinner fades in. */
 const val INDICATOR_DELAY_MILLIS = 400
 
-/** How long a skeleton or spinner takes to fade in, once it's waited [INDICATOR_DELAY_MILLIS]. */
 private const val INDICATOR_FADE_MILLIS = 200
 
-/** How long content takes to fade in as it arrives, or through to a changed value. */
 private const val ARRIVE_MILLIS = 300
 
-/** The skeletons and spinners on screen, for tests and previews to count the frames that show one. */
+/** The skeletons and spinners on screen, for tests to count. */
 class Indicators {
     private val faded = mutableSetOf<() -> Float>()
 
@@ -59,49 +52,38 @@ class Indicators {
     internal fun remove(alpha: () -> Float) = faded.remove(alpha)
 }
 
-/** Where [Delayed] says it's on screen, when something asks; the app doesn't. */
+/** Where [Delayed] reports what's on screen; null in the app. */
 val LocalIndicators = staticCompositionLocalOf<Indicators?> { null }
 
 /**
- * [content] for [state]'s value once it's known. Until then, [skeleton] holds the room the content will take
- * (build it from the same rows, with [SkeletonLine] for the text that isn't known yet), drawn only once the
- * value has been coming for [INDICATOR_DELAY_MILLIS]: before that the room is blank. The content fades in over
- * it, with no change of size of its own. Known from the start, as from a cache, the content shows at once. A
- * refresh recomposes [content] in place: wrap each part that can change in [Changing], so only what changed
- * fades, never the whole area.
+ * [content] once [state]'s value is known; until then [skeleton] holds its room, drawn only after
+ * [INDICATOR_DELAY_MILLIS]. Wrap each part a refresh can change in [Changing].
  */
 @Composable
 fun <T> Loading(state: Loaded<T>, skeleton: @Composable () -> Unit, modifier: Modifier = Modifier, content: @Composable (T) -> Unit) {
     AnimatedContent(
         state,
         modifier,
-        // A fade, and no size transform: the skeleton has kept the room already.
         transitionSpec = { (fadeIn(tween(ARRIVE_MILLIS)) togetherWith fadeOut(tween(ARRIVE_MILLIS))).using(null) },
         label = "arriving",
         contentKey = { it is Loaded.Known<*> },
     ) { s ->
         when (s) {
-            // Once the value is on its way in, the skeleton stops coming: it never starts to show as it goes.
             Loaded.Unknown -> Delayed(coming = transition.targetState == EnterExitState.Visible) { skeleton() }
-
             is Loaded.Known -> content(s.value)
         }
     }
 }
 
-/**
- * [content] for [value], fading through to the new one when it changes, and only then: a refresh that finds the
- * same leaves it as it is. For each row or text of a [Loading]'s content that a refresh can change.
- */
+/** [content] for [value], fading through to a new one only when it changes. */
 @Composable
 fun <T> Changing(value: T, modifier: Modifier = Modifier, content: @Composable (T) -> Unit) {
     Crossfade(value, modifier, tween(ARRIVE_MILLIS), label = "changing", content = content)
 }
 
 /**
- * A skeleton or spinner: blank, or [instead] (like the icon it turns in place of), for [INDICATOR_DELAY_MILLIS],
- * then fading in over it, so it shows only for what's slow to come. While not [coming], it stays as faint as it
- * is. The wait runs on the frame clock, as animations do.
+ * A skeleton or spinner: blank, or [instead], for [INDICATOR_DELAY_MILLIS], then fading in.
+ * While not [coming], it stays as faint as it is.
  */
 @Composable
 fun Delayed(
@@ -127,10 +109,7 @@ fun Delayed(
     }
 }
 
-/**
- * A line of text not known yet: a rounded bar exactly one line of [style] tall, as the text it stands for
- * will be, [fraction] of the width across.
- */
+/** A bar one line of [style] tall and [fraction] wide, for text not known yet. */
 @Composable
 fun SkeletonLine(fraction: Float, modifier: Modifier = Modifier, style: TextStyle = LocalTextStyle.current) {
     val color = MaterialTheme.colorScheme.surfaceContainerHighest
@@ -144,10 +123,6 @@ fun SkeletonLine(fraction: Float, modifier: Modifier = Modifier, style: TextStyl
     )
 }
 
-/**
- * A small turning circle where a skeleton makes no sense, keeping [height], the room what's coming takes.
- * Like a skeleton, it shows only once what it waits for has taken [INDICATOR_DELAY_MILLIS].
- */
 @Composable
 fun Spinner(height: Dp, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().heightIn(min = height), contentAlignment = Alignment.Center) {

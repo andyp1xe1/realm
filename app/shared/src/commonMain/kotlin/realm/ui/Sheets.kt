@@ -84,7 +84,6 @@ import realm.Model
 import realm.Space
 import realm.isLink as isLinkUrl
 
-/** Signed in: a name makes a realm, a share link connects. Otherwise only links. */
 @Composable
 internal fun AddSheet(home: Home, onClose: () -> Unit) {
     Column {

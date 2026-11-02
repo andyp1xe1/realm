@@ -37,20 +37,14 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.sin
 
-/**
- * A realm with nothing in it yet: ghosts of what a feed holds (a note, a file, a picture, a voice note)
- * drifting gently, one short line, and the agents to share it with, which leave the header meanwhile.
- * Only for a realm known to be empty, never while loading. [still] skips the drift, for tile pictures.
- */
+/** Drifting ghosts of a feed's items, for a realm known to be empty. [still] skips the drift. */
 @Composable
 fun EmptyRealm(modifier: Modifier = Modifier, still: Boolean = false, onShare: () -> Unit = {}) {
     val appear = remember { Animatable(if (still) 1f else 0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, tween(400)) }
-    // Read only while drawing: the art redraws each frame without recomposing anything.
     val drift: () -> Float = if (still) {
         { 0f }
     } else {
-        // Linear: with easing, each cycle would slow to a stop before the next, reading as an end.
         val t = rememberInfiniteTransition().animateFloat(
             0f,
             1f,
@@ -79,18 +73,15 @@ private fun GhostFeed(drift: () -> Float) {
     val tile = MaterialTheme.colorScheme.primaryContainer
     val accent = MaterialTheme.colorScheme.primary
     Canvas(Modifier.size(240.dp, 200.dp)) {
-        val u = size.width / 240f // design units: the art is drawn on a 240×200 grid
+        val u = size.width / 240f
 
-        // Each card bobs a few units, a quarter turn apart from the next.
         fun bob(phase: Float) = sin((drift() + phase) * 2 * PI).toFloat() * 3f * u
 
-        // A note: two lines of text.
         translate(0f, bob(0f)) {
             card(16f, 8f, 132f, 40f, u, card)
             bar(30f, 20f, 92f, u, line)
             bar(30f, 31f, 60f, u, line)
         }
-        // A file: type tile and name.
         translate(0f, bob(0.25f)) {
             card(16f, 58f, 168f, 46f, u, card)
             drawRoundRect(tile, Offset(24f * u, 64f * u), Size(34f * u, 34f * u), CornerRadius(8f * u))
@@ -104,7 +95,6 @@ private fun GhostFeed(drift: () -> Float) {
             bar(68f, 72f, 84f, u, line)
             bar(68f, 84f, 44f, u, line)
         }
-        // A picture: hills and a sun.
         translate(0f, bob(0.5f)) {
             card(16f, 114f, 112f, 76f, u, card)
             val hills = Path().apply {
@@ -123,7 +113,6 @@ private fun GhostFeed(drift: () -> Float) {
             clipPath(frame) { drawPath(hills, line) }
             drawCircle(accent.copy(alpha = 0.55f), 8f * u, Offset(104f * u, 134f * u))
         }
-        // A voice note: a short waveform.
         translate(0f, bob(0.75f)) {
             card(140f, 124f, 84f, 40f, u, card)
             val heights = listOf(6f, 14f, 22f, 12f, 18f, 8f, 16f, 10f, 5f)
@@ -139,10 +128,7 @@ private fun GhostFeed(drift: () -> Float) {
     }
 }
 
-/**
- * For the sign-in screen: realms as tiles fanned out like tabs, the front one outlined, with a note and a voice
- * note drifting in towards it. Same ghosted style as [EmptyRealm].
- */
+/** Sign-in art: realm tiles fanned out like tabs, in [EmptyRealm]'s ghosted style. */
 @Composable
 fun WelcomeArt(modifier: Modifier = Modifier) {
     val appear = remember { Animatable(0f) }
@@ -158,10 +144,9 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
     val tile = MaterialTheme.colorScheme.primaryContainer
     val accent = MaterialTheme.colorScheme.primary
     Canvas(modifier.size(260.dp, 180.dp).graphicsLayer { alpha = appear.value }) {
-        val u = size.width / 260f // design units: drawn on a 260×180 grid
+        val u = size.width / 260f
         fun bob(phase: Float, amp: Float = 3f) = sin((drift + phase) * 2 * PI).toFloat() * amp * u
 
-        // Two realms behind, tilted out like tabs in an overview.
         for ((x, turn, phase) in listOf(Triple(28f, -9f, 0.1f), Triple(122f, 9f, 0.6f))) {
             translate(0f, bob(phase, 2f)) {
                 rotate(turn, Offset((x + 55f) * u, 95f * u)) {
@@ -171,7 +156,6 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
                 }
             }
         }
-        // The front realm: outlined, a feed inside.
         translate(0f, bob(0.35f, 2f)) {
             card(75f, 22f, 110f, 136f, u, card)
             drawRoundRect(accent, Offset(75f * u, 22f * u), Size(110f * u, 136f * u), CornerRadius(14f * u), style = Stroke(2f * u))
@@ -203,7 +187,6 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
             ) { drawPath(hills, line) }
             drawCircle(accent.copy(alpha = 0.55f), 5f * u, Offset(158f * u, 113f * u))
         }
-        // Things on their way in.
         translate(bob(0.0f, 2f), bob(0.2f, 4f)) {
             card(6f, 14f, 58f, 22f, u, card)
             bar(14f, 22f, 34f, u, line)
