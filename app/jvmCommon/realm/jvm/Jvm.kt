@@ -10,6 +10,13 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLConnection
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.FileSystems
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
+import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
@@ -38,7 +45,7 @@ fun guessMime(name: String): String? = URLConnection.guessContentTypeFromName(na
     else -> null
 }
 
-/** Streams [url] into [dest] (via a .part file). Blocking; call from an IO thread. */
+/** Streams [url] into [dest], which appears only once whole. Blocking; call from an IO thread. */
 fun download(url: String, auth: String?, dest: File) {
     val conn = URL(url).openConnection() as HttpURLConnection
     auth?.let { conn.setRequestProperty("Authorization", it) }
@@ -49,13 +56,7 @@ fun download(url: String, auth: String?, dest: File) {
             val msg = Regex("\"error\"\\s*:\\s*\"([^\"]*)\"").find(body)?.groupValues?.get(1)
             throw IOException(msg ?: "HTTP ${conn.responseCode}")
         }
-        dest.parentFile?.mkdirs()
-        val part = File(dest.parentFile, dest.name + ".part")
-        conn.inputStream.use { input -> part.outputStream().use { input.copyTo(it, 1 shl 16) } }
-        if (!part.renameTo(dest)) {
-            part.copyTo(dest, overwrite = true)
-            part.delete()
-        }
+        writeAtomically(dest) { tmp -> conn.inputStream.use { Files.copy(it, tmp, REPLACE_EXISTING) } }
     } finally {
         conn.disconnect()
     }
@@ -101,19 +102,15 @@ class DiskCache(private val dir: File, private val maxBytes: Long) {
 
     fun put(key: String, bytes: ByteArray) {
         runCatching {
-            dir.mkdirs()
-            val f = file(key)
-            val part = File(dir, f.name + ".part")
-            part.writeBytes(bytes)
-            if (!part.renameTo(f)) part.delete()
+            writeAtomically(file(key), bytes)
             trim()
         }
     }
 
-    private fun file(key: String) = File(dir, key.map { if (it.isLetterOrDigit() || it in "-_.") it else '_' }.joinToString("").take(150))
+    private fun file(key: String) = File(dir, safeFileName(key))
 
     private fun trim() {
-        val files = dir.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") } ?: return
+        val files = dir.listFiles()?.filter { it.isFile && !it.name.endsWith(TMP) } ?: return
         var total = files.sumOf { it.length() }
         if (total <= maxBytes) return
         for (f in files.sortedBy { it.lastModified() }) {
@@ -135,18 +132,48 @@ class FileStore(private val dir: File) : Prefs {
                 f.delete()
                 return
             }
-            dir.mkdirs()
-            val part = File(dir, f.name + ".part")
-            part.writeText(value)
-            if (!part.renameTo(f)) {
-                f.delete()
-                if (!part.renameTo(f)) part.delete()
-            }
+            writeAtomically(f, value.toByteArray())
         }
     }
 
-    private fun file(key: String): File {
-        val hash = MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
-        return File(dir, key.map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").take(60) + "-" + hash)
+    private fun file(key: String) = File(dir, safeFileName(key))
+}
+
+/** A file name for [key]: its letters and digits, cut short, then a hash of the whole key, so distinct keys never share a file. */
+fun safeFileName(key: String): String {
+    val hash = MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
+    return key.map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").take(60) + "-" + hash
+}
+
+/** Writes [bytes] to [file] so that readers see either the old content or all of the new. Blocking. */
+fun writeAtomically(file: File, bytes: ByteArray, ownerOnly: Boolean = false) = writeAtomically(file, ownerOnly) { Files.write(it, bytes) }
+
+/**
+ * Lets [write] fill a temporary file next to [file], then moves it into place.
+ * With [ownerOnly], the file and any folder this creates for it are readable only by the user, where the file system has POSIX permissions.
+ */
+fun writeAtomically(file: File, ownerOnly: Boolean = false, write: (Path) -> Unit) {
+    val dir = file.absoluteFile.parentFile.toPath()
+    val private = ownerOnly && "posix" in FileSystems.getDefault().supportedFileAttributeViews()
+    val tmp = if (private) {
+        if (!Files.isDirectory(dir)) Files.createDirectories(dir, ownerOnlyMode("rwx------"))
+        Files.createTempFile(dir, file.name, TMP, ownerOnlyMode("rw-------"))
+    } else {
+        Files.createDirectories(dir)
+        Files.createTempFile(dir, file.name, TMP)
+    }
+    try {
+        write(tmp)
+        try {
+            Files.move(tmp, file.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(tmp, file.toPath(), REPLACE_EXISTING)
+        }
+    } finally {
+        Files.deleteIfExists(tmp)
     }
 }
+
+private fun ownerOnlyMode(mode: String) = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(mode))
+
+private const val TMP = ".tmp"

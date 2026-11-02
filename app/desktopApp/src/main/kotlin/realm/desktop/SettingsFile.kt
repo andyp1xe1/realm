@@ -5,15 +5,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import realm.Prefs
+import realm.jvm.writeAtomically
 import realm.logFailure
 import java.io.File
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.FileSystems
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
-import java.nio.file.attribute.PosixFilePermissions
 
 /** The desktop app's settings: one JSON object of strings in [file], readable only by the user. */
 class SettingsFile(private val file: File) : Prefs {
@@ -45,34 +42,11 @@ class SettingsFile(private val file: File) : Prefs {
         return mutableMapOf()
     }
 
-    private fun write(values: Map<String, String> = this.values) {
+    private fun write() {
         try {
-            val dir = file.absoluteFile.parentFile.toPath()
-            val tmp = if (posix) {
-                if (!Files.isDirectory(dir)) Files.createDirectories(dir, PosixFilePermissions.asFileAttribute(DIR_MODE))
-                Files.createTempFile(dir, file.name, ".tmp", PosixFilePermissions.asFileAttribute(FILE_MODE))
-            } else {
-                Files.createDirectories(dir)
-                Files.createTempFile(dir, file.name, ".tmp")
-            }
-            try {
-                Files.writeString(tmp, JsonObject(values.mapValues { JsonPrimitive(it.value) }).toString())
-                try {
-                    Files.move(tmp, file.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
-                } catch (_: AtomicMoveNotSupportedException) {
-                    Files.move(tmp, file.toPath(), REPLACE_EXISTING)
-                }
-            } finally {
-                Files.deleteIfExists(tmp)
-            }
+            writeAtomically(file, JsonObject(values.mapValues { JsonPrimitive(it.value) }).toString().toByteArray(), ownerOnly = true)
         } catch (e: IOException) {
             logFailure("Saving the settings to $file", e)
         }
-    }
-
-    private companion object {
-        val posix = "posix" in FileSystems.getDefault().supportedFileAttributeViews()
-        val DIR_MODE = PosixFilePermissions.fromString("rwx------")
-        val FILE_MODE = PosixFilePermissions.fromString("rw-------")
     }
 }
