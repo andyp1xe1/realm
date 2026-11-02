@@ -2,7 +2,7 @@
 
 realm is a personal dump for notes and files. Anything you type, paste, drop, or record lands in a searchable realm, and a share link gives a friend or an agent access without a login. One deployment holds as many realms as you like.
 
-<p align="center"><img src="docs/screens.png" alt="Three phone screens: a realm's feed of notes, a link, a voice note, and a PDF; the tab overview with realms and share links as tiles; and the Share dialog for choosing what a link allows and how long it lasts, with the realm's active links" width="900"></p>
+<p align="center"><img src="docs/screens.png" alt="Three phone screens. A realm's feed with notes, a link, a voice note, and a PDF. The tab overview with realms and share links as tiles. The Share dialog, where you choose what a link allows and how long it lasts, above the realm's active links." width="900"></p>
 
 ```
 worker/       Cloudflare Worker API. R2 stores files, D1 stores items and the search index.
@@ -13,13 +13,13 @@ cli/          Go CLI, maintained but not extended. It does a subset of what the 
 
 `nix-shell` in the repo root provides JDK 21, Go, Node, and ktlint. Without Nix, install JDK 17 or later with `JAVA_HOME` set, Go 1.24 or later, and Node 22 or later.
 
-Before committing, read [CONTRIBUTING.md](CONTRIBUTING.md) and run `git config core.hooksPath .githooks` once.
+Before you commit, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Deploy the worker
 
 The app deploys the worker for you. Run the app, log in with Cloudflare, and pick the account. If the account has no realm worker, you stay logged in and the app lists what deploying needs: R2 turned on in the Cloudflare dashboard, a workers.dev subdomain, room for a D1 database (the free plan allows 10), and a released worker. It checks each one and deploys once all are met. You pick the address, either workers.dev or a domain on your Cloudflare account.
 
-The app deploys the worker built for the newest GitHub release, tagged `vX.Y.Z`. It never deploys a `vX.Y.Z-rc.N` pre-release. When a newer release is out, Settings offers the update. The app checks once a day, and **Check for updates** checks now. Settings also adds and removes domains, turns workers.dev on and off, and switches the address the app uses.
+The app deploys the worker built for the newest GitHub release. It never deploys a release candidate. [docs/releases.md](docs/releases.md) lists what each release contains. When a newer release is out, Settings offers the update. The app checks once a day, and **Check for updates** checks now. Settings also adds and removes domains, turns workers.dev on and off, and switches the address the app uses.
 
 To deploy by hand instead:
 
@@ -50,7 +50,7 @@ realm get last
 realm link --read --ttl 1d
 ```
 
-`realm connect <link>` uses a share link instead of your own server, and `realm get <link>` downloads a link to one file without connecting. Deleting asks first; `-y` skips the question. Run `realm` with no arguments for the full command list.
+`realm connect <link>` uses a share link instead of your own server, and `realm get <link>` downloads a link to one file without connecting. Deleting asks first. `-y` skips the question. Run `realm` with no arguments for the full command list.
 
 ## Run the app
 
@@ -62,9 +62,9 @@ cd app
 
 The desktop app logs warnings to the terminal. For more detail, run it as `REALM_LOG=debug ./gradlew :desktopApp:run`.
 
-The desktop app keeps your logins, realms and share links in `realm/app.json` in your config folder: `~/.config` (or `$XDG_CONFIG_HOME`) on Linux, `~/Library/Application Support` on macOS, and `%APPDATA%` on Windows.
+The desktop app keeps your logins, realms, and share links in `realm/app.json` in your config folder: `~/.config` (or `$XDG_CONFIG_HOME`) on Linux, `~/Library/Application Support` on macOS, and `%APPDATA%` on Windows.
 
-On first launch, log in with Cloudflare. If your account has no realm worker yet, the app offers to deploy one. You can also connect with the worker URL and an owner token, or with a share link. The app opens on your Main realm. The tabs button in the corner zooms out to all your realms, like a browser's tab overview, and share links you connect show up there as tiles too. The agent icons share the realm you have open.
+On first launch, log in with Cloudflare, as [Deploy the worker](#deploy-the-worker) describes. You can also connect with the worker URL and an owner token, or with a share link. The app opens on your Main realm. The tabs button in the corner zooms out to all your realms, like a browser's tab overview, and share links you connect show up there as tiles too. The agent icons share the realm you have open.
 
 ## Share links
 
