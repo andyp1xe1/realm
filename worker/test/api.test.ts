@@ -296,6 +296,17 @@ test("scriptable types download with nosniff and a sandbox CSP", async () => {
   }
 });
 
+test("PDFs open inline under a CSP that blocks scripts, without sandbox", async () => {
+  const { call } = setup();
+  const f = await (await put(call, "/api/realms/main/files/x.pdf", "%PDF-1.4", "application/pdf")).json();
+  const r = await call(`/api/realms/main/items/${f.id}/raw`);
+  assert.ok(r.headers.get("content-disposition")!.startsWith("inline"));
+  const csp = r.headers.get("content-security-policy") ?? "";
+  assert.match(csp, /default-src 'none'/);
+  assert.doesNotMatch(csp, /script-src/);
+  assert.doesNotMatch(csp, /sandbox/);
+});
+
 test("etag revalidation returns 304", async () => {
   const { call } = setup();
   const f = await (await put(call, "/api/realms/main/files/a.txt", "AAA")).json();

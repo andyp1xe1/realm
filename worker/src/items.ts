@@ -268,10 +268,11 @@ function fileHeaders(ctx: RealmCtx, item: Item, size: number, etag: string): Hea
     "cache-control": "private, max-age=3600",
     "x-content-type-options": "nosniff",
   });
-  if (mime !== "application/pdf")
-    h.set("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+  h.set("content-security-policy", `${CSP}; ${mime === "application/pdf" ? "object-src 'self'" : "sandbox"}`);
   return h;
 }
+
+const CSP = "default-src 'none'; style-src 'unsafe-inline'";
 
 const INLINE =
   /^(image\/(png|jpeg|gif|webp|avif|heic|bmp)|audio\/[\w.+-]+|video\/[\w.+-]+|text\/plain|application\/pdf)$/;
