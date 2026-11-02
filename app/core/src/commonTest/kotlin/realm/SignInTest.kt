@@ -22,7 +22,7 @@ class SignInTest {
 
         assertEquals(listOf("Main", "Lisbon trip"), s.realms.map { it.name })
         assertEquals("owner", s.info.scope)
-        assertEquals(Connection.ByToken("https://realm.jo.dev", "s3cret"), s.connection)
+        assertEquals(Connection.ByToken("https://realm.jo.dev", Secret("s3cret")), s.connection)
         assertEquals("https://realm.jo.dev/api/info", server.requests.first().url.toString())
         assertTrue(server.requests.all { it.headers[HttpHeaders.Authorization] == "Bearer s3cret" })
     }

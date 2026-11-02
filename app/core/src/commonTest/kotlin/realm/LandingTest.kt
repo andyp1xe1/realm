@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 class LandingTest {
     private val zone = Zone("z1", "jo.dev")
-    private val login = CloudflareLogin("cf-token", "r1", Cloudflare.now() + 3600)
+    private val login = CloudflareLogin(Secret("cf-token"), Secret("r1"), Cloudflare.now() + 3600)
     private val deployedSteps =
         listOf(Step.Upload(Semver(1, 0, 0)), Step.Domain("notes.jo.dev"), Step.Waiting("https://realm.jo.workers.dev"))
 

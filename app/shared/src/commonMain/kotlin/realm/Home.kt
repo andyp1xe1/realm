@@ -89,7 +89,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
             is Connection.Owner -> {
                 val bearer = when (own) {
-                    is Connection.ByToken -> Bearer { own.token }
+                    is Connection.ByToken -> Bearer { own.token.value }
                     is Connection.ByCloudflare -> sessionFor(own).also { session = it }
                 }
                 server = Api.server(own.server, bearer, platform.name, engine)

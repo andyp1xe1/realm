@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
 
 class OnboardingTest {
     /** A login with no refresh token, so nothing renews it or ends it over the network. */
-    private val login = CloudflareLogin("cf", null, Cloudflare.now() + 3600)
+    private val login = CloudflareLogin(Secret("cf"), null, Cloudflare.now() + 3600)
     private val kept = "cloudflare" to """{"access":"cf","expires":${login.expires},"account":"a1"}"""
 
     /** The same login, kept before an account was chosen. */
@@ -235,7 +235,7 @@ class OnboardingTest {
 
         home.useAnotherAccount()
         assertEquals(Screen.Onboarding, home.screen)
-        assertEquals("cf", home.onboarding.session?.login?.access) // the same login: no new consent
+        assertEquals(Secret("cf"), home.onboarding.session?.login?.access) // the same login: no new consent
         assertNull(assertIs<Connection.LoginOnly>(prefs.own()).cloudflare.account)
         advanceUntilIdle()
         assertEquals(2, home.onboarding.realms.size)

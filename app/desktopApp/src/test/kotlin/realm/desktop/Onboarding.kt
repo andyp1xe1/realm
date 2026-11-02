@@ -159,7 +159,7 @@ private fun choosing() {
         film.close()
         check(o.ordered(o.accounts.state.value!!).first().id == "a1") { "the account used last isn't offered first" }
         val kept = realm.Remembered(platform.prefs, "cloudflare", realm.CloudflareLogin.serializer()).get()
-        check(kept?.access == "cf" && kept.account == null) { "choosing again didn't keep the same login: $kept" }
+        check(kept?.access?.value == "cf" && kept.account == null) { "choosing again didn't keep the same login: $kept" }
         film.went("chooser-switch", "Tabs/-", "Onboarding/-")
     }
     println("${out.path}/chooser-*.png")

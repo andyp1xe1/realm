@@ -28,7 +28,7 @@ sealed interface Connection {
 
     data class ByToken(
         override val server: String,
-        val token: String,
+        val token: Secret,
         override val realm: String? = null,
         override val cloudflare: CloudflareLogin? = null,
     ) : Owner
@@ -62,7 +62,7 @@ sealed interface Connection {
             } catch (e: IllegalArgumentException) {
                 throw ApiException("The saved connection isn't readable: ${e.message}")
             }
-            val token = c.token?.ifEmpty { null }
+            val token = c.token?.takeIf { it.value.isNotEmpty() }
             val realm = c.realm?.ifEmpty { null }
             val url = c.url.trim()
             fun bad(why: String): Nothing = throw ApiException("The saved connection $why")
@@ -101,7 +101,7 @@ sealed interface Connection {
 @Serializable
 private data class ConfigJson(
     val url: String = "",
-    val token: String? = null,
+    val token: Secret? = null,
     val realm: String? = null,
     val cloudflare: CloudflareLogin? = null,
 )
@@ -111,13 +111,13 @@ fun Prefs.own(): Connection.Own? {
     val server = get("server")
     val login = Remembered(this, "cloudflare", CloudflareLogin.serializer()).get()
     if (server == null) return login?.let { Connection.LoginOnly(it) }
-    return get("token")?.let { Connection.ByToken(server, it, cloudflare = login) }
+    return get("token")?.let { Connection.ByToken(server, Secret(it), cloudflare = login) }
         ?: login?.let { Connection.ByCloudflare(server, it) }
 }
 
 /** Keeps [own] for [Prefs.own] to find next time; null forgets it. */
 fun Prefs.saveOwn(own: Connection.Own?) {
     set("server", (own as? Connection.Owner)?.server)
-    set("token", (own as? Connection.ByToken)?.token)
+    set("token", (own as? Connection.ByToken)?.token?.value)
     Remembered(this, "cloudflare", CloudflareLogin.serializer()).set(own?.cloudflare)
 }

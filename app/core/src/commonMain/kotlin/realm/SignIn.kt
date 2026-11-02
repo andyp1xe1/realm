@@ -54,7 +54,7 @@ suspend fun signInWithToken(server: String, token: String, source: String, engin
             info to api.realms()
         }
     }
-    return SignedIn(api, info, realms, Connection.ByToken(origin, token), null)
+    return SignedIn(api, info, realms, Connection.ByToken(origin, Secret(token)), null)
 }
 
 /** Logs in with Cloudflare in the browser; [session] makes the connection's login a bearer whose renewals the caller saves. */
@@ -65,13 +65,13 @@ suspend fun logInWithCloudflare(
     engine: HttpClientEngine? = null,
 ): LoggedIn = inWords {
     val login = Cloudflare.logIn(browser, engine)
-    val accounts = CloudflareApi(Bearer { login.access }, engine).use { it.accounts() }
+    val accounts = CloudflareApi(Bearer { login.access.value }, engine).use { it.accounts() }
     val only = when (accounts.size) {
         0 -> throw ApiException("No Cloudflare account was picked on the consent screen")
         1 -> accounts[0]
         else -> return@inWords SeveralAccounts(login, accounts)
     }
-    val worker = when (val on = CloudflareApi(Bearer { login.access }, engine).use { it.realmOn(only) }) {
+    val worker = when (val on = CloudflareApi(Bearer { login.access.value }, engine).use { it.realmOn(only) }) {
         RealmOn.None -> return@inWords NoWorker(login.copy(account = only.id), only)
         is RealmOn.NoAddress -> throw ApiException(on.why)
         is RealmOn.Running -> on.worker

@@ -1,5 +1,6 @@
 package realm.desktop
 
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -28,14 +29,21 @@ class SettingsFile(private val file: File) : Prefs {
     }
 
     private fun read(): MutableMap<String, String> = try {
-        Json.parseToJsonElement(file.readText()).jsonObject.mapValuesTo(mutableMapOf()) { (_, v) ->
-            (v as JsonPrimitive).also { check(it.isString) }.content
-        }
-    } catch (_: Exception) {
+        val all = Json.parseToJsonElement(file.readText()) as? JsonObject ?: error("not an object")
+        all.mapValuesTo(mutableMapOf()) { (_, v) -> (v as? JsonPrimitive)?.takeIf { it.isString }?.content ?: error("not a string") }
+    } catch (_: SerializationException) {
+        setAside("$file isn't JSON")
+    } catch (_: IllegalStateException) {
+        setAside("$file isn't a JSON object of strings")
+    } catch (e: IOException) {
+        setAside("$file can't be read: $e")
+    }
+
+    private fun setAside(why: String): MutableMap<String, String> {
         val bad = File(file.path + ".bad")
         val kept = runCatching { Files.move(file.toPath(), bad.toPath(), REPLACE_EXISTING) }.isSuccess
-        logFailure("Reading the settings", IOException("$file isn't a JSON object of strings" + if (kept) "; kept it as $bad" else ""))
-        mutableMapOf()
+        logFailure("Reading the settings", why + if (kept) "; kept it as $bad" else "")
+        return mutableMapOf()
     }
 
     private fun write(values: Map<String, String> = this.values) {

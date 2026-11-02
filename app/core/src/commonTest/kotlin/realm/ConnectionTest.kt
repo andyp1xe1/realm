@@ -44,13 +44,13 @@ class ConnectionTest {
 
     @Test
     fun readsTheGoCliConfigs() {
-        assertEquals(Connection.ByToken("http://127.0.0.1:18765", "s3cret", realm = "main"), Connection.decode(goToken))
+        assertEquals(Connection.ByToken("http://127.0.0.1:18765", Secret("s3cret"), realm = "main"), Connection.decode(goToken))
         assertEquals(
-            Connection.ByCloudflare("https://realm.jo.workers.dev", CloudflareLogin("acc", "ref", 1767225600, "a1b2")),
+            Connection.ByCloudflare("https://realm.jo.workers.dev", CloudflareLogin(Secret("acc"), Secret("ref"), 1767225600, "a1b2")),
             Connection.decode(goCloudflare),
         )
         assertEquals(Connection.Shared("https://realm.jo.workers.dev/s/tok123"), Connection.decode(goLink))
-        assertEquals(Connection.LoginOnly(CloudflareLogin("acc", expires = 1767225600)), Connection.decode(goLoginOnly))
+        assertEquals(Connection.LoginOnly(CloudflareLogin(Secret("acc"), expires = 1767225600)), Connection.decode(goLoginOnly))
     }
 
     @Test
@@ -60,7 +60,7 @@ class ConnectionTest {
 
     @Test
     fun keepsACloudflareLoginBesideAToken() {
-        val c = Connection.ByToken("https://realm.jo.dev", "t", cloudflare = CloudflareLogin("acc", expires = 1))
+        val c = Connection.ByToken("https://realm.jo.dev", Secret("t"), cloudflare = CloudflareLogin(Secret("acc"), expires = 1))
         assertEquals(c, Connection.decode(Connection.encode(c)))
     }
 
@@ -87,9 +87,9 @@ class ConnectionTest {
     @Test
     fun theAppFindsItsOwnerUnderItsOldPrefsKeys() {
         val prefs = MapPrefs("server" to "https://realm.jo.dev", "token" to "t")
-        assertEquals(Connection.ByToken("https://realm.jo.dev", "t"), prefs.own())
+        assertEquals(Connection.ByToken("https://realm.jo.dev", Secret("t")), prefs.own())
 
-        val cf = Connection.ByCloudflare("https://realm.jo.workers.dev", CloudflareLogin("acc", "ref", 5, "a1"))
+        val cf = Connection.ByCloudflare("https://realm.jo.workers.dev", CloudflareLogin(Secret("acc"), Secret("ref"), 5, "a1"))
         prefs.saveOwn(cf)
         assertEquals(cf, MapPrefs(*prefs.map.toList().toTypedArray()).own())
 
@@ -100,7 +100,7 @@ class ConnectionTest {
     @Test
     fun aCloudflareLoginWithNothingDeployedIsKeptAndEndsWithSigningOut() {
         val prefs = MapPrefs("server" to "https://realm.jo.dev", "token" to "t")
-        val only = Connection.LoginOnly(CloudflareLogin("acc", "ref", 5))
+        val only = Connection.LoginOnly(CloudflareLogin(Secret("acc"), Secret("ref"), 5))
         prefs.saveOwn(only)
         assertEquals(only, MapPrefs(*prefs.map.toList().toTypedArray()).own())
         assertNull(prefs.get("server")) // no longer signed in to the server it replaced

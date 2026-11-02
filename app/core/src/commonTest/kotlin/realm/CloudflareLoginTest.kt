@@ -4,6 +4,7 @@ import io.ktor.http.Url
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -49,8 +50,8 @@ class CloudflareLoginTest {
         val out = logInWithCloudflare(browser, "test", engine = c.engine)
 
         val none = assertIs<NoWorker>(out)
-        assertEquals("cf-token", none.login.access)
-        assertEquals("r1", none.login.refresh)
+        assertEquals(Secret("cf-token"), none.login.access)
+        assertEquals(Secret("r1"), none.login.refresh)
         assertEquals("a1", none.login.account) // kept with the login, as the CLI keeps it
         assertEquals(ACCOUNT, none.account)
         assertEquals(1, c.routes.count { "oauth2/token" in it }) // one consent, one exchange
@@ -66,7 +67,7 @@ class CloudflareLoginTest {
         assertTrue(c.routes.none { "/workers/" in it || "realm.jo.workers.dev" in it }, c.routes.toString()) // nothing signed in to
 
         // Each one's state, as the chooser asks it.
-        val api = CloudflareApi(Bearer { out.login.access }, c.engine)
+        val api = CloudflareApi(Bearer { out.login.access.value }, c.engine)
         assertEquals(RealmOn.None, api.realmOn(out.accounts[0]))
         assertEquals("https://realm.jo.workers.dev", assertIs<RealmOn.Running>(api.realmOn(out.accounts[1])).worker.origin)
 
@@ -90,10 +91,33 @@ class CloudflareLoginTest {
     @Test
     fun aWorkerJustDeployedIsSignedInToWithTheSameLogin() = runTest {
         val c = cloudflare(worker = true)
-        val login = CloudflareLogin("cf-token", "r1", Cloudflare.now() + 3600)
+        val login = CloudflareLogin(Secret("cf-token"), Secret("r1"), Cloudflare.now() + 3600)
         val s = signInWithCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"), "test", engine = c.engine)
 
         assertEquals(2, s.realms.size)
         assertTrue(c.seen.all { it.headers["Authorization"] == "Bearer cf-token" })
+    }
+
+    @Test
+    fun aTokenReplyThatDoesNotDecodeSaysWhereButQuotesNoToken() = runTest {
+        val c = FakeClouds { route, _ ->
+            if (route == "POST dash.cloudflare.com/oauth2/token") {
+                json("""{"access_token":"cf-SECRET-1","refresh_token":"cf-SECRET-2","expires_in":"an hour"}""")
+            } else {
+                null
+            }
+        }
+        val e = assertFailsWith<ApiException> { logInWithCloudflare(browser, "test", engine = c.engine) }
+
+        val logged = generateSequence<Throwable>(e) { it.cause }.toList()
+        assertTrue(logged.none { "SECRET" in it.toString() }, logged.toString())
+        assertEquals("$.expires_in", logged.filterIsInstance<Undecodable>().single().path)
+    }
+
+    @Test
+    fun aLoginPrintsNoneOfItsTokens() {
+        val login = CloudflareLogin(Secret("cf-SECRET-1"), Secret("cf-SECRET-2"), 1, "a1")
+        assertTrue("SECRET" !in login.toString(), login.toString())
+        assertTrue("SECRET" !in Connection.ByToken("https://realm.jo.dev", Secret("SECRET"), cloudflare = login).toString())
     }
 }

@@ -151,13 +151,13 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
     /** Tells the realm worker which account it runs on, if it doesn't know yet, so Cloudflare logins own it. */
     suspend fun claim(account: String) {
         val script = "/accounts/$account/workers/scripts/${Cloudflare.WORKER}/secrets"
-        if (call<List<Secret>>(HttpMethod.Get, script).none { it.name == "REALM_ACCOUNT" }) {
-            call<JsonElement?>(HttpMethod.Put, script, cloudflareJson.encodeToJsonElement(Secret("REALM_ACCOUNT", account)))
+        if (call<List<WorkerSecret>>(HttpMethod.Get, script).none { it.name == "REALM_ACCOUNT" }) {
+            call<JsonElement?>(HttpMethod.Put, script, cloudflareJson.encodeToJsonElement(WorkerSecret("REALM_ACCOUNT", account)))
         }
     }
 
     @Serializable
-    private data class Secret(val name: String, val text: String? = null, val type: String = "secret_text")
+    private data class WorkerSecret(val name: String, val text: String? = null, val type: String = "secret_text")
 
     override fun close() = http.close()
 

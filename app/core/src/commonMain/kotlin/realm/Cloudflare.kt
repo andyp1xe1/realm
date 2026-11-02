@@ -1,13 +1,14 @@
 package realm
 
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.request.forms.submitForm
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.URLBuilder
 import io.ktor.http.parameters
 import io.ktor.util.generateNonceSuspend
 import io.ktor.util.sha256
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -26,8 +27,8 @@ interface Browser {
 /** A Cloudflare login, kept the way the CLI keeps it. */
 @Serializable
 data class CloudflareLogin(
-    val access: String,
-    val refresh: String? = null,
+    val access: Secret,
+    val refresh: Secret? = null,
     /** Unix seconds. */
     val expires: Long,
     val account: String? = null,
@@ -83,11 +84,11 @@ object Cloudflare {
             back["state"] != state -> throw ApiException("That login didn't match. Try again.")
             back["error"] != null -> throw ApiException("Cloudflare said ${back["error_description"] ?: back["error"]}")
         }
-        val code = back["code"] ?: throw ApiException("Cloudflare didn't send a login back. Try again.")
+        val code = Secret(back["code"] ?: throw ApiException("Cloudflare didn't send a login back. Try again."))
         return exchange(
             mapOf(
                 "grant_type" to "authorization_code",
-                "code" to code,
+                "code" to code.value,
                 "redirect_uri" to REDIRECT,
                 "client_id" to CLIENT_ID,
                 "code_verifier" to verifier,
@@ -100,7 +101,7 @@ object Cloudflare {
     /** Refresh tokens are single-use, so the result replaces [login]. */
     suspend fun refresh(login: CloudflareLogin): CloudflareLogin {
         val refresh = login.refresh ?: throw CloudflareRejected()
-        return exchange(mapOf("grant_type" to "refresh_token", "refresh_token" to refresh, "client_id" to CLIENT_ID), keep = refresh)
+        return exchange(mapOf("grant_type" to "refresh_token", "refresh_token" to refresh.value, "client_id" to CLIENT_ID), keep = refresh)
             .copy(account = login.account)
     }
 
@@ -113,7 +114,7 @@ object Cloudflare {
                 parameters {
                     append("client_id", CLIENT_ID)
                     append("token_type_hint", "refresh_token")
-                    append("token", refresh)
+                    append("token", refresh.value)
                 },
             )
         }
@@ -121,29 +122,34 @@ object Cloudflare {
 
     @Serializable
     private data class TokenReply(
-        @SerialName("access_token") val accessToken: String? = null,
-        @SerialName("refresh_token") val refreshToken: String? = null,
+        @SerialName("access_token") val accessToken: Secret? = null,
+        @SerialName("refresh_token") val refreshToken: Secret? = null,
         @SerialName("expires_in") val expiresIn: Long = 0,
         val error: String? = null,
         @SerialName("error_description") val description: String? = null,
     )
 
-    private suspend fun exchange(form: Map<String, String>, keep: String?, engine: HttpClientEngine? = null): CloudflareLogin {
+    private suspend fun exchange(form: Map<String, String>, keep: Secret?, engine: HttpClientEngine? = null): CloudflareLogin {
         if (engine != null) return client(engine).use { exchange(it, form, keep) }
         return exchange(http, form, keep)
     }
 
-    private suspend fun exchange(http: HttpClient, form: Map<String, String>, keep: String?): CloudflareLogin {
-        val res = try {
-            http.submitForm(TOKEN, parameters { form.forEach { (k, v) -> append(k, v) } })
+    private suspend fun exchange(http: HttpClient, form: Map<String, String>, keep: Secret?): CloudflareLogin {
+        val (status, text) = try {
+            val res = http.submitForm(TOKEN, parameters { form.forEach { (k, v) -> append(k, v) } })
+            res.status.value to res.bodyAsText()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             throw ApiException("Can't reach Cloudflare", cause = e)
         }
-        val t = runCatching {
-            res.body<TokenReply>()
-        }.getOrElse { throw ApiException("Cloudflare sent something odd (HTTP ${res.status.value})") }
+        val t = try {
+            cloudflareJson.decodeQuietly<TokenReply>(text)
+        } catch (e: Undecodable) {
+            throw ApiException("Cloudflare sent something odd (HTTP $status)", cause = e)
+        }
         if (t.accessToken == null) {
-            if (res.status.value == 400 || res.status.value == 401 || t.error == "invalid_grant") throw CloudflareRejected()
+            if (status == 400 || status == 401 || t.error == "invalid_grant") throw CloudflareRejected()
             throw ApiException("Cloudflare didn't log you in: ${t.description ?: t.error}")
         }
         return CloudflareLogin(t.accessToken, t.refreshToken ?: keep, now() + t.expiresIn)
@@ -178,7 +184,7 @@ class CloudflareSession(login: CloudflareLogin, private val save: (CloudflareLog
     private val lock = Mutex()
 
     override suspend fun token(): String = lock.withLock {
-        if (Cloudflare.now() < login.expires - 60) return login.access
+        if (Cloudflare.now() < login.expires - 60) return login.access.value
         try {
             login = Cloudflare.refresh(login)
         } catch (e: CloudflareRejected) {
@@ -186,6 +192,6 @@ class CloudflareSession(login: CloudflareLogin, private val save: (CloudflareLog
             throw e
         }
         save(login)
-        login.access
+        login.access.value
     }
 }
