@@ -1,5 +1,6 @@
 package realm
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -10,13 +11,15 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.TimeSource
 
 enum class Filter(val label: String, val kinds: List<String>) {
     All("All", emptyList()),
@@ -33,96 +36,130 @@ class Pending(val key: Int, val text: String?, val file: LocalFile?, val caption
     var error by mutableStateOf<String?>(null)
 }
 
-class Model(val platform: Platform, private val scope: CoroutineScope) {
-    var api by mutableStateOf<Api?>(null)
-        private set
-    val items = mutableStateListOf<Item>() // newest first
+/**
+ * One realm's feed, as one tile of the [Home] overview sees it through [api]. Without [loadImages],
+ * images only download when asked to, for links where every download spends a use. With [cache], it starts
+ * from the first page kept last time, known at once, and keeps it as it changes.
+ */
+class Model(
+    val platform: Platform,
+    private val scope: CoroutineScope,
+    val api: Api,
+    private val loadImages: Boolean = true,
+    private val cache: FeedCache? = null,
+) {
+    private val kept = cache?.first()
+
+    val items = mutableStateListOf<Item>().apply { kept?.let { addAll(it.items) } } // newest first
+
+    /** The feed's scroll position, kept here so it survives a trip through the tab overview. */
+    val listState = LazyListState()
     val pending = mutableStateListOf<Pending>()
+
     /** Files waiting in the composer for a caption and a tap on send. */
     val staged = mutableStateListOf<LocalFile>()
+
     /** Text from outside (share sheet, drag & drop) for the composer to pick up. */
     var incomingText by mutableStateOf<String?>(null)
-    val links = mutableStateListOf<Link>()
+
+    /** The realm's active share links, for the owner; fetched as the realm opens, so the share sheet has them. */
+    val links = Fetched<List<Link>>(scope, "Looking at the share links") { message = it }
 
     var query by mutableStateOf("")
     var filter by mutableStateOf(Filter.All)
     var loading by mutableStateOf(false)
         private set
+
+    /**
+     * The first page is known: the server has answered for it, or it was kept from last time. Until then (or
+     * if the server can't be reached) an empty feed isn't known to be empty.
+     */
+    var loaded by mutableStateOf(kept != null)
+        private set
     var message by mutableStateOf<String?>(null)
     var editing by mutableStateOf<Item?>(null)
+
+    /** The search field is open in the top bar; like a browser's find bar, it stays open through the overview. */
+    var searching by mutableStateOf(false)
+
+    /** The share sheet is up. */
+    var sharing by mutableStateOf(false)
+
     /** False when connected through a drop-only share link. */
     var canRead by mutableStateOf(true)
         private set
 
     val filtering get() = query.isNotBlank() || filter != Filter.All
 
-    private var next: String? = null
+    fun closeSearch() {
+        searching = false
+        query = ""
+        filter = Filter.All
+    }
+
+    /** A realm just made: known to be empty without asking, so it opens straight onto its empty state. */
+    fun startEmpty() {
+        loaded = true
+    }
+
+    /** Known to have nothing in it yet (not loading, not a search, not a drop-only link): the empty state shows. */
+    val isEmpty get() = loaded && canRead && !filtering && items.isEmpty() && pending.isEmpty()
+
+    private var next: String? = kept?.next
     private var listJob: Job? = null
+
+    /** What the first-page ask under way is for: the query and filter; null for a later page. */
+    private var asking: Pair<String, Filter>? = null
+
+    /** When the first page was last asked for and came back, to skip asking again so soon when prefetching. */
+    private var fetchedAt: TimeSource.Monotonic.ValueTimeMark? = null
     private val uploads = Semaphore(2)
     private var pendingKeys = 0
+
+    /** Rows the feed has shown once; only new ones fade in. What was kept shows at once, as it was. */
+    private val shown = kept?.items.orEmpty().mapTo(HashSet()) { it.id }
+
+    /** True the first time the feed shows the row with [key]. */
+    fun firstShown(key: String): Boolean = shown.add(key)
 
     private val images = mutableStateMapOf<String, ImageBitmap>()
     private val imageOrder = ArrayDeque<String>()
     private val imageLoading = mutableSetOf<String>()
 
-    init {
-        platform.prefs.get("url")?.let { connect(it, platform.prefs.get("token")) }
-    }
-
-    // ---------- server ----------
-
-    /** Checks the server answers with these credentials; returns an error message or null. */
-    suspend fun check(url: String, token: String?): String? {
-        val a = Api(url, token, platform.name)
-        return try {
-            a.list(limit = 1)
-            null
-        } catch (e: ApiException) {
-            // Drop-only links can't list, but they're still valid.
-            if ("/s/" in url && "can't read" in (e.message ?: "")) null else e.message
-        } catch (e: Exception) {
-            e.message ?: "can't reach server"
-        } finally {
-            a.close()
-        }
-    }
-
-    fun connect(url: String, token: String?) {
-        api?.close()
-        platform.prefs.set("url", url)
-        platform.prefs.set("token", token)
-        api = Api(url, token, platform.name)
-        canRead = true
-        items.clear() // the feed refreshes itself when it shows up
-    }
-
-    fun disconnect() {
-        api?.close()
-        api = null
-        platform.prefs.set("url", null)
-        platform.prefs.set("token", null)
-        items.clear()
-        links.clear()
-    }
-
-    val isOwner get() = api?.auth != null
+    val isOwner get() = api.isOwner
 
     // ---------- feed ----------
 
+    /**
+     * Asks for the first page again, in place: rows that are the same stay as they are, and only a page that
+     * differs is shown, and kept. An ask for the same that's under way already, as from a prefetch, is left to
+     * finish rather than started over.
+     */
     fun refresh() {
-        val a = api ?: return
+        if (listJob?.isActive == true && asking == query to filter) return
         listJob?.cancel()
+        asking = query to filter
         listJob = scope.launch {
             loading = true
             try {
-                val page = a.list(query, filter.kinds)
-                items.clear()
-                items.addAll(page.items)
+                val page = api.list(query, filter.kinds, limit = FeedCache.PAGE)
+                if (items.toList() != page.items) {
+                    items.clear()
+                    items.addAll(page.items)
+                }
                 next = page.next
+                loaded = true
+                fetchedAt = TimeSource.Monotonic.markNow()
+                keep()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
-                if ("can't read" in (e.message ?: "")) canRead = false else fail(e)
+                if ("can't read" in (e.message ?: "")) {
+                    canRead = false
+                    loaded = true
+                } else {
+                    fail(e)
+                }
             } catch (e: Exception) {
                 fail(e)
             } finally {
@@ -131,14 +168,29 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
         }
     }
 
+    /**
+     * The first page, fetched ahead of opening the feed, unless it was in the last minute or a search is up;
+     * returns once it's there.
+     */
+    suspend fun prefetch() {
+        if (filtering || fetchedAt?.let { it.elapsedNow() < 1.minutes } == true) return
+        refresh()
+        listJob?.join()
+    }
+
+    /** Keeps the first page as it stands for the next run: not a search's, which isn't the feed. */
+    private fun keep() {
+        if (!filtering && canRead) cache?.keepFirst(Page(items.toList(), next))
+    }
+
     fun loadMore() {
-        val a = api ?: return
         val before = next ?: return
         if (loading) return
+        asking = null
         listJob = scope.launch {
             loading = true
             try {
-                val page = a.list(query, filter.kinds, before = before)
+                val page = api.list(query, filter.kinds, before = before)
                 val known = items.mapTo(HashSet()) { it.id }
                 items.addAll(page.items.filter { it.id !in known })
                 next = page.next
@@ -154,13 +206,26 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
 
     /** Pull in anything dumped from other devices since the newest item we have. */
     suspend fun poll() {
-        val a = api ?: return
         if (filtering || loading || !canRead) return
-        val newest = items.firstOrNull() ?: return refresh()
+        val newest = items.firstOrNull()
+        if (newest == null) {
+            // Empty so far: ask quietly, without the loading state, so an empty page doesn't flicker every poll.
+            runCatching { api.list() }.onSuccess { page ->
+                if (items.isEmpty() && !filtering) {
+                    items.addAll(page.items)
+                    next = page.next
+                    loaded = true
+                    if (page.items.isNotEmpty()) keep()
+                }
+            }
+            return
+        }
         // Ids are time-prefixed; re-ask for the last minute so items that landed slightly out of order aren't missed.
         val cursor = (newest.created - 60_000).coerceAtLeast(0).toString(36).padStart(9, '0')
-        runCatching { a.list(after = cursor, limit = 100) }.onSuccess { page ->
+        runCatching { api.list(after = cursor, limit = 100) }.onSuccess { page ->
+            val before = items.size
             page.items.forEach(::prepend)
+            if (items.size != before) keep()
         }
     }
 
@@ -193,6 +258,18 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
         staged.addAll(files)
     }
 
+    /** Nothing from outside is sent straight away: it lands in the composer to be captioned or edited. */
+    fun receive(incoming: Incoming) {
+        when (incoming) {
+            is Incoming.Files -> {
+                stage(incoming.files)
+                incoming.caption?.let { incomingText = it }
+            }
+
+            is Incoming.Text -> incomingText = incoming.text
+        }
+    }
+
     fun sendFiles(files: List<LocalFile>, caption: String? = null) {
         files.forEachIndexed { i, f -> enqueue(Pending(pendingKeys++, null, f, caption.takeIf { i == 0 })) }
     }
@@ -207,23 +284,28 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     private fun enqueue(p: Pending) {
-        val a = api ?: return
         pending.add(p)
         scope.launch {
             try {
                 // Notes go straight out; files share a couple of upload slots so a big one can't block a note.
-                val item = if (p.file == null) a.note(p.text!!) else uploads.withPermit {
-                    a.upload(p.file, p.caption) { f ->
-                        val pct = (f * 100).toInt() / 100f // whole percents: one recomposition per step, not per write
-                        if (pct != p.progress) p.progress = pct
+                val item = if (p.file == null) {
+                    api.note(p.text!!)
+                } else {
+                    uploads.withPermit {
+                        api.upload(p.file, p.caption) { f ->
+                            val pct = (f * 100).toInt() / 100f // whole percents: one recomposition per step, not per write
+                            if (pct != p.progress) p.progress = pct
+                        }
                     }
                 }
                 if (p.file != null && item.kind == "image") seedImage(item, p.file)
                 // Swap pending → real item in one snapshot so there's no frame with both or neither.
+                shown += item.id // it takes the sending row's place, already on screen: no fade
                 Snapshot.withMutableSnapshot {
                     pending.remove(p)
                     prepend(item)
                 }
+                keep()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -236,18 +318,21 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     private suspend fun seedImage(item: Item, file: LocalFile) {
         if (file.size !in 1..MAX_INLINE_IMAGE) return
         val bmp = withContext(Dispatchers.IO) {
-            runCatching { file.reader().use { it.readAll(file.size.toInt()) } }.getOrNull()?.let { platform.decodeImage(it, 1280) }
+            runCatching { file.reader().use { it.readAll(file.size.toInt()) } }.getOrNull()?.let { bytes ->
+                platform.cacheImage(api.cacheKey(item.id), bytes) // on disk for next time, no download needed
+                platform.decodeImage(bytes, 1280)
+            }
         } ?: return
-        cacheImage(item.id, bmp)
+        remember(item.id, bmp)
     }
 
     private fun saveEdit(item: Item, text: String) {
-        val a = api ?: return
         scope.launch {
             try {
-                val updated = a.edit(item.id, text.ifBlank { null })
+                val updated = api.edit(item.id, text.ifBlank { null })
                 val i = items.indexOfFirst { it.id == item.id }
                 if (i >= 0) items[i] = updated
+                keep()
             } catch (e: Exception) {
                 fail(e)
             }
@@ -257,12 +342,12 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     // ---------- item actions ----------
 
     fun delete(item: Item) {
-        val a = api ?: return
         val i = items.indexOf(item)
         items.remove(item)
         scope.launch {
             try {
-                a.delete(item.id)
+                api.delete(item.id)
+                keep()
             } catch (e: Exception) {
                 if (i >= 0) items.add(minOf(i, items.size), item)
                 fail(e)
@@ -278,10 +363,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun shareLink(item: Item, ttlSeconds: Long?) {
-        val a = api ?: return
         scope.launch {
             try {
-                val link = a.createLink("item", item.id, ttlSeconds)
+                val link = api.createLink("read", listOf(item.id), ttlSeconds)
                 platform.copyText(link.url)
                 message = "Link copied" + (ttlSeconds?.let { " · expires in ${ttlLabel(it)}" } ?: "")
             } catch (e: Exception) {
@@ -291,10 +375,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun save(item: Item) {
-        val a = api ?: return
         scope.launch {
             try {
-                message = platform.save(a.rawUrl(item.id, download = true), a.auth, fileName(item))
+                message = platform.save(api.rawUrl(item.id, download = true), api.auth(), fileName(item))
             } catch (e: Exception) {
                 fail(e)
             }
@@ -302,10 +385,9 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 
     fun open(item: Item) {
-        val a = api ?: return
         scope.launch {
             try {
-                platform.open(a.rawUrl(item.id), a.auth, fileName(item))
+                platform.open(api.rawUrl(item.id), api.auth(), fileName(item))
             } catch (e: Exception) {
                 fail(e)
             }
@@ -317,13 +399,13 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     fun image(id: String): ImageBitmap? = images[id]
 
     suspend fun loadImage(item: Item) {
-        val a = api ?: return
         if (item.id in images || item.id in imageLoading || (item.size ?: 0) > MAX_INLINE_IMAGE) return
         imageLoading += item.id
         try {
-            val bytes = a.bytes(item.id)
+            // Without loadImages (every download spends a link's use), only what's already on disk.
+            val bytes = imageBytes(platform, api, item.id, download = loadImages) ?: return
             val bmp = withContext(Dispatchers.Default) { platform.decodeImage(bytes, 1280) } ?: return
-            cacheImage(item.id, bmp)
+            remember(item.id, bmp)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -332,7 +414,7 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
         }
     }
 
-    private fun cacheImage(id: String, bmp: ImageBitmap) {
+    private fun remember(id: String, bmp: ImageBitmap) {
         images[id] = bmp
         imageOrder.addLast(id)
         while (imageOrder.size > 80) images.remove(imageOrder.removeFirst())
@@ -340,35 +422,20 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
 
     // ---------- links ----------
 
-    fun loadLinks() {
-        val a = api ?: return
-        scope.launch {
-            try {
-                val l = a.links()
-                links.clear()
-                links.addAll(l)
-            } catch (e: Exception) {
-                fail(e)
-            }
-        }
-    }
+    fun loadLinks() = links.refresh { api.links() }
 
-    suspend fun createLink(scope: String, ttlSeconds: Long?, label: String?): Link? {
-        val a = api ?: return null
-        return try {
-            a.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { links.add(0, it) }
-        } catch (e: Exception) {
-            fail(e)
-            null
-        }
+    suspend fun createLink(scope: String, ttlSeconds: Long?, label: String?): Link? = try {
+        api.createLink(scope, ttlSeconds = ttlSeconds, label = label).also { l -> links.update { listOf(l) + it } }
+    } catch (e: Exception) {
+        fail(e)
+        null
     }
 
     fun revoke(link: Link) {
-        val a = api ?: return
-        links.remove(link)
+        links.update { it - link }
         scope.launch {
             try {
-                a.revoke(link.token)
+                api.revoke(link.token)
             } catch (e: Exception) {
                 fail(e)
                 loadLinks()
@@ -385,22 +452,15 @@ class Model(val platform: Platform, private val scope: CoroutineScope) {
     }
 }
 
-fun ttlLabel(seconds: Long): String = when {
-    seconds < 3600 -> "${seconds / 60}m"
-    seconds < 86400 -> "${seconds / 3600}h"
-    else -> "${seconds / 86400}d"
-}
-
-fun humanSize(n: Long?): String {
-    if (n == null) return ""
-    var f = n.toDouble()
-    val units = listOf("B", "KB", "MB", "GB", "TB")
-    var i = 0
-    while (f >= 1024 && i < units.lastIndex) {
-        f /= 1024
-        i++
-    }
-    if (i == 0) return "$n B"
-    val r = (f * 10).toLong()
-    return "${r / 10}.${r % 10} ${units[i]}"
+/**
+ * An item's image bytes: from the disk cache if they're there, else downloaded and kept for next time.
+ * With [download] false, only what's already on disk.
+ */
+internal suspend fun imageBytes(platform: Platform, api: Api, id: String, download: Boolean = true): ByteArray? {
+    val key = api.cacheKey(id)
+    withContext(Dispatchers.IO) { platform.cachedImage(key) }?.let { return it }
+    if (!download) return null
+    val bytes = api.bytes(id)
+    withContext(Dispatchers.IO) { platform.cacheImage(key, bytes) }
+    return bytes
 }

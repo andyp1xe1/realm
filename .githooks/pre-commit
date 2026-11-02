@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Refuses a commit with untidy code (Go, TypeScript, Kotlin) or an overlong code file. Checks what's staged, not the working tree.
+# Enable once per clone: git config core.hooksPath .githooks
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+MAX_LINES=500
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+go=$(grep -E '^cli/.*\.go$' <<<"$staged")
+ts=$(grep -E '^worker/.*\.(ts|js|json)$' <<<"$staged" | grep -v 'package-lock.json$')
+kt=$(grep -E '^app/.*\.(kt|kts)$' <<<"$staged")
+code=$(grep -E '\.(go|ts|js|kt|kts)$' <<<"$staged")
+
+for f in $code; do
+  n=$(git show ":$f" | wc -l)
+  if [ "$n" -gt "$MAX_LINES" ]; then echo "$f: $n lines, over $MAX_LINES — split it"; fail=1; fi
+done
+
+for f in $go; do
+  if [ -n "$(git show ":$f" | gofmt -l)" ]; then echo "$f: not gofmt'd — run gofmt -w $f"; fail=1; fi
+done
+if [ -n "$go" ]; then (cd cli && go vet ./...) || fail=1; fi
+
+if [ -n "$ts" ]; then
+  [ -x worker/node_modules/.bin/oxfmt ] || { echo "worker: run npm install first, for oxfmt and oxlint"; exit 1; }
+  for f in $ts; do
+    w=${f#worker/}
+    [ "$(git show ":$f")" = "$(git show ":$f" | (cd worker && node_modules/.bin/oxfmt --stdin-filepath "$w"))" ] ||
+      { echo "$f: not oxfmt'd — run npx oxfmt $w in worker/"; fail=1; }
+  done
+  # oxlint and tsc see the working tree, not just what's staged.
+  lint=$(grep -E '\.(ts|js)$' <<<"$ts" | sed 's|^worker/||')
+  if [ -n "$lint" ]; then (cd worker && node_modules/.bin/oxlint --deny-warnings $lint) || fail=1; fi
+  (cd worker && node_modules/.bin/tsc -p .) || fail=1
+fi
+
+if [ -n "$kt" ]; then
+  command -v ktlint >/dev/null || { echo "app: ktlint not found — run nix-shell first"; exit 1; }
+  # --stdin-path must be absolute, or ktlint ignores .editorconfig. compose-rules must be built against the same ktlint version; 0.6.8 is for ktlint 1.8.0.
+  rules="$(git rev-parse --git-common-dir)/ktlint-compose-0.6.8-all.jar"
+  sum="a25378ec616add11d2b279a87f54ccffefea87917da13773ff753386d30c22e5  $rules"
+  if ! sha256sum -c --status <<<"$sum" 2>/dev/null; then
+    curl -fsSL -o "$rules" https://github.com/mrmans0n/compose-rules/releases/download/v0.6.8/ktlint-compose-0.6.8-all.jar &&
+      sha256sum -c --status <<<"$sum" || { rm -f "$rules"; echo "app: couldn't fetch compose-rules"; exit 1; }
+  fi
+  for f in $kt; do
+    git show ":$f" | ktlint --log-level=error -R "$rules" --stdin --stdin-path "$PWD/$f" ||
+      { echo "$f: ktlint -F $f fixes the formatting; the rest needs a hand"; fail=1; }
+    case "$f" in */src/test/*) ;; *) git show ":$f" | .githooks/placeholders "$f" || fail=1 ;; esac
+    case "$f" in app/core/*) git show ":$f" | .githooks/core-free "$f" || fail=1 ;; esac
+    case "$f" in */src/test/* | */src/*Test/*) ;; app/shared/*) git show ":$f" | .githooks/grows "$f" || fail=1 ;; esac
+  done
+fi
+
+# On the shared drive every file looks executable, so git can record a script without its x bit; a fresh clone then can't run it.
+for f in $staged; do
+  [ "$(git show ":$f" | head -c2)" = '#!' ] || continue
+  [ "$(git ls-files -s -- "$f" | cut -d' ' -f1)" = 100755 ] ||
+    { echo "$f: a script without its executable bit in git; run: git update-index --chmod=+x $f"; fail=1; }
+done
+
+exit $fail

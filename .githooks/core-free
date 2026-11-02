@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Checks one file under app/core, read from stdin and named by $1: core is the client logic a CLI builds on,
+# so it has no UI or Android code. No androidx, android or Compose imports, and no Compose in its build file.
+set -uo pipefail
+fail=0
+case "$1" in
+  *.kts) pattern='compose|androidx' ;;
+  *) pattern='^import (androidx|android|org\.jetbrains\.compose)\.' ;;
+esac
+while IFS=: read -r line text; do
+  echo "$1:$line: core can't use UI or Android code ($text): a CLI builds on it; move this to app/shared"
+  fail=1
+done < <(grep -nE "$pattern" | grep -vE '^[0-9]+:\s*//')
+exit $fail

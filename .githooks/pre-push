@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Refuses to push a tag that isn't a release version, vMAJOR.MINOR.PATCH, or a release candidate of one,
+# vMAJOR.MINOR.PATCH-rc.N. Each pushed tag is a public release, so there are no throwaway names like -test.
+set -uo pipefail
+
+fail=0
+while read -r local_ref local_sha _ _; do
+  case "$local_ref" in refs/tags/*) ;; *) continue ;; esac
+  [[ $local_sha =~ ^0+$ ]] && continue # deleting a tag is fine
+  tag=${local_ref#refs/tags/}
+  if ! [[ $tag =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
+    echo "pre-push: tag $tag isn't a release version like v1.2.0 or v1.2.0-rc.1"
+    fail=1
+  fi
+done
+exit $fail

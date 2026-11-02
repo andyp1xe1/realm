@@ -1,0 +1,7 @@
+# ktlint reads this; the pre-commit hook runs it with compose-rules (https://mrmans0n.github.io/compose-rules/).
+[*.{kt,kts}]
+ktlint_code_style = intellij_idea
+ktlint_function_naming_ignore_when_annotated_with = Composable
+max_line_length = 140
+# The shared-transition scopes reach the tiles and the feed through these; tests and previews count skeletons through LocalIndicators.
+compose_allowed_composition_locals = LocalSharedTransition,LocalTabTransition,LocalIndicators

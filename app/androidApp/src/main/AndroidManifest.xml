@@ -31,6 +31,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Back from logging in with Cloudflare in the browser -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="realm-login" />
+            </intent-filter>
             <!-- "Share → realm" from any app -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

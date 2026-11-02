@@ -3,23 +3,21 @@ package realm.jvm
 
 import realm.ByteReader
 import realm.LocalFile
+import realm.Prefs
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLConnection
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
-class JFile(
-    val file: File,
-    override val mime: String? = guessMime(file.name),
-    override val name: String = file.name,
-) : LocalFile {
+class JFile(val file: File, override val mime: String? = guessMime(file.name), override val name: String = file.name) : LocalFile {
     override val size: Long get() = file.length()
     override fun reader(): ByteReader = StreamReader(file.inputStream())
 }
@@ -89,5 +87,74 @@ object Dates {
             d.year == today.year -> d.format(dayThisYear)
             else -> d.format(dayOtherYear)
         }
+    }
+}
+
+/**
+ * Image bytes kept on disk between runs. An item's file never changes once uploaded, so an entry never goes
+ * stale; past [maxBytes] the least recently used go first. Blocking; call from an IO thread.
+ */
+class DiskCache(private val dir: File, private val maxBytes: Long) {
+    fun get(key: String): ByteArray? {
+        val f = file(key)
+        if (!f.isFile) return null
+        f.setLastModified(System.currentTimeMillis()) // recently used, so trimmed last
+        return runCatching { f.readBytes() }.getOrNull()
+    }
+
+    fun put(key: String, bytes: ByteArray) {
+        runCatching {
+            dir.mkdirs()
+            val f = file(key)
+            val part = File(dir, f.name + ".part")
+            part.writeBytes(bytes)
+            if (!part.renameTo(f)) part.delete()
+            trim()
+        }
+    }
+
+    private fun file(key: String) = File(dir, key.map { if (it.isLetterOrDigit() || it in "-_.") it else '_' }.joinToString("").take(150))
+
+    private fun trim() {
+        val files = dir.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") } ?: return
+        var total = files.sumOf { it.length() }
+        if (total <= maxBytes) return
+        for (f in files.sortedBy { it.lastModified() }) {
+            if (total <= maxBytes) break
+            total -= f.length()
+            f.delete()
+        }
+    }
+}
+
+/**
+ * Strings kept as files in [dir], one per key: fetched data the app shows at once next time, too big for prefs.
+ * A file that can't be read or written is as if nothing were kept. Blocking, and small enough for the UI thread.
+ */
+class FileStore(private val dir: File) : Prefs {
+    override fun get(key: String): String? = runCatching { file(key).takeIf { it.isFile }?.readText() }.getOrNull()
+
+    override fun set(key: String, value: String?) {
+        runCatching {
+            val f = file(key)
+            if (value == null) {
+                f.delete()
+                return
+            }
+            dir.mkdirs()
+            val part = File(dir, f.name + ".part")
+            part.writeText(value)
+            // Whole or not at all: a reader never sees half a file. Windows won't rename over a file that's there.
+            if (!part.renameTo(f)) {
+                f.delete()
+                if (!part.renameTo(f)) part.delete()
+            }
+        }
+    }
+
+    /** A name that's safe on every file system: the key's letters and digits, then a hash that tells keys apart. */
+    private fun file(key: String): File {
+        val hash = MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
+        return File(dir, key.map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").take(60) + "-" + hash)
     }
 }

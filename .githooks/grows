@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Checks one file under app/shared, read from stdin and named by $1, for the two ways a layout jumps that the
+# operator keeps sending back: data arriving that grows it (expandVertically and the like, animateContentSize),
+# and a text button with its padding taken off, whose hover background then touches its label.
+# An exception goes on the offending line: // grows: <reason> (approved by <human>, until <YYYY-MM-DD>)
+# It lapses on that date. "approved by PENDING" waits for a human and lasts at most 14 days.
+set -uo pipefail
+today=${REALM_TODAY:-$(date +%F)}
+latest=$(date -d "$today + 14 days" +%F)
+fail=0
+n=0
+recent=()
+while IFS= read -r text || [ -n "$text" ]; do
+  n=$((n + 1))
+  recent=("${recent[@]: -3}" "$text")
+  [[ $text =~ ^[[:space:]]*(import|//|\*|/\*) ]] && continue
+  why=
+  if [[ $text =~ (expandVertically|expandHorizontally|expandIn|animateContentSize)\( ]]; then
+    why="${BASH_REMATCH[1]}: data arriving must not grow the layout: show it with Loading(…) from ui/Loading.kt"
+  elif [[ $text =~ contentPadding[[:space:]]*=[[:space:]]*PaddingValues\([[:space:]]*0 ]] &&
+    printf '%s\n' "${recent[@]}" | grep -qE '\b(Text|Outlined)?Button\('; then
+    why="a button with no padding has its hover background touching the label: use InlineButton from ui/Buttons.kt"
+  fi
+  [ -z "$why" ] && continue
+  if [[ $text =~ //\ grows:\ .+\ \(approved\ by\ ([^,]+),\ until\ ([0-9]{4}-[0-9]{2}-[0-9]{2})\) ]]; then
+    who=${BASH_REMATCH[1]} until=${BASH_REMATCH[2]}
+    if [[ $until < $today ]]; then
+      echo "$1:$n: the exception ran out on $until; $why"
+    elif [ "$who" = PENDING ] && [[ $until > $latest ]]; then
+      echo "$1:$n: an exception waiting for approval lasts until $latest at most, not $until; $why"
+    else
+      continue
+    fi
+  else
+    echo "$1:$n: $why"
+  fi
+  fail=1
+done
+exit $fail

@@ -15,10 +15,12 @@ import org.jetbrains.skia.Surface
 import realm.Incoming
 import realm.LocalFile
 import realm.Platform
-import realm.Prefs
 import realm.Recording
 import realm.jvm.Dates
+import realm.jvm.DiskCache
+import realm.jvm.FileStore
 import realm.jvm.JFile
+import realm.jvm.awaitRedirect
 import realm.jvm.download
 import realm.jvm.uniqueFile
 import java.awt.Desktop
@@ -32,16 +34,16 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.URI
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import java.util.prefs.Preferences
 import javax.imageio.ImageIO
-import javax.swing.JFileChooser
 import javax.sound.sampled.AudioFileFormat
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioInputStream
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.TargetDataLine
+import javax.swing.JFileChooser
 import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.max
@@ -54,14 +56,8 @@ class DesktopPlatform : Platform {
     override val isForeground = true
     var window: Frame? = null
 
-    private val node = Preferences.userRoot().node("realm")
-    override val prefs = object : Prefs {
-        override fun get(key: String): String? = node.get(key, null)
-        override fun set(key: String, value: String?) {
-            if (value == null) node.remove(key) else node.put(key, value)
-            node.flush()
-        }
-    }
+    // Lazy: the previews borrow this platform's image decoding, and must not write the user's settings.
+    override val prefs by lazy { SettingsFile(File(configHome(), "app.json")) }
 
     private val incomingChannel = Channel<Incoming>(Channel.UNLIMITED)
     override val incoming: Flow<Incoming> = incomingChannel.receiveAsFlow()
@@ -79,15 +75,22 @@ class DesktopPlatform : Platform {
     private fun filesFrom(t: Transferable): List<LocalFile> = runCatching {
         when {
             t.isDataFlavorSupported(DataFlavor.javaFileListFlavor) ->
-                (t.getTransferData(DataFlavor.javaFileListFlavor) as List<*>).filterIsInstance<File>().filter { it.isFile }.map { JFile(it) }
+                (t.getTransferData(DataFlavor.javaFileListFlavor) as List<*>).filterIsInstance<File>().filter {
+                    it.isFile
+                }.map { JFile(it) }
+
             t.isDataFlavorSupported(DataFlavor.imageFlavor) -> {
                 val img = t.getTransferData(DataFlavor.imageFlavor) as java.awt.Image
                 val buf = BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB)
-                buf.createGraphics().apply { drawImage(img, 0, 0, null); dispose() }
+                buf.createGraphics().apply {
+                    drawImage(img, 0, 0, null)
+                    dispose()
+                }
                 val f = File(tmp(), "pasted-${stamp()}.png")
                 ImageIO.write(buf, "png", f)
                 listOf(JFile(f, "image/png"))
             }
+
             else -> emptyList()
         }
     }.getOrDefault(emptyList())
@@ -147,12 +150,51 @@ class DesktopPlatform : Platform {
         "Saved to ${dest.path.replaceFirst(home.path, "~")}"
     }
 
+    override suspend fun authorize(url: String, port: Int, path: String): Map<String, String> {
+        val back = awaitRedirect(port, path) {
+            val canBrowse = Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)
+            if (!canBrowse || runCatching { Desktop.getDesktop().browse(URI(url)) }.isFailure) ProcessBuilder("xdg-open", url).start()
+        }
+        withContext(Dispatchers.Main) { window?.toFront() }
+        return back
+    }
+
     override suspend fun open(url: String, auth: String?, name: String) = withContext(Dispatchers.IO) {
         val file = File(tmp(), "open/${url.hashCode().toUInt()}/$name")
         if (!file.exists()) download(url, auth, file)
         val canOpen = Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)
         if (!canOpen || runCatching { Desktop.getDesktop().open(file) }.isFailure) ProcessBuilder("xdg-open", file.path).start()
         Unit
+    }
+
+    private val imageCache = DiskCache(File(cacheHome(), "images"), 300L * 1024 * 1024)
+    override val cache = FileStore(File(cacheHome(), "data"))
+    override fun cachedImage(key: String) = imageCache.get(key)
+    override fun cacheImage(key: String, bytes: ByteArray) = imageCache.put(key, bytes)
+
+    /** The system's place for caches: XDG on Linux, Library/Caches on macOS, LocalAppData on Windows. */
+    private fun cacheHome(): File {
+        val home = System.getProperty("user.home")
+        val os = System.getProperty("os.name").lowercase()
+        return when {
+            "mac" in os -> File(home, "Library/Caches/realm")
+            "win" in os -> File(System.getenv("LOCALAPPDATA") ?: home, "realm/cache")
+            else -> File(System.getenv("XDG_CACHE_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.cache", "realm")
+        }
+    }
+
+    /**
+     * The system's place for settings: XDG on Linux, Library/Application Support on macOS, AppData on Windows.
+     * The Go CLI keeps its own config.json in the same folder.
+     */
+    private fun configHome(): File {
+        val home = System.getProperty("user.home")
+        val os = System.getProperty("os.name").lowercase()
+        return when {
+            "mac" in os -> File(home, "Library/Application Support/realm")
+            "win" in os -> File(System.getenv("APPDATA") ?: home, "realm")
+            else -> File(System.getenv("XDG_CONFIG_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.config", "realm")
+        }
     }
 
     override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? = runCatching {
@@ -197,9 +239,14 @@ class DesktopPlatform : Platform {
 /** 16 kHz mono WAV straight from the default microphone. */
 private class DesktopRecording(private val file: File) : Recording {
     private val format = AudioFormat(16_000f, 16, 1, true, false)
-    private val line: TargetDataLine = AudioSystem.getTargetDataLine(format).apply { open(format); start() }
+    private val line: TargetDataLine = AudioSystem.getTargetDataLine(format).apply {
+        open(format)
+        start()
+    }
     private val out = ByteArrayOutputStream()
+
     @Volatile private var running = true
+
     @Volatile private var peak = 0f
 
     private val reader = thread(isDaemon = true, name = "realm-mic") {

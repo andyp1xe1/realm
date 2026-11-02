@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Refuses a commit message that isn't one capitalised line, or that credits an agent.
+# The rest of the style (plain words, the change as a user sees it) is for whoever writes it.
+set -uo pipefail
+
+# What git keeps: no comment lines, nothing below the --verbose scissors, no surrounding blank lines.
+msg=$(sed '/^# -\+ >8 -\+$/,$d; /^#/d' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | sed '/./,$!d')
+first=$(head -n1 <<<"$msg")
+fail=0
+no() { echo "commit message: $1"; fail=1; }
+
+if grep -qiE 'co-authored-by:.*(claude|anthropic)|generated with .*claude' <<<"$msg"; then
+  no "no agent attribution: drop the Co-Authored-By / Generated with Claude Code lines"
+fi
+case "$first" in fixup!* | squash!* | amend!*) exit $fail ;; esac
+[ -n "$first" ] || { echo "commit message: empty"; exit 1; }
+[ "$(grep -c . <<<"$msg")" -le 1 ] || no "one line only, no body or trailers"
+[[ $first =~ ^[A-Z] ]] || no "start with a capital letter"
+grep -qiE '^(feat|fix|chore|docs|refactor|test|style|perf|build|ci)(\(.*\))?!?:' <<<"$first" &&
+  no "no type: prefix, say what changed in plain words"
+
+[ $fail = 0 ] || { echo "  e.g. \"Log in with Cloudflare from the app\""; echo "  message kept in .git/COMMIT_EDITMSG"; }
+exit $fail

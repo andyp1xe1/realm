@@ -37,8 +37,11 @@ import realm.Platform
 import realm.Prefs
 import realm.Recording
 import realm.jvm.Dates
+import realm.jvm.DiskCache
+import realm.jvm.FileStore
 import realm.jvm.JFile
 import realm.jvm.StreamReader
+import realm.jvm.awaitRedirect
 import realm.jvm.download
 import realm.jvm.guessMime
 import java.io.File
@@ -60,8 +63,11 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
             val cutoff = System.currentTimeMillis() - 24 * 3600 * 1000
             listOf("open", "camera", "voice").forEach { dir ->
                 File(activity.cacheDir, dir).walkBottomUp().forEach { f ->
-                    if (f.isFile && f.lastModified() < cutoff) f.delete()
-                    else if (f.isDirectory && f.list()?.isEmpty() == true) f.delete()
+                    if (f.isFile && f.lastModified() < cutoff) {
+                        f.delete()
+                    } else if (f.isDirectory && f.list()?.isEmpty() == true) {
+                        f.delete()
+                    }
                 }
             }
         }
@@ -96,8 +102,11 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
             Intent.ACTION_SEND_MULTIPLE -> intent.parcelables(Intent.EXTRA_STREAM)
             else -> return
         }
-        if (uris.isNotEmpty()) incomingChannel.trySend(Incoming.Files(uris.map { UriFile(activity, it) }, text))
-        else if (!text.isNullOrBlank()) incomingChannel.trySend(Incoming.Text(text))
+        if (uris.isNotEmpty()) {
+            incomingChannel.trySend(Incoming.Files(uris.map { UriFile(activity, it) }, text))
+        } else if (!text.isNullOrBlank()) {
+            incomingChannel.trySend(Incoming.Text(text))
+        }
         intent.action = null // don't re-send on recreation
     }
 
@@ -160,6 +169,21 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         }
     }
 
+    // The login page links back here (the intent filter for realm-login://), since the browser can't close itself.
+    override suspend fun authorize(url: String, port: Int, path: String) = awaitRedirect(port, path, back = "realm-login://back") {
+        try {
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: ActivityNotFoundException) {
+            throw IOException("No browser to log in with")
+        }
+    }
+
+    // Android may clear its cache dir when space runs low, which is fine for this.
+    private val imageCache = DiskCache(File(activity.cacheDir, "images"), 150L * 1024 * 1024)
+    override val cache = FileStore(File(activity.cacheDir, "data"))
+    override fun cachedImage(key: String) = imageCache.get(key)
+    override fun cacheImage(key: String, bytes: ByteArray) = imageCache.put(key, bytes)
+
     override fun decodeImage(bytes: ByteArray, maxSize: Int): ImageBitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -176,7 +200,13 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
                 else -> 0f
             }
         }.getOrDefault(0f)
-        val out = if (rotation == 0f) bmp else Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(rotation) }, true)
+        val out = if (rotation ==
+            0f
+        ) {
+            bmp
+        } else {
+            Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(rotation) }, true)
+        }
         return out.asImageBitmap()
     }
 
@@ -206,8 +236,7 @@ private class UriFile(private val context: Context, private val uri: Uri) : Loca
         size = s
     }
 
-    override fun reader(): ByteReader =
-        StreamReader(context.contentResolver.openInputStream(uri) ?: throw IOException("can't read $name"))
+    override fun reader(): ByteReader = StreamReader(context.contentResolver.openInputStream(uri) ?: throw IOException("can't read $name"))
 }
 
 private class AndroidRecording(context: Context, private val file: File) : Recording {
@@ -244,4 +273,5 @@ private fun Intent.parcelable(key: String): Uri? =
 
 @Suppress("DEPRECATION")
 private fun Intent.parcelables(key: String): List<Uri> =
-    (if (Build.VERSION.SDK_INT >= 33) getParcelableArrayListExtra(key, Uri::class.java) else getParcelableArrayListExtra(key)) ?: emptyList()
+    (if (Build.VERSION.SDK_INT >= 33) getParcelableArrayListExtra(key, Uri::class.java) else getParcelableArrayListExtra(key))
+        ?: emptyList()

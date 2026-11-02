@@ -15,4 +15,4 @@ dependencyResolutionManagement {
     }
 }
 
-include(":shared", ":androidApp", ":desktopApp")
+include(":core", ":shared", ":androidApp", ":desktopApp")

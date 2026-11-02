@@ -1,4 +1,4 @@
-# `nix-shell` here gives everything realm needs: JDK for Gradle, Go for the CLI, Node for the worker,
+# `nix-shell` here gives everything realm needs: JDK for Gradle, Go for the CLI, Node for the worker, ktlint for the hook,
 # and the native libraries the Compose desktop app loads at runtime (NixOS has no global /usr/lib).
 { pkgs ? import (builtins.getFlake "nixpkgs") { } }:
 let
@@ -12,7 +12,7 @@ let
   schemas = with pkgs; [ gtk3 gsettings-desktop-schemas ];
 in
 pkgs.mkShell {
-  packages = [ pkgs.jdk21 pkgs.go pkgs.nodejs_22 ];
+  packages = [ pkgs.jdk21 pkgs.go pkgs.nodejs_22 pkgs.ktlint ];
   shellHook = ''
     export JAVA_HOME=${pkgs.jdk21.home}
     export ANDROID_HOME=''${ANDROID_HOME:-$HOME/Android/Sdk}

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Checks one app Kotlin file, read from stdin and named by $1, against the rule in docs/ui-text.md:
+# no string starting with "Loading" or "Empty", and no "…" or "..." string that the doc doesn't list.
+set -uo pipefail
+root=$(git rev-parse --show-toplevel)
+mapfile -t allowed < <(sed -n '/^## Allowed/,$ s/^- `\(.*\)`$/\1/p' "$root/docs/ui-text.md")
+fail=0
+while IFS=: read -r line lit; do
+  s=${lit:1:${#lit}-2}
+  if [[ ${s,,} =~ ^(loading|empty) ]]; then
+    echo "$1:$line: \"$s\" is stand-in text; leave the area blank (docs/ui-text.md)"
+    fail=1
+  elif [[ $s == *…* || $s == *...* ]] && ! printf '%s\n' "${allowed[@]}" | grep -qxF -- "$s"; then
+    echo "$1:$line: \"$s\" isn't an allowed placeholder; ask, then list it in docs/ui-text.md"
+    fail=1
+  fi
+done < <(grep -noE '"([^"\\]|\\.)*"')
+exit $fail

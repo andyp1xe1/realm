@@ -6,7 +6,9 @@
     "lib": ["es2022"],
     "types": ["@cloudflare/workers-types"],
     "strict": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true
   },
   "include": ["src"]
 }

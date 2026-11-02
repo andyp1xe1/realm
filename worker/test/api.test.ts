@@ -1,20 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
-import { mockD1, mockR2 } from "./mock.ts";
-
-const TOKEN = "secret-token";
-const O = "https://realm.test";
-
-function setup() {
-  const env = { DB: mockD1(), BUCKET: mockR2(), REALM_TOKEN: TOKEN } as never;
-  const call = (path: string, init: RequestInit & { auth?: boolean } = {}) => {
-    const headers = new Headers(init.headers);
-    if (init.auth !== false && path.startsWith("/api")) headers.set("authorization", `Bearer ${TOKEN}`);
-    return worker.fetch(new Request(O + path, { ...init, headers, duplex: "half" } as RequestInit), env);
-  };
-  return { env, call };
-}
+import { O, setup, mkLink, put } from "./setup.ts";
 
 test("auth required", async () => {
   const { call } = setup();
@@ -28,12 +15,19 @@ test("notes: create, list, search, patch, delete", async () => {
   assert.equal(r.status, 201);
   const a = await r.json();
   assert.equal(a.kind, "note");
-  r = await call("/api/items", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "https://example.com/x" }) });
+  r = await call("/api/items", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "https://example.com/x" }),
+  });
   const b = await r.json();
   assert.equal(b.kind, "link");
 
   let l = await (await call("/api/items")).json();
-  assert.deepEqual(l.items.map((i: { id: string }) => i.id), [b.id, a.id]);
+  assert.deepEqual(
+    l.items.map((i: { id: string }) => i.id),
+    [b.id, a.id],
+  );
 
   l = await (await call("/api/items?q=oat+cof")).json();
   assert.equal(l.items.length, 1);
@@ -45,9 +39,16 @@ test("notes: create, list, search, patch, delete", async () => {
   assert.equal(l.items.length, 1);
 
   l = await (await call(`/api/items?after=${a.id}`)).json();
-  assert.deepEqual(l.items.map((i: { id: string }) => i.id), [b.id]);
+  assert.deepEqual(
+    l.items.map((i: { id: string }) => i.id),
+    [b.id],
+  );
 
-  r = await call(`/api/items/${a.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "buy tea" }) });
+  r = await call(`/api/items/${a.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "buy tea" }),
+  });
   assert.equal((await r.json()).text, "buy tea");
   l = await (await call("/api/items?q=tea")).json();
   assert.equal(l.items.length, 1);
@@ -75,7 +76,9 @@ test("pagination", async () => {
 test("files: put, raw, range, form, delete", async () => {
   const { call, env } = setup();
   let r = await call("/api/files/hello%20world.txt?text=greeting", {
-    method: "PUT", body: "hello file", headers: { "content-length": "10" },
+    method: "PUT",
+    body: "hello file",
+    headers: { "content-length": "10" },
   });
   assert.equal(r.status, 201);
   const f = await r.json();
@@ -115,14 +118,26 @@ test("files: put, raw, range, form, delete", async () => {
 
 test("multipart upload", async () => {
   const { call } = setup();
-  let r = await call("/api/uploads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "big.mkv", text: "movie" }) });
+  let r = await call("/api/uploads", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "big.mkv", text: "movie" }),
+  });
   const { upload } = await r.json();
   const parts = [];
   for (const [i, chunk] of ["aaaa", "bbbb", "cc"].entries()) {
-    r = await call(`/api/uploads/${upload}/${i + 1}`, { method: "PUT", body: chunk, headers: { "content-length": String(chunk.length) } });
+    r = await call(`/api/uploads/${upload}/${i + 1}`, {
+      method: "PUT",
+      body: chunk,
+      headers: { "content-length": String(chunk.length) },
+    });
     parts.push(await r.json());
   }
-  r = await call(`/api/uploads/${upload}/complete`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ parts: parts.reverse() }) });
+  r = await call(`/api/uploads/${upload}/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ parts: parts.reverse() }),
+  });
   assert.equal(r.status, 201);
   const item = await r.json();
   assert.equal(item.kind, "video");
@@ -130,20 +145,17 @@ test("multipart upload", async () => {
   assert.equal(await (await call(`/api/items/${item.id}/raw`)).text(), "aaaabbbbcc");
 });
 
-async function mkLink(call: ReturnType<typeof setup>["call"], body: object) {
-  const r = await call("/api/links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  assert.equal(r.status, 201);
-  return r.json();
-}
-
 test("links: scopes, uses, expiry, help", async () => {
   const { call } = setup();
   const note = await (await call("/api/items", { method: "POST", body: "secret plan" })).json();
-  const file = await (await call("/api/files/a.txt", { method: "PUT", body: "AAA", headers: { "content-length": "3" } })).json();
+  const file = await (
+    await call("/api/files/a.txt", { method: "PUT", body: "AAA", headers: { "content-length": "3" } })
+  ).json();
 
-  // item link: the link itself is the download, limited uses
+  // a link to one item: the link itself is the download, limited uses
   const il = await mkLink(call, { item: file.id, uses: 2 });
-  assert.equal(il.scope, "item");
+  assert.equal(il.scope, "read");
+  assert.deepEqual(il.items, [file.id]);
   assert.equal(il.url, `${O}/s/${il.token}`);
   const p = new URL(il.url).pathname;
   assert.equal(await (await call(p)).text(), "AAA");
@@ -152,8 +164,12 @@ test("links: scopes, uses, expiry, help", async () => {
 
   const il2 = await mkLink(call, { item: file.id });
   const p2 = new URL(il2.url).pathname;
-  assert.equal((await call(`${p2}/items`)).status, 403);
-  assert.equal((await call(`${p2}/items/${note.id}/raw`)).status, 403);
+  const only = await (await call(`${p2}/items`)).json();
+  assert.deepEqual(
+    only.items.map((i: { id: string }) => i.id),
+    [file.id],
+  );
+  assert.equal((await call(`${p2}/items/${note.id}/raw`)).status, 404);
   assert.equal((await call(`${p2}/items/${file.id}`)).status, 200);
 
   // drop link: can add, can't read
@@ -204,22 +220,40 @@ test("multipart via drop link is owner-bound", async () => {
   const { call } = setup();
   const a = new URL((await mkLink(call, { scope: "drop" })).url).pathname;
   const b = new URL((await mkLink(call, { scope: "drop" })).url).pathname;
-  const { upload } = await (await call(`${a}/uploads`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "x" }) })).json();
-  assert.equal((await call(`${b}/uploads/${upload}/1`, { method: "PUT", body: "x", headers: { "content-length": "1" } })).status, 404);
-  assert.equal((await call(`${a}/uploads/${upload}/1`, { method: "PUT", body: "x", headers: { "content-length": "1" } })).status, 200);
+  const { upload } = await (
+    await call(`${a}/uploads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "x" }),
+    })
+  ).json();
+  assert.equal(
+    (await call(`${b}/uploads/${upload}/1`, { method: "PUT", body: "x", headers: { "content-length": "1" } })).status,
+    404,
+  );
+  assert.equal(
+    (await call(`${a}/uploads/${upload}/1`, { method: "PUT", body: "x", headers: { "content-length": "1" } })).status,
+    200,
+  );
 });
 
 // ---------- review fixes ----------
-
-const put = (call: ReturnType<typeof setup>["call"], path: string, body: string, type?: string) =>
-  call(path, { method: "PUT", body, headers: { "content-length": String(body.length), ...(type ? { "content-type": type } : {}) } });
 
 test("item links are read-only", async () => {
   const { call } = setup();
   const f = await (await put(call, "/api/files/a.txt", "AAA")).json();
   const p = new URL((await mkLink(call, { item: f.id })).url).pathname;
   assert.equal((await call(`${p}/items/${f.id}`, { method: "DELETE" })).status, 403);
-  assert.equal((await call(`${p}/items/${f.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: '{"text":"x"}' })).status, 403);
+  assert.equal(
+    (
+      await call(`${p}/items/${f.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: '{"text":"x"}',
+      })
+    ).status,
+    403,
+  );
   assert.equal(await (await call(p)).text(), "AAA");
 });
 
@@ -239,15 +273,20 @@ test("bad ranges and bad paths are client errors", async () => {
   assert.equal((await call(`/api/items/${f.id}/raw`, { headers: { range: "bytes=5-2" } })).status, 416);
   assert.equal((await call(`/api/items/${f.id}/raw`, { headers: { range: "bytes=50-" } })).status, 416);
   assert.equal((await call("/api/items/%E0%A4%A")).status, 400);
-  const many = Array.from({ length: 300 }, (_, i) => `k${i}`).concat("note").join(",");
+  const many = Array.from({ length: 300 }, (_, i) => `k${i}`)
+    .concat("note")
+    .join(",");
   assert.equal((await call(`/api/items?kind=${many}`)).status, 200);
 });
 
 test("scriptable types download with nosniff and a sandbox CSP", async () => {
   const { call } = setup();
   for (const [name, type, inline] of [
-    ["x.html", "text/html", false], ["x.svg", "image/svg+xml", false], ["x.xml", "text/xml", false],
-    ["x.png", "image/png", true], ["x.txt", "text/plain", true],
+    ["x.html", "text/html", false],
+    ["x.svg", "image/svg+xml", false],
+    ["x.xml", "text/xml", false],
+    ["x.png", "image/png", true],
+    ["x.txt", "text/plain", true],
   ] as const) {
     const f = await (await put(call, `/api/files/${name}`, "<b>hi</b>", type)).json();
     const r = await call(`/api/items/${f.id}/raw`);
@@ -267,12 +306,18 @@ test("etag revalidation returns 304", async () => {
 
 test("uploads need a length; drop links have use and byte budgets", async () => {
   const { call } = setup();
-  const chunked = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode("x")); c.close(); } });
+  const chunked = new ReadableStream({
+    start(c) {
+      c.enqueue(new TextEncoder().encode("x"));
+      c.close();
+    },
+  });
   assert.equal((await call("/api/files/a.bin", { method: "PUT", body: chunked })).status, 411);
 
   // starting a multipart upload spends the use
   const one = new URL((await mkLink(call, { scope: "drop", uses: 1 })).url).pathname;
-  const start = () => call(`${one}/uploads`, { method: "POST", headers: { "content-type": "application/json" }, body: '{"name":"x"}' });
+  const start = () =>
+    call(`${one}/uploads`, { method: "POST", headers: { "content-type": "application/json" }, body: '{"name":"x"}' });
   assert.equal((await start()).status, 201);
   assert.equal((await start()).status, 410);
 
@@ -284,15 +329,30 @@ test("uploads need a length; drop links have use and byte budgets", async () => 
 
 test("finished uploads get an id newer than items created meanwhile", async () => {
   const { call } = setup();
-  const { upload } = await (await call("/api/uploads", { method: "POST", headers: { "content-type": "application/json" }, body: '{"name":"big"}' })).json();
+  const { upload } = await (
+    await call("/api/uploads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"name":"big"}',
+    })
+  ).json();
   await new Promise((r) => setTimeout(r, 5));
   const note = await (await call("/api/items", { method: "POST", body: "meanwhile" })).json();
   const part = await (await put(call, `/api/uploads/${upload}/1`, "data")).json();
   await new Promise((r) => setTimeout(r, 5));
-  const item = await (await call(`/api/uploads/${upload}/complete`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ parts: [part] }) })).json();
+  const item = await (
+    await call(`/api/uploads/${upload}/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ parts: [part] }),
+    })
+  ).json();
   assert.ok(item.id > note.id);
   const after = await (await call(`/api/items?after=${note.id}`)).json();
-  assert.deepEqual(after.items.map((i: { id: string }) => i.id), [item.id]);
+  assert.deepEqual(
+    after.items.map((i: { id: string }) => i.id),
+    [item.id],
+  );
 });
 
 test("cleanup aborts stale uploads and drops dead links", async () => {
@@ -307,5 +367,8 @@ test("cleanup aborts stale uploads and drops dead links", async () => {
   assert.equal((await e.DB.prepare("SELECT count(*) n FROM uploads").first()).n, 0);
   assert.equal(e.BUCKET.uploads.size, 0);
   const links = await (await call("/api/links")).json();
-  assert.deepEqual(links.links.map((l: { token: string }) => l.token), [live.token]);
+  assert.deepEqual(
+    links.links.map((l: { token: string }) => l.token),
+    [live.token],
+  );
 });
