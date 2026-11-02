@@ -57,14 +57,18 @@ suspend fun signInWithToken(server: String, token: String, source: String, engin
     return SignedIn(api, info, realms, Connection.ByToken(origin, Secret(token)), null)
 }
 
-/** Logs in with Cloudflare in the browser; [session] makes the connection's login a bearer whose renewals the caller saves. */
+/**
+ * Logs in with Cloudflare in the browser; [session] makes the connection's login a bearer whose renewals the
+ * caller saves, or one that keeps them to itself if null.
+ */
 suspend fun logInWithCloudflare(
     browser: Browser,
     source: String,
-    session: (Connection.ByCloudflare) -> CloudflareSession = { CloudflareSession(it.login) {} },
+    session: ((Connection.ByCloudflare) -> CloudflareSession)? = null,
     engine: HttpClientEngine? = null,
 ): LoggedIn = inWords {
-    val login = Cloudflare.logIn(browser, engine)
+    val auth = CloudflareAuth.on(engine)
+    val login = auth.logIn(browser)
     val accounts = CloudflareApi(Bearer { login.access.value }, engine).use { it.accounts() }
     val only = when (accounts.size) {
         0 -> throw ApiException("No Cloudflare account was picked on the consent screen")
@@ -76,7 +80,7 @@ suspend fun logInWithCloudflare(
         is RealmOn.NoAddress -> throw ApiException(on.why)
         is RealmOn.Running -> on.worker
     }
-    signInTo(worker, CloudflareSession(login) {}, source, session, engine)
+    signInTo(worker, CloudflareSession(login, auth) {}, source, session ?: { CloudflareSession(it.login, auth) {} }, engine)
 }
 
 /** Signs in to the realm worker on [account], such as one picked from [SeveralAccounts]; [session] is as for [logInWithCloudflare]. */
@@ -84,7 +88,7 @@ suspend fun signInOn(
     account: Account,
     login: CloudflareSession,
     source: String,
-    session: (Connection.ByCloudflare) -> CloudflareSession = { CloudflareSession(it.login) {} },
+    session: ((Connection.ByCloudflare) -> CloudflareSession)? = null,
     engine: HttpClientEngine? = null,
 ): SignedIn = inWords {
     val worker = when (val on = CloudflareApi(login, engine).use { it.realmOn(account) }) {
@@ -92,7 +96,7 @@ suspend fun signInOn(
         is RealmOn.NoAddress -> throw ApiException(on.why)
         RealmOn.None -> throw ApiException("There's no realm worker on ${account.name.ifBlank { account.id }}.")
     }
-    signInTo(worker, login, source, session, engine)
+    signInTo(worker, login, source, session ?: { CloudflareSession(it.login, CloudflareAuth.on(engine)) {} }, engine)
 }
 
 private suspend fun signInTo(
@@ -120,10 +124,10 @@ suspend fun signInWithCloudflare(
     login: CloudflareLogin,
     source: String,
     fresh: Boolean,
-    session: (Connection.ByCloudflare) -> CloudflareSession = { CloudflareSession(it.login) {} },
+    session: ((Connection.ByCloudflare) -> CloudflareSession)? = null,
     engine: HttpClientEngine? = null,
 ): SignedIn = inWords {
-    val s = session(Connection.ByCloudflare(origin, login))
+    val s = session?.invoke(Connection.ByCloudflare(origin, login)) ?: CloudflareSession(login, CloudflareAuth.on(engine)) {}
     val api = Api.server(origin, s, source, engine)
     val (info, realms) = api.closingOnFailure { Cloudflare.checkOwner(api, fresh) to api.realms() }
     SignedIn(api, info, realms, Connection.ByCloudflare(origin, s.login), s)

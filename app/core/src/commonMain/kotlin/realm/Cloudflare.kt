@@ -1,6 +1,5 @@
 package realm
 
-import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.request.forms.submitForm
 import io.ktor.client.statement.bodyAsText
@@ -44,30 +43,36 @@ class NotOwner : ApiException("That worker doesn't take this Cloudflare login as
 class CloudflareRejected : Exception("Your Cloudflare login has expired. Log in again.")
 
 object Cloudflare {
-    private const val CLIENT_ID = "e48e69845742def220449dec54f713b3"
-    private const val AUTHORIZE = "https://dash.cloudflare.com/oauth2/auth"
-    private const val TOKEN = "https://dash.cloudflare.com/oauth2/token"
-    private const val REVOKE = "https://dash.cloudflare.com/oauth2/revoke"
-    private const val PORT = 53134
-    private const val CALLBACK = "/oauth/callback"
-    private const val REDIRECT = "http://localhost:$PORT$CALLBACK"
     const val WORKER = "realm"
 
-    private val scopes = listOf(
-        "account-settings.read",
-        "workers-scripts.admin",
-        "d1.write",
-        "workers-r2.write",
-        "workers-routes.write",
-        "dns.write",
-        "zone.read",
-        "offline_access",
-    )
+    /**
+     * Checks that [api] takes its Cloudflare login as the owner's. When the caller has [fresh]ly written
+     * REALM_ACCOUNT, a refusal is asked again for ~8 s while the secret arrives.
+     */
+    suspend fun checkOwner(api: Api, fresh: Boolean): Info {
+        repeat(if (fresh) OWNER_TRIES else 1) { attempt ->
+            if (attempt > 0) delay(OWNER_EVERY)
+            try {
+                return api.info().takeIf { it.scope == "owner" } ?: throw NotOwner()
+            } catch (e: ApiException) {
+                if (e.status != 401) throw e
+            }
+        }
+        throw NotOwner()
+    }
 
-    private val http by lazy { client(null) }
+    private const val OWNER_TRIES = 5
+    private val OWNER_EVERY = 2.seconds
+
+    fun now() = Clock.System.now().epochSeconds
+}
+
+/** Cloudflare's OAuth: logs in in the browser, renews logins and ends them, through [engine] if given. */
+class CloudflareAuth(private val engine: HttpClientEngine? = null) {
+    private val http by lazy { client(engine) }
 
     /** The browser login: authorization code with PKCE, caught on localhost. */
-    suspend fun logIn(browser: Browser, engine: HttpClientEngine? = null): CloudflareLogin {
+    suspend fun logIn(browser: Browser): CloudflareLogin {
         val verifier = generateNonceSuspend() + generateNonceSuspend()
         val challenge = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT).encode(sha256(verifier.encodeToByteArray()))
         val state = generateNonceSuspend()
@@ -95,7 +100,6 @@ object Cloudflare {
                 "code_verifier" to verifier,
             ),
             keep = null,
-            engine,
         )
     }
 
@@ -130,12 +134,7 @@ object Cloudflare {
         @SerialName("error_description") val description: String? = null,
     )
 
-    private suspend fun exchange(form: Map<String, String>, keep: Secret?, engine: HttpClientEngine? = null): CloudflareLogin {
-        if (engine != null) return client(engine).use { exchange(it, form, keep) }
-        return exchange(http, form, keep)
-    }
-
-    private suspend fun exchange(http: HttpClient, form: Map<String, String>, keep: Secret?): CloudflareLogin {
+    private suspend fun exchange(form: Map<String, String>, keep: Secret?): CloudflareLogin {
         val (status, text) = try {
             val res = http.submitForm(TOKEN, parameters { form.forEach { (k, v) -> append(k, v) } })
             res.status.value to res.bodyAsText()
@@ -153,36 +152,46 @@ object Cloudflare {
             if (status == 400 || status == 401 || t.error == "invalid_grant") throw CloudflareRejected()
             throw ApiException("Cloudflare didn't log you in: ${t.description ?: t.error}")
         }
-        return CloudflareLogin(t.accessToken, t.refreshToken ?: keep, now() + t.expiresIn)
+        return CloudflareLogin(t.accessToken, t.refreshToken ?: keep, Cloudflare.now() + t.expiresIn)
     }
 
-    /**
-     * Checks that [api] takes its Cloudflare login as the owner's. When the caller has [fresh]ly written
-     * REALM_ACCOUNT, a refusal is asked again for ~8 s while the secret arrives.
-     */
-    suspend fun checkOwner(api: Api, fresh: Boolean): Info {
-        repeat(if (fresh) OWNER_TRIES else 1) { attempt ->
-            if (attempt > 0) delay(OWNER_EVERY)
-            try {
-                return api.info().takeIf { it.scope == "owner" } ?: throw NotOwner()
-            } catch (e: ApiException) {
-                if (e.status != 401) throw e
-            }
-        }
-        throw NotOwner()
+    companion object {
+        /** The app's own, on the platform's HTTP engine. */
+        val default by lazy { CloudflareAuth() }
+
+        /** One on [engine], or the [default] when there's none. */
+        fun on(engine: HttpClientEngine?) = engine?.let(::CloudflareAuth) ?: default
+
+        private const val CLIENT_ID = "e48e69845742def220449dec54f713b3"
+        private const val AUTHORIZE = "https://dash.cloudflare.com/oauth2/auth"
+        private const val TOKEN = "https://dash.cloudflare.com/oauth2/token"
+        private const val REVOKE = "https://dash.cloudflare.com/oauth2/revoke"
+        private const val PORT = 53134
+        private const val CALLBACK = "/oauth/callback"
+        private const val REDIRECT = "http://localhost:$PORT$CALLBACK"
+
+        private val scopes = listOf(
+            "account-settings.read",
+            "workers-scripts.admin",
+            "d1.write",
+            "workers-r2.write",
+            "workers-routes.write",
+            "dns.write",
+            "zone.read",
+            "offline_access",
+        )
     }
-
-    private const val OWNER_TRIES = 5
-    private val OWNER_EVERY = 2.seconds
-
-    fun now() = Clock.System.now().epochSeconds
 }
 
 /**
- * A Cloudflare login as an owner's [Bearer], renewed as it runs out; [save] gets every new login, and null once
- * Cloudflare rejects it, until [close].
+ * A Cloudflare login as an owner's [Bearer], renewed by [auth] as it runs out; [save] gets every new login, and
+ * null once Cloudflare rejects it, until [close].
  */
-class CloudflareSession(login: CloudflareLogin, private val save: (CloudflareLogin?) -> Unit) : Bearer {
+class CloudflareSession(
+    login: CloudflareLogin,
+    private val auth: CloudflareAuth = CloudflareAuth.default,
+    private val save: (CloudflareLogin?) -> Unit,
+) : Bearer {
     var login = login
         private set
     private val lock = Mutex()
@@ -197,7 +206,7 @@ class CloudflareSession(login: CloudflareLogin, private val save: (CloudflareLog
     override suspend fun token(): String = lock.withLock {
         if (Cloudflare.now() < login.expires - 60) return login.access.value
         try {
-            login = Cloudflare.refresh(login)
+            login = auth.refresh(login)
         } catch (e: CloudflareRejected) {
             if (open) save(null)
             throw e
@@ -205,4 +214,7 @@ class CloudflareSession(login: CloudflareLogin, private val save: (CloudflareLog
         if (open) save(login)
         login.access.value
     }
+
+    /** Ends the login on Cloudflare's side; best effort. */
+    suspend fun revoke() = auth.revoke(login)
 }

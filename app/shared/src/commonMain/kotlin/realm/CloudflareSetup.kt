@@ -54,7 +54,7 @@ class CloudflareSetup internal constructor(
                 home.onboarding.start(r.login, r.accounts)
             }
         }
-        before?.let { scope.launch { Cloudflare.revoke(it.login) } }
+        before?.let { scope.launch { it.revoke() } }
     }
 
     /** Opens the plan for [update], with the Cloudflare login the server is signed in with. */

@@ -285,7 +285,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     /** Signs out, ending the Cloudflare login there is. */
     fun signOut() {
-        endSession()?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
+        endSession()?.let { s -> scope.launch { s.revoke() } }
     }
 
     /** Leaves the server for the account chooser, with the same Cloudflare login: no new consent. */

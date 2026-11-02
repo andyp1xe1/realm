@@ -115,6 +115,32 @@ class CloudflareLoginTest {
     }
 
     @Test
+    fun aLoginThatRunsOutIsRenewedByTheCloudflareItCameFrom() = runTest {
+        var exchanges = 0
+        val c = FakeClouds { route, _ ->
+            when (route) {
+                "POST dash.cloudflare.com/oauth2/token" -> {
+                    exchanges++
+                    val expiresIn = if (exchanges == 1) 0 else 3600
+                    json("""{"access_token":"cf-token-$exchanges","refresh_token":"r$exchanges","expires_in":$expiresIn}""")
+                }
+
+                "GET realm.jo.workers.dev/api/info" -> json(OWNER_INFO)
+
+                "GET realm.jo.workers.dev/api/realms" -> json(TWO_REALMS)
+
+                else -> null
+            }
+        }
+        val s = assertIs<SignedIn>(logInWithCloudflare(browser, "test", engine = c.engine))
+
+        assertEquals(2, exchanges)
+        assertEquals(Secret("cf-token-2"), assertIs<Connection.ByCloudflare>(s.connection).login.access)
+        val worker = c.seen.filter { it.url.host == "realm.jo.workers.dev" }
+        assertTrue(worker.isNotEmpty() && worker.all { it.headers["Authorization"] == "Bearer cf-token-2" }, c.routes.toString())
+    }
+
+    @Test
     fun aWorkerJustDeployedIsSignedInToWithTheSameLogin() = runTest {
         val c = cloudflare(worker = true)
         val login = CloudflareLogin(Secret("cf-token"), Secret("r1"), Cloudflare.now() + 3600)
