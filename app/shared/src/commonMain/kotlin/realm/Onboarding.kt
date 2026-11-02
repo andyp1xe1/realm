@@ -1,8 +1,5 @@
 package realm
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
@@ -13,20 +10,41 @@ import kotlinx.serialization.builtins.serializer
 import kotlin.time.Duration.Companion.seconds
 
 class Onboarding internal constructor(private val home: Home, private val scope: CoroutineScope, private val engine: HttpClientEngine?) {
+    /**
+     * Where onboarding with [session] has got to: [account] is the id of the account chosen to deploy to, null
+     * while choosing, and [realms] whether realm runs on each account, by id.
+     */
+    data class State(
+        val session: CloudflareSession,
+        val account: String?,
+        val realms: Map<String, Fetched<RealmOn>> = emptyMap(),
+        val problem: String? = null,
+        val deployFailed: Boolean = false,
+        val comingUp: String? = null,
+        val busy: Boolean = false,
+        val subdomain: String = "",
+        val zone: Zone? = null,
+        val name: String = "realm",
+    )
+
+    private val at: State? get() = (home.phase as? Phase.Onboarding)?.at
+
+    private fun edit(s: CloudflareSession? = session, change: State.() -> State) {
+        val now = at ?: return
+        if (now.session === s) home.phase = Phase.Onboarding(now.change())
+    }
+
     /** The Cloudflare login while it's all there is; null otherwise. */
-    var session by mutableStateOf<CloudflareSession?>(null)
-        private set
+    val session: CloudflareSession? get() = at?.session
 
     /** The accounts the login was given on the consent screen. */
     val accounts = Fetched<List<Account>>(scope, "Looking at your Cloudflare accounts", failed = ::failed)
 
     /** Whether realm runs on each account, by id. */
-    var realms by mutableStateOf<Map<String, Fetched<RealmOn>>>(emptyMap())
-        private set
+    val realms: Map<String, Fetched<RealmOn>> get() = at?.realms.orEmpty()
 
-    /** The account chosen to deploy to, with no realm on it yet; null while choosing. */
-    var account by mutableStateOf<Account?>(null)
-        private set
+    /** The account chosen to deploy to, with no realm on it yet, named once [accounts] are known; null while choosing. */
+    val account: Account? get() = at?.account?.let { id -> accounts.state.value?.firstOrNull { it.id == id } ?: Account(id) }
 
     private val lastUsed = Remembered(home.platform.prefs, "cloudflare-last", String.serializer())
 
@@ -34,29 +52,31 @@ class Onboarding internal constructor(private val home: Home, private val scope:
     val requirements = Fetched<Requirements>(scope, "Checking what deploying realm needs", failed = ::failed)
 
     /** Why checking or the last deploy failed; null when nothing did. */
-    var problem by mutableStateOf<String?>(null)
-        private set
+    val problem: String? get() = at?.problem
 
     /** Whether [problem] is from deploying, so trying again is a retry. */
-    var deployFailed by mutableStateOf(false)
-        private set
+    val deployFailed: Boolean get() = at?.deployFailed == true
 
     /** The origin deployed to that doesn't answer yet; signing in is tried again meanwhile. */
-    var comingUp by mutableStateOf<String?>(null)
-        private set
+    val comingUp: String? get() = at?.comingUp
 
     /** A deploy or a sign-in is under way. */
-    var busy by mutableStateOf(false)
-        private set
+    val busy: Boolean get() = at?.busy == true
 
     /** The workers.dev subdomain typed, for an account that has none. */
-    var subdomain by mutableStateOf("")
+    var subdomain: String
+        get() = at?.subdomain.orEmpty()
+        set(value) = edit { copy(subdomain = value) }
 
     /** The domain to put realm on; null is workers.dev. */
-    var zone by mutableStateOf<Zone?>(null)
+    var zone: Zone?
+        get() = at?.zone
+        set(value) = edit { copy(zone = value) }
 
     /** The subdomain of [zone] typed; blank for the domain itself. */
-    var name by mutableStateOf("realm")
+    var name: String
+        get() = at?.name.orEmpty()
+        set(value) = edit { copy(name = value) }
 
     val choices get() = Choices(subdomain = subdomain, domain = zone?.let { DomainChoice(it, name) })
 
@@ -83,13 +103,11 @@ class Onboarding internal constructor(private val home: Home, private val scope:
             }
         }
         Snapshot.withMutableSnapshot {
-            handOver()
-            session = s
-            val id = login.account
-            account = id?.let { known?.firstOrNull { a -> a.id == id } ?: Account(id) }
+            forget()
+            home.phase = Phase.Onboarding(State(s, login.account))
             save(login)
             if (known != null) accounts.set(known)
-            if (account != null) {
+            if (login.account != null) {
                 check()
             } else if (known != null) {
                 askRealms(known)
@@ -98,10 +116,10 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         if (known == null) loadAccounts(s)
     }
 
-    private fun save(login: CloudflareLogin) = home.platform.prefs.saveOwn(Connection.LoginOnly(login.copy(account = account?.id)))
+    private fun save(login: CloudflareLogin) = home.platform.prefs.saveOwn(Connection.LoginOnly(login.copy(account = at?.account)))
 
     private fun loadAccounts(s: CloudflareSession) {
-        problem = null
+        edit(s) { copy(problem = null) }
         scope.launch {
             val list = try {
                 CloudflareApi(s, engine).use { it.accounts() }
@@ -109,24 +127,25 @@ class Onboarding internal constructor(private val home: Home, private val scope:
                 throw e
             } catch (e: Exception) {
                 logFailure("Looking at your Cloudflare accounts", e)
-                if (session === s) problem = explain(e)
+                edit(s) { copy(problem = explain(e)) }
                 return@launch
             }
             if (session !== s) return@launch
             Snapshot.withMutableSnapshot {
                 accounts.set(list)
-                if (account == null) askRealms(list)
+                if (at?.account == null) askRealms(list)
             }
         }
     }
 
     private fun askRealms(list: List<Account>) {
         val s = session ?: return
-        realms = list.associate { a ->
+        val asked = list.associate { a ->
             a.id to Fetched<RealmOn>(scope, "Looking for realm on ${a.id}", failed = ::failed).apply {
                 refresh { CloudflareApi(s, engine).use { it.realmOn(a) } }
             }
         }
+        edit(s) { copy(realms = asked) }
     }
 
     /** Signs in to realm on [a] if it runs there, else picks it to deploy to; either way it's offered first next time. */
@@ -136,12 +155,9 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         lastUsed.set(a.id)
         if (on != RealmOn.None) return signInToIt(a)
         Snapshot.withMutableSnapshot {
-            account = a
-            session?.let { save(it.login) }
             requirements.forget()
-            zone = null
-            problem = null
-            deployFailed = false
+            edit { copy(account = a.id, zone = null, problem = null, deployFailed = false) }
+            session?.let { save(it.login) }
         }
         check()
     }
@@ -151,11 +167,9 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         val s = session ?: return
         if (busy) return
         Snapshot.withMutableSnapshot {
-            account = null
-            save(s.login)
             requirements.forget()
-            problem = null
-            deployFailed = false
+            edit { copy(account = null, problem = null, deployFailed = false) }
+            save(s.login)
             accounts.state.value?.let(::askRealms)
         }
         if (accounts.state == Loaded.Unknown) loadAccounts(s)
@@ -164,8 +178,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
     /** Checks the requirements, or each account's realm, again; what's known stays meanwhile. */
     fun check() {
         val s = session ?: return
-        problem = null
-        deployFailed = false
+        edit { copy(problem = null, deployFailed = false) }
         val a = account
         when {
             a != null -> requirements.refresh { CloudflareApi(s, engine).use { it.requirements(a) } }
@@ -179,24 +192,15 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         val s = session ?: return
         val d = deployment ?: return
         if (busy) return
-        busy = true
-        problem = null
-        home.cloudflare.deployFresh(s, d) { why ->
-            Snapshot.withMutableSnapshot {
-                busy = false
-                check()
-                problem = why
-                deployFailed = true
-            }
-        }
+        edit { copy(busy = true, problem = null) }
+        home.cloudflare.deployFresh(s, d) { why -> stop(s, why, deployFailed = true) }
     }
 
     /** Signs in to the realm worker on [a], as when it was deployed some other way since the check. */
     fun signInToIt(a: Account? = account) {
         val s = session ?: return
         if (a == null || busy) return
-        busy = true
-        problem = null
+        edit { copy(busy = true, problem = null) }
         scope.launch {
             val signed = try {
                 signInOn(a, s, home.platform.name, home::sessionFor, engine)
@@ -204,24 +208,16 @@ class Onboarding internal constructor(private val home: Home, private val scope:
                 throw e
             } catch (e: Exception) {
                 logFailure("Signing in to the worker on ${a.id}", e)
-                Snapshot.withMutableSnapshot {
-                    busy = false
-                    problem = explain(e)
-                }
+                edit(s) { copy(busy = false, problem = explain(e)) }
                 return@launch
             }
-            if (session === s) Snapshot.withMutableSnapshot { home.signedIn(signed) }
+            if (session === s) Snapshot.withMutableSnapshot { home.signedIn(signed) } else signed.api.close()
         }
     }
 
     internal fun comingUp(deployed: Connection.ByCloudflare) {
         val s = session ?: return
-        Snapshot.withMutableSnapshot {
-            comingUp = deployed.server
-            busy = true
-            problem = null
-            deployFailed = false
-        }
+        edit { copy(comingUp = deployed.server, busy = true, problem = null, deployFailed = false) }
         scope.launch {
             val signed = try {
                 answering(deployed, s)
@@ -229,7 +225,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
                 throw e
             } catch (e: Exception) {
                 logFailure("Signing in to ${deployed.server}", e)
-                if (session === s) stopComingUp(explain(e))
+                stop(s, explain(e))
                 return@launch
             }
             when {
@@ -239,7 +235,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
 
                 else -> {
                     val host = deployed.server.removePrefix("https://")
-                    stopComingUp("realm is deployed, but $host doesn't answer yet. Sign in again in a few minutes.")
+                    stop(s, "realm is deployed, but $host doesn't answer yet. Sign in again in a few minutes.")
                 }
             }
         }
@@ -265,33 +261,20 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         return null
     }
 
-    private fun stopComingUp(why: String) = Snapshot.withMutableSnapshot {
-        comingUp = null
-        busy = false
-        check()
-        problem = why
+    private fun stop(s: CloudflareSession, why: String, deployFailed: Boolean = false) {
+        if (session !== s) return
+        Snapshot.withMutableSnapshot {
+            check()
+            edit(s) { copy(comingUp = null, busy = false, problem = why, deployFailed = deployFailed) }
+        }
     }
 
-    internal fun handOver(): CloudflareSession? {
-        val s = session
-        session = null
+    internal fun forget() {
         accounts.forget()
-        realms = emptyMap()
         requirements.forget()
-        account = null
-        problem = null
-        deployFailed = false
-        comingUp = null
-        busy = false
-        subdomain = ""
-        zone = null
-        name = "realm"
-        return s
     }
 
-    private fun failed(message: String) {
-        if (session != null) problem = message
-    }
+    private fun failed(message: String) = edit { copy(problem = message) }
 
     private companion object {
         val COMING_UP_EVERY = 15.seconds

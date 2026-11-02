@@ -46,6 +46,7 @@ import realm.Addresses
 import realm.Check
 import realm.DomainChoice
 import realm.Home
+import realm.Phase
 import realm.ServerFacts
 import realm.ServerSettings
 import realm.UpdateCheck
@@ -61,13 +62,14 @@ private fun AnimatedContentTransitionScope<*>.swap(): ContentTransform =
 @Composable
 fun ServerSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val settings = home.serverSettings
-    val server = home.server ?: return
+    val signedIn = home.phase as? Phase.SignedIn ?: return
+    val server = signedIn.server
     LaunchedEffect(server) { settings.refresh() }
-    val managed = home.session?.login?.account != null
+    val managed = signedIn.session?.login?.account != null
     Column(modifier) {
         Text("Signed in to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(server.base.removeSuffix("/api"), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Loading(settings.facts.state, skeleton = { DetailsSkeleton(managed) }) { facts -> Column { Details(facts, home, onClose) } }
+        Loading(signedIn.facts.state, skeleton = { DetailsSkeleton(managed) }) { facts -> Column { Details(facts, home, onClose) } }
     }
 }
 

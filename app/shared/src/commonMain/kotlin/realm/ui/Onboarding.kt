@@ -177,12 +177,9 @@ private fun AccountRow(account: Account, o: State) {
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Label("Cloudflare account")
-            Loading(o.accounts.state, skeleton = { SkeletonLine(0.6f, style = MaterialTheme.typography.bodyMedium) }) { list ->
-                val name = list.firstOrNull { it.id == account.id }?.name ?: account.name
+            Loading(o.accounts.state, skeleton = { SkeletonLine(0.6f, style = MaterialTheme.typography.bodyMedium) }) {
                 Text(
-                    name.ifBlank {
-                        account.id
-                    },
+                    account.name.ifBlank { account.id },
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

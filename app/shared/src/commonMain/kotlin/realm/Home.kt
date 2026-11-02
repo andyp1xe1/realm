@@ -4,7 +4,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.graphics.ImageBitmap
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
@@ -24,9 +23,14 @@ import kotlin.time.TimeSource
  * open. Each space keeps its [Model] while the app runs, like a browser tab.
  */
 class Home(val platform: Platform, private val scope: CoroutineScope, private val engine: HttpClientEngine? = null) {
+    var phase by mutableStateOf<Phase>(Phase.Setup)
+        internal set
+
     /** The owner API of the server you're signed in to; null when you only use share links. */
-    var server by mutableStateOf<Api?>(null)
-        private set
+    val server: Api? get() = (phase as? Phase.SignedIn)?.server
+
+    internal val session: CloudflareSession? get() = (phase as? Phase.SignedIn)?.session
+
     val realms = mutableStateListOf<Realm>()
     val shared = mutableStateListOf<Space.Shared>()
 
@@ -73,9 +77,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     private val prefetching = Semaphore(2)
     private var lastRefresh: TimeSource.Monotonic.ValueTimeMark? = null
 
-    internal var session: CloudflareSession? = null
-        private set
-
     val spaces: List<Space> get() = realms.map { own(it) } + shared
     val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
     val model: Model? get() = open?.let(::modelOf)
@@ -88,11 +89,11 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             is Connection.LoginOnly -> onboarding.start(own.cloudflare, null)
 
             is Connection.Owner -> {
-                val bearer = when (own) {
-                    is Connection.ByToken -> Bearer { own.token.value }
-                    is Connection.ByCloudflare -> sessionFor(own).also { session = it }
+                val (bearer, session) = when (own) {
+                    is Connection.ByToken -> Bearer { own.token.value } to null
+                    is Connection.ByCloudflare -> sessionFor(own).let { it to it }
                 }
-                server = Api.server(own.server, bearer, platform.name, engine)
+                phase = signedIn(Api.server(own.server, bearer, platform.name, engine), session)
                 realms.addAll(knownRealms.get().orEmpty())
                 serverSettings.refresh()
             }
@@ -248,60 +249,66 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     }
 
     internal fun signedIn(s: SignedIn) {
-        onboarding.handOver()
-        signOut()
+        leave(switching = false, revoke = false)
         adoptOwner(s)
         serverSettings.refresh()
     }
 
-    internal fun switchedTo(s: SignedIn) {
+    /** Signed in to the same server at another address, with [facts] about it there. */
+    internal fun switchedTo(s: SignedIn, facts: ServerFacts) {
         val was = openKey
-        leave(switching = true)
-        adoptOwner(s)
+        leave(switching = true, revoke = false)
+        adoptOwner(s, facts)
         if (spaces.any { it.key == was }) {
             openKey = was
             prefs.set("open", was)
         }
     }
 
-    private fun adoptOwner(s: SignedIn) {
-        session = s.session
+    private fun signedIn(api: Api, session: CloudflareSession?, facts: ServerFacts? = null) =
+        Phase.SignedIn(api, session, serverSettings.factsAt(api).apply { facts?.let(::set) })
+
+    private fun adoptOwner(s: SignedIn, facts: ServerFacts? = null) {
+        phase = signedIn(s.api, s.session, facts)
         prefs.saveOwn(s.connection)
         checkForUpdate(force = true, s.api)
-        adopt(s.api, s.realms)
+        realms.addAll(s.realms)
+        knownRealms.set(s.realms)
+        if (open == null) reopen()
+        refresh(force = true)
         message = Api.mismatch(s.info)
         model?.refresh()
     }
 
-    private fun adopt(api: Api, list: List<Realm>) {
-        server = api
-        realms.addAll(list)
-        knownRealms.set(list)
-        if (open == null) reopen()
-        refresh(force = true)
-    }
-
-    fun signOut() = leave(switching = false)
+    /** Signs out, ending the Cloudflare login there is. */
+    fun signOut() = leave(switching = false, revoke = true)
 
     /** Leaves the server for the account chooser, with the same Cloudflare login: no new consent. */
     fun useAnotherAccount() {
         val login = session?.login ?: return
-        Snapshot.withMutableSnapshot {
-            leave(switching = false, ending = false)
-            onboarding.start(login.copy(account = null), null)
-        }
+        leave(switching = false, revoke = false)
+        onboarding.start(login.copy(account = null), null)
     }
 
-    private fun leave(switching: Boolean, ending: Boolean = !switching) {
+    private fun leave(switching: Boolean, revoke: Boolean) {
+        val was = phase
+        phase = Phase.Setup
         realms.forEach { forget(ownKey(it.id), drop = !switching) }
         realms.clear()
-        server?.close()
-        server = null
-        val kept = onboarding.handOver()
-        if (ending) (session ?: kept)?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
-        session = null
+        onboarding.forget()
+        val login = when (was) {
+            is Phase.SignedIn -> was.session.also {
+                was.server.close()
+                was.facts.forget()
+            }
+
+            is Phase.Onboarding -> was.at.session
+
+            Phase.Setup -> null
+        }
+        if (revoke) login?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
         cloudflare.signedOut()
-        if (!switching) serverSettings.signedOut()
+        serverSettings.signedOut()
         prefs.saveOwn(null)
         knownRealms.set(null)
         if (open == null) reopen()

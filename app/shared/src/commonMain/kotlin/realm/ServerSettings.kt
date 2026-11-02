@@ -14,10 +14,8 @@ class ServerSettings internal constructor(
     private val scope: CoroutineScope,
     private val engine: HttpClientEngine?,
 ) {
-    /** What the section shows about the server, kept between runs. */
-    val facts = Fetched(scope, "Looking at the server", Remembered(home.platform.prefs, "server-facts", ServerFacts.serializer())) {
-        home.message = it
-    }
+    /** What the section shows about the server signed in to, kept between runs; null when signed in to none. */
+    val facts: Fetched<ServerFacts>? get() = (home.phase as? Phase.SignedIn)?.facts
 
     var check by mutableStateOf<Check>(Check.NotYet)
         private set
@@ -26,18 +24,21 @@ class ServerSettings internal constructor(
     var task by mutableStateOf<AddressTask?>(null)
         private set
 
-    private val addresses get() = facts.state.value?.addresses
+    private val addresses get() = facts?.state?.value?.addresses
 
-    /** Asks the server what the section shows; what was kept about another address is dropped first. */
+    internal fun factsAt(server: Api) = Fetched(
+        scope,
+        "Looking at the server",
+        Remembered(home.platform.prefs, "server-facts/${server.base.removeSuffix("/api")}", ServerFacts.serializer()),
+    ) { home.message = it }
+
+    /** Asks the server what the section shows. */
     fun refresh() {
-        val server = home.server ?: return
-        val session = home.session
-        if (facts.state.value?.origin != server.base.removeSuffix("/api")) facts.forget()
-        facts.refresh { serverFacts(server, session, engine) }
+        val signedIn = home.phase as? Phase.SignedIn ?: return
+        signedIn.facts.refresh { serverFacts(signedIn.server, signedIn.session, engine) }
     }
 
-    internal fun signedOut() = Snapshot.withMutableSnapshot {
-        facts.forget()
+    internal fun signedOut() {
         check = Check.NotYet
         task = null
     }
@@ -82,7 +83,7 @@ class ServerSettings internal constructor(
 
     /** Asks before taking the worker off [origin]: share links made with it stop working. */
     fun remove(origin: String) {
-        val f = facts.state.value ?: return
+        val f = facts?.state?.value ?: return
         val others = (f.addresses ?: return).origins - origin
         val moveTo = if (origin == f.origin) others.firstOrNull() ?: return else null
         task = AddressTask.Removing(origin, confirmed = false, moveTo)
@@ -132,8 +133,7 @@ class ServerSettings internal constructor(
                     throw e
                 }
                 Snapshot.withMutableSnapshot {
-                    home.switchedTo(s)
-                    facts.set(next)
+                    home.switchedTo(s, next)
                     check = Check.NotYet
                     this@ServerSettings.task = null
                 }
@@ -148,6 +148,7 @@ class ServerSettings internal constructor(
 
     private fun work(task: AddressTask, block: suspend (CloudflareApi, Addresses) -> AddressTask?) {
         val session = home.session ?: return
+        val f = facts ?: return
         val a = addresses ?: return
         this.task = task
         scope.launch {
@@ -156,7 +157,7 @@ class ServerSettings internal constructor(
                     val next = block(cf, a)
                     val now = cf.addresses(a.account)
                     Snapshot.withMutableSnapshot {
-                        facts.update { it.copy(addresses = now) }
+                        f.update { it.copy(addresses = now) }
                         this@ServerSettings.task = next
                     }
                 }

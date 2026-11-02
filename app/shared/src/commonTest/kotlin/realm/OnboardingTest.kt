@@ -155,6 +155,15 @@ class OnboardingTest {
     }
 
     @Test
+    fun aRestartNamesTheKeptAccountOnceTheAccountsAreKnown() = runTest {
+        val home = home(MapPrefs(kept), Cloud(this))
+        assertEquals(Account("a1"), home.onboarding.account)
+        advanceUntilIdle()
+
+        assertEquals(Account("a1", "Jo's account"), home.onboarding.account)
+    }
+
+    @Test
     fun aFailedDeployKeepsTheLoginAndRetryingSignsIn() = runTest {
         val prefs = MapPrefs(kept)
         val cloud = Cloud(this, uploads = false)

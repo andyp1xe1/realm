@@ -95,8 +95,7 @@ private fun CloudflareAccount(home: Home, onDismiss: () -> Unit) = Column {
     val o = home.onboarding
     Text("Logged in to Cloudflare", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Loading(o.accounts.state, skeleton = { SkeletonLine(0.5f) }) { accounts ->
-        val chosen = o.account?.let { a -> accounts.firstOrNull { it.id == a.id } ?: a }
-        val names = (chosen?.let(::listOf) ?: accounts).joinToString(", ") { it.name.ifBlank { it.id } }
+        val names = (o.account?.let(::listOf) ?: accounts).joinToString(", ") { it.name.ifBlank { it.id } }
         Text(names, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
     Spacer(Modifier.height(4.dp))
