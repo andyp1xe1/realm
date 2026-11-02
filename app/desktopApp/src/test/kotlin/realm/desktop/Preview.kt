@@ -230,10 +230,18 @@ private fun create() {
         Ui.pause(5)
     }
     h.createRealm("Ideas")
+    var arrived: Int? = null
+    var opened: Int? = null
     for (n in 0..80) {
         val img = frame()
+        if (arrived == null && h.fresh != null) arrived = n
+        if (opened == null && !h.showingTabs) opened = n
         Ui.pause(5) // real time for the stand-in server to answer
         if (n % 4 == 0) File(out, "create-$n.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+    }
+    println("create: the new tile arrived at frame $arrived and opened at frame $opened")
+    check(arrived != null && opened != null && opened - arrived <= 21) {
+        "create: the new tile opened $arrived → $opened, not as its 300 ms arrival ended"
     }
     // Then back to the grid and delete Lisbon trip: it fades away and Ideas slides into its place (delete-N).
     h.showTabs()

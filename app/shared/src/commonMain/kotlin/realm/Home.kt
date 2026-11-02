@@ -44,9 +44,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     var showingTabs by mutableStateOf(false)
         private set
 
-    /** Keys of tiles fading out while the server deletes them. */
-    val leaving = mutableStateListOf<String>()
-
     /** A tile just added in the overview: shown arriving there, then opened. */
     var fresh by mutableStateOf<String?>(null)
         private set
@@ -347,16 +344,11 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     }
 
     fun disconnect(space: Space.Shared) {
-        leaving += space.key
-        scope.launch {
-            delay(TILE_LEAVE_MILLIS)
-            shared.removeAll { it.key == space.key }
-            leaving -= space.key
-            forget(space.key, drop = true)
-            linkInfo(space.url).set(null)
-            saveLinks()
-            if (open == null) reopen()
-        }
+        shared.removeAll { it.key == space.key }
+        forget(space.key, drop = true)
+        linkInfo(space.url).set(null)
+        saveLinks()
+        if (open == null) reopen()
     }
 
     private fun saveLinks() = knownLinks.set(shared.map { it.url })
@@ -376,26 +368,20 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         if (i >= 0) realms[i] = r
     }
 
+    /** Takes [realm] away at once, and puts it back if the server doesn't delete it. */
     fun deleteRealm(realm: Realm) {
-        val key = ownKey(realm.id)
-        onServer { s ->
-            leaving += key
-            try {
-                coroutineScope {
-                    launch { delay(TILE_LEAVE_MILLIS) }
-                    s.deleteRealm(realm.id)
-                }
-                realms.removeAll { it.id == realm.id }
-                forget(key, drop = true)
-                knownRealms.set(realms.toList())
-                if (open == null) reopen()
-            } finally {
-                leaving -= key
-            }
+        val at = realms.indexOfFirst { it.id == realm.id }
+        if (at < 0) return
+        realms.removeAt(at)
+        if (open == null) reopen()
+        onServer(failed = { realms.add(minOf(at, realms.size), realm) }) { s ->
+            s.deleteRealm(realm.id)
+            forget(ownKey(realm.id), drop = true)
+            knownRealms.set(realms.toList())
         }
     }
 
-    private fun onServer(work: suspend (Api) -> Unit) {
+    private fun onServer(failed: () -> Unit = {}, work: suspend (Api) -> Unit) {
         val p = phase as? Phase.SignedIn ?: return
         p.scope.launch {
             try {
@@ -403,6 +389,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                failed()
                 message = explain(e)
             }
         }
@@ -425,10 +412,5 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         models.remove(key)
         tiles.forget(key, drop)
         if (drop) FeedCache(platform.cache, key).forget()
-    }
-
-    companion object {
-        /** How long a tile takes to fade away when deleted or removed. */
-        const val TILE_LEAVE_MILLIS = 220L
     }
 }

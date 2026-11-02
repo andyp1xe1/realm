@@ -88,8 +88,6 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
         val key = home.fresh ?: return@LaunchedEffect
         val i = home.spaces.indexOfFirst { it.key == key }
         if (i >= 0) grid.animateScrollToItem(i + 1)
-        delay(TILE_ARRIVE_MILLIS.toLong() + 80)
-        home.spaces.firstOrNull { it.key == key }?.let(home::open)
     }
     NavigationBackHandler(rememberNavigationEventState(NavigationEventInfo.None), isBackEnabled = home.open != null) { home.hideTabs() }
 
@@ -123,7 +121,7 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
                     page,
                     current = it.key == home.openKey,
                     dimmed = home.incoming != null && !it.canWrite,
-                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
+                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = tween(TILE_LEAVE_MILLIS)),
                 )
             }
         }
@@ -153,15 +151,18 @@ private fun IncomingBanner(incoming: Incoming, onCancel: () -> Unit) {
 
 private const val TILE_ARRIVE_MILLIS = 300
 
+private const val TILE_LEAVE_MILLIS = 220
+
 private const val TILE_RATIO = 1f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: Boolean, modifier: Modifier = Modifier) {
-    val leaving = space.key in home.leaving
     val arrive = remember(space.key) { Animatable(if (space.key == home.fresh) 0f else 1f) }
-    LaunchedEffect(space.key, leaving) {
-        arrive.animateTo(if (leaving) 0f else 1f, tween(if (leaving) Home.TILE_LEAVE_MILLIS.toInt() else TILE_ARRIVE_MILLIS))
+    LaunchedEffect(space.key) {
+        if (arrive.value == 1f) return@LaunchedEffect
+        arrive.animateTo(1f, tween(TILE_ARRIVE_MILLIS))
+        if (home.fresh == space.key) home.open(space)
     }
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -203,7 +204,7 @@ private fun Tile(home: Home, space: Space, page: Dp, current: Boolean, dimmed: B
                             }
                         }
                     }
-                    .combinedClickable(enabled = !dimmed && !leaving, onClick = { home.open(space) }, onLongClick = { menu = true }),
+                    .combinedClickable(enabled = !dimmed, onClick = { home.open(space) }, onLongClick = { menu = true }),
             ) {
                 Box {
                     TilePreview(home, space, page)
