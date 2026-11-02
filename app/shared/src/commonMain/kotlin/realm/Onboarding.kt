@@ -1,7 +1,3 @@
-// Logged in with Cloudflare, but not signed in to a realm: the login is kept as a Connection.LoginOnly, from run
-// to run, with the account chosen. With several accounts the user chooses one, each shown with whether realm runs
-// there; on one without, onboarding checks what deploying needs and deploys once all of it is there. A failed
-// deploy keeps the login; only signing out ends it.
 package realm
 
 import androidx.compose.runtime.getValue
@@ -17,28 +13,27 @@ import kotlinx.serialization.builtins.serializer
 import kotlin.time.Duration.Companion.seconds
 
 class Onboarding internal constructor(private val home: Home, private val scope: CoroutineScope, private val engine: HttpClientEngine?) {
-    /** The Cloudflare login, as it renews itself, while it's all there is; null otherwise. */
+    /** The Cloudflare login while it's all there is; null otherwise. */
     var session by mutableStateOf<CloudflareSession?>(null)
         private set
 
     /** The accounts the login was given on the consent screen. */
     val accounts = Fetched<List<Account>>(scope, "Looking at your Cloudflare accounts", failed = ::failed)
 
-    /** Whether realm runs on each account, by id, asked as soon as the accounts are there to choose from. */
+    /** Whether realm runs on each account, by id. */
     var realms by mutableStateOf<Map<String, Fetched<RealmOn>>>(emptyMap())
         private set
 
-    /** The account chosen, with no realm on it yet, to deploy to; null while choosing. */
+    /** The account chosen to deploy to, with no realm on it yet; null while choosing. */
     var account by mutableStateOf<Account?>(null)
         private set
 
-    /** The account chosen last time, offered first; kept after signing out, for the next login. */
     private val lastUsed = Remembered(home.platform.prefs, "cloudflare-last", String.serializer())
 
     /** What deploying to [account] needs, each requirement checked. */
     val requirements = Fetched<Requirements>(scope, "Checking what deploying realm needs", failed = ::failed)
 
-    /** Why checking or the last deploy failed, to fix and try again; null when nothing did. */
+    /** Why checking or the last deploy failed; null when nothing did. */
     var problem by mutableStateOf<String?>(null)
         private set
 
@@ -46,10 +41,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
     var deployFailed by mutableStateOf(false)
         private set
 
-    /**
-     * Deployed, answering at this origin soon: a new address takes a few minutes to reach you, so signing in
-     * is tried again meanwhile. Null otherwise.
-     */
+    /** The origin deployed to that doesn't answer yet; signing in is tried again meanwhile. */
     var comingUp by mutableStateOf<String?>(null)
         private set
 
@@ -63,25 +55,19 @@ class Onboarding internal constructor(private val home: Home, private val scope:
     /** The domain to put realm on; null is workers.dev. */
     var zone by mutableStateOf<Zone?>(null)
 
-    /** The subdomain of [zone] typed: realm unless changed, blank for the domain itself. */
+    /** The subdomain of [zone] typed; blank for the domain itself. */
     var name by mutableStateOf("realm")
 
     val choices get() = Choices(subdomain = subdomain, domain = zone?.let { DomainChoice(it, name) })
 
-    /** What Deploy deploys: null, and Deploy dimmed, until every requirement is met and the address is valid. */
+    /** What Deploy deploys; null until every requirement is met and the address is valid. */
     val deployment: Deployment? get() = requirements.state.value?.deployment(choices)
 
-    /** [list] in the order the chooser offers them: the one used last first. */
+    /** [list] with the account used last first. */
     fun ordered(list: List<Account>): List<Account> = lastUsed.get().let { last -> list.sortedByDescending { it.id == last } }
 
-    /** Whether [a] was the account chosen last time. */
     fun wasLast(a: Account) = lastUsed.get() == a.id
 
-    /**
-     * Keeps [login] as the one thing signed in, here and in prefs for next time: for its account, if it has
-     * one, whose requirements are checked; else to choose one. [known] are its accounts when logging in has
-     * them already; otherwise they're asked for.
-     */
     internal fun start(login: CloudflareLogin, known: List<Account>?) {
         lateinit var s: CloudflareSession
         s = CloudflareSession(login) { next ->
@@ -112,10 +98,8 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         if (known == null) loadAccounts(s)
     }
 
-    /** Keeps [login] as a [Connection.LoginOnly] for the account chosen, if one is. */
     private fun save(login: CloudflareLogin) = home.platform.prefs.saveOwn(Connection.LoginOnly(login.copy(account = account?.id)))
 
-    /** Asks for the login's accounts; while choosing, then whether realm runs on each. */
     private fun loadAccounts(s: CloudflareSession) {
         problem = null
         scope.launch {
@@ -136,7 +120,6 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         }
     }
 
-    /** Asks whether realm runs on each of [list], each shown as soon as it's known. */
     private fun askRealms(list: List<Account>) {
         val s = session ?: return
         realms = list.associate { a ->
@@ -146,10 +129,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         }
     }
 
-    /**
-     * Chooses [a]: signs in to realm there if it runs there; else it's the account to deploy to, and what
-     * that needs is checked. Either way it's offered first next time.
-     */
+    /** Signs in to realm on [a] if it runs there, else picks it to deploy to; either way it's offered first next time. */
     fun choose(a: Account) {
         val on = realms[a.id]?.state?.value ?: return
         if (busy) return
@@ -181,7 +161,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         if (accounts.state == Loaded.Unknown) loadAccounts(s)
     }
 
-    /** Checks again: the requirements, as after turning on R2, or each account's realm; what's known stays meanwhile. */
+    /** Checks the requirements, or each account's realm, again; what's known stays meanwhile. */
     fun check() {
         val s = session ?: return
         problem = null
@@ -194,7 +174,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         }
     }
 
-    /** Deploys, if every requirement is met; the sheet shows its steps, and success signs in to it. */
+    /** Deploys, if every requirement is met; success signs in to it. */
     fun deploy() {
         val s = session ?: return
         val d = deployment ?: return
@@ -204,14 +184,14 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         home.cloudflare.deployFresh(s, d) { why ->
             Snapshot.withMutableSnapshot {
                 busy = false
-                check() // what stopped it, like R2 turned off, shows in its row as well
+                check()
                 problem = why
                 deployFailed = true
             }
         }
     }
 
-    /** Signs in to the realm worker on [a], chosen, or deployed some other way since the check. */
+    /** Signs in to the realm worker on [a], as when it was deployed some other way since the check. */
     fun signInToIt(a: Account? = account) {
         val s = session ?: return
         if (a == null || busy) return
@@ -234,11 +214,6 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         }
     }
 
-    /**
-     * The deploy is done, but [deployed]'s address doesn't answer yet, as a brand-new one may not for minutes
-     * while its certificate is issued. Stays logged in and tries signing in again every little while, for
-     * about ten minutes; then says so, for the user to sign in later.
-     */
     internal fun comingUp(deployed: Connection.ByCloudflare) {
         val s = session ?: return
         Snapshot.withMutableSnapshot {
@@ -262,7 +237,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    null // not there yet
+                    null
                 }
                 if (signed != null) {
                     if (session === s) Snapshot.withMutableSnapshot { home.signedIn(signed) } else signed.api.close()
@@ -280,10 +255,6 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         }
     }
 
-    /**
-     * Forgets the login here, as it goes on as a server's, or is replaced, or is ended by signing out, which
-     * this returns it for.
-     */
     internal fun handOver(): CloudflareSession? {
         val s = session
         session = null
@@ -306,7 +277,6 @@ class Onboarding internal constructor(private val home: Home, private val scope:
     }
 
     private companion object {
-        /** How often, and how many times, a deployed address that doesn't answer yet is tried again: ten minutes. */
         val COMING_UP_EVERY = 15.seconds
         const val COMING_UP_TRIES = 40
     }

@@ -1,5 +1,3 @@
-// The server section of settings: what it shows is fetched with the app (as it starts, and on signing in) and
-// kept between runs, so settings opens on it; and what its buttons ask runs through core.
 package realm
 
 import androidx.compose.runtime.getValue
@@ -16,25 +14,21 @@ class ServerSettings internal constructor(
     private val scope: CoroutineScope,
     private val engine: HttpClientEngine?,
 ) {
-    /** What the section shows about the server: the last known, from the run before, then each fetch. */
+    /** What the section shows about the server, kept between runs. */
     val facts = Fetched(scope, "Looking at the server", Remembered(home.platform.prefs, "server-facts", ServerFacts.serializer())) {
         home.message = it
     }
 
-    /** Checking for a newer worker, from the button. */
     var check by mutableStateOf<Check>(Check.NotYet)
         private set
 
-    /** What's being done to the worker's addresses, one thing at a time; null when nothing is. */
+    /** What's being done to the worker's addresses; null when nothing is. */
     var task by mutableStateOf<AddressTask?>(null)
         private set
 
     private val addresses get() = facts.state.value?.addresses
 
-    /**
-     * Asks the server what the section shows, as the app starts, on signing in and as settings opens; what's
-     * known stays on show meanwhile. What was kept about another address is dropped first.
-     */
+    /** Asks the server what the section shows; what was kept about another address is dropped first. */
     fun refresh() {
         val server = home.server ?: return
         val session = home.session
@@ -48,7 +42,7 @@ class ServerSettings internal constructor(
         task = null
     }
 
-    /** Asks for the newest release and what deploying it would do, now, whenever the last check was. */
+    /** Asks for the newest release and what deploying it would do. */
     fun checkForUpdates() {
         val session = home.session ?: return
         val account = addresses?.account ?: return
@@ -65,7 +59,7 @@ class ServerSettings internal constructor(
         }
     }
 
-    /** Opens or closes the form for a domain of the account's; a failure shown there goes with it. */
+    /** Opens or closes the form for a domain of the account's. */
     fun adding(open: Boolean) {
         if (addresses != null) task = AddressTask.Adding.takeIf { open }
     }
@@ -86,10 +80,7 @@ class ServerSettings internal constructor(
         }
     }
 
-    /**
-     * Asks before taking the worker off [origin]: share links made with it stop working. Off the address in
-     * use, the app moves to another one first.
-     */
+    /** Asks before taking the worker off [origin]: share links made with it stop working. */
     fun remove(origin: String) {
         val f = facts.state.value ?: return
         val others = (f.addresses ?: return).origins - origin
@@ -97,7 +88,7 @@ class ServerSettings internal constructor(
         task = AddressTask.Removing(origin, confirmed = false, moveTo)
     }
 
-    /** Answers [AddressTask.Removing]: takes the worker off the address, moving the app first if it's the one in use, or not. */
+    /** Answers [AddressTask.Removing]; the app moves first if it's the address in use. */
     fun confirmRemove(agree: Boolean) {
         val asked = task as? AddressTask.Removing ?: return
         if (!agree) {
@@ -115,7 +106,6 @@ class ServerSettings internal constructor(
         }
     }
 
-    /** Turns the worker's workers.dev address back on. */
     fun turnOnWorkersDev() {
         val origin = addresses?.workersDev ?: return
         work(AddressTask.Attaching(origin.removePrefix("https://"))) { cf, a ->
@@ -124,13 +114,9 @@ class ServerSettings internal constructor(
         }
     }
 
-    /** Makes [origin] the address the app talks to, once the worker answers its owner there; the login stays. */
+    /** Makes [origin] the address the app talks to, once the worker answers there; the login stays. */
     fun use(origin: String) = switch(origin, AddressTask.Switching(origin)) { _, _ -> }
 
-    /**
-     * Shows [task] while signing in at [origin], the same worker at another address, and doing [then] with the
-     * login; then the app and this section move there in one go. Nothing changes if any of it fails.
-     */
     private fun switch(origin: String, task: AddressTask, then: suspend (CloudflareApi, Addresses) -> Unit) {
         val session = home.session ?: return
         val a = addresses ?: return
@@ -142,10 +128,9 @@ class ServerSettings internal constructor(
                     CloudflareApi(session, engine).use { then(it, a) }
                     serverFacts(s.api, s.session, engine)
                 } catch (e: Exception) {
-                    s.api.close() // nothing else will hold it
+                    s.api.close()
                     throw e
                 }
-                // The app and this section move to the new address in the same frame.
                 Snapshot.withMutableSnapshot {
                     home.switchedTo(s)
                     facts.set(next)
@@ -161,10 +146,6 @@ class ServerSettings internal constructor(
         }
     }
 
-    /**
-     * Shows [task] while [block] changes the worker's addresses, then the addresses as they are now, with what
-     * [block] says is left to ask, or why it failed.
-     */
     private fun work(task: AddressTask, block: suspend (CloudflareApi, Addresses) -> AddressTask?) {
         val session = home.session ?: return
         val a = addresses ?: return
@@ -207,13 +188,10 @@ sealed interface AddressTask {
 
     data class Attaching(val hostname: String) : AddressTask
 
-    /** DNS records stand in the way of [conflict]'s hostname: shown, and deleted only if the user agrees. */
+    /** DNS records stand in the way of [conflict]'s hostname; deleted only if the user agrees. */
     data class Conflict(val conflict: DomainOutcome.Conflict) : AddressTask
 
-    /**
-     * Taking the worker off [origin], a custom domain or workers.dev: asked first, then [confirmed]. [moveTo]
-     * is where the app goes first when [origin] is the address it uses.
-     */
+    /** Taking the worker off [origin], asked first, then [confirmed]; [moveTo] is where the app goes first. */
     data class Removing(val origin: String, val confirmed: Boolean, val moveTo: String?) : AddressTask
 
     /** Making [origin] the address the app uses, once it answers there. */

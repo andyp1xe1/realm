@@ -1,6 +1,3 @@
-// Data the app fetches and shows: the one supported way to hold it. Fetched starts from the last value kept,
-// refreshes in place, keeps what it had when asking fails, and publishes whole values, and only ones that differ
-// from what's shown: a refresh that finds the same changes nothing, so nothing redraws. ui/Loading.kt draws it.
 package realm
 
 import androidx.compose.runtime.getValue
@@ -12,21 +9,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** Fetched data as the UI sees it: never known yet, or known, maybe being asked for again. */
+/** Fetched data as the UI sees it: not known yet, or known, maybe being fetched again. */
 sealed interface Loaded<out T> {
-    /** Nothing known yet: the UI keeps the room the data takes, blank, with a skeleton only if it is slow to come. */
     data object Unknown : Loaded<Nothing>
 
-    /** [value] as last fetched or kept, shown while it's asked for again ([Fetched.refreshing]). */
     data class Known<out T>(val value: T) : Loaded<T>
 }
 
-/** The value, if it's known. */
 val <T> Loaded<T>.value: T? get() = (this as? Loaded.Known)?.value
 
 /**
- * One piece of fetched data, kept in [cache] between runs when given. [doing] says what fetching is, like
- * "Looking at the server", for the log; [failed] gets what to tell the user when it goes wrong.
+ * One piece of fetched data, kept in [cache] between runs when given. It refreshes in place, keeps what it
+ * had when fetching fails, and publishes only whole values that differ from what's shown.
  */
 class Fetched<T : Any>(
     private val scope: CoroutineScope,
@@ -34,26 +28,18 @@ class Fetched<T : Any>(
     private val cache: Remembered<T>? = null,
     private val failed: (String) -> Unit = {},
 ) {
-    /** The last value kept, from the start; then each one fetched or [set], whole. */
     var state: Loaded<T> by mutableStateOf(cache?.get()?.let { Loaded.Known(it) } ?: Loaded.Unknown)
         private set
 
-    /**
-     * A fetch is under way. Apart from [state], so that asking again changes nothing a reader of the value sees:
-     * only what shows the asking, like a spinner, reads this.
-     */
+    /** A fetch is under way; apart from [state], so fetching again redraws only what shows the fetching. */
     var refreshing by mutableStateOf(false)
         private set
 
     private var job: Job? = null
 
-    /** Each fetch and forget gets the next number; a fetch publishes only if it's still the latest. */
     private var generation = 0
 
-    /**
-     * Asks again with [fetch], instead of whatever asking is under way, keeping what's known on show meanwhile.
-     * When it fails, what was known stays, and [failed] says why.
-     */
+    /** Fetches with [fetch] instead of any fetch under way; when it fails, what was known stays and [failed] says why. */
     fun refresh(fetch: suspend () -> T) {
         job?.cancel()
         val mine = ++generation
@@ -65,7 +51,7 @@ class Fetched<T : Any>(
                 throw e
             } catch (e: Exception) {
                 logFailure(doing, e)
-                if (mine != generation) return@launch // given up on meanwhile
+                if (mine != generation) return@launch
                 refreshing = false
                 failed(explain(e))
                 return@launch
@@ -74,19 +60,19 @@ class Fetched<T : Any>(
         }
     }
 
-    /** A whole new value, from a change made here: newer than what a fetch under way began with, so that's dropped. */
+    /** Publishes [value], dropping any fetch under way. */
     fun set(value: T) {
         drop()
         publish(value)
     }
 
-    /** Changes the known value, if there is one, in one write; a fetch under way is dropped, as by [set]. */
+    /** Changes the known value, if there is one, as by [set]. */
     fun update(change: (T) -> T) {
         val known = state as? Loaded.Known ?: return
         set(change(known.value))
     }
 
-    /** Back to nothing known, here and in the cache, as on signing out; a fetch under way is dropped. */
+    /** Back to nothing known, here and in the cache; drops any fetch under way. */
     fun forget() {
         drop()
         refreshing = false
@@ -99,7 +85,6 @@ class Fetched<T : Any>(
         generation++
     }
 
-    /** [value], unless it's the one shown already: then nothing changes, and nothing redraws. */
     private fun publish(value: T) {
         refreshing = false
         if (state.value == value) return

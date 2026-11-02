@@ -37,7 +37,6 @@ sealed class Space(val key: String, val api: Api) {
 
     /** [info] is null until the link has answered once; [error] is why it last didn't. */
     class Shared(val url: String, val info: Info?, val error: String?, api: Api) : Space(sharedKey(url), api) {
-        // A link to picked items is still a realm, only filtered to them: it's named like one.
         override val name: String
             get() = info?.realm?.name ?: url.substringAfter("://").substringBefore('/')
         override val canRead get() = error == null && info?.scope in setOf("read", "full")

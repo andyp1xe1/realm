@@ -30,16 +30,15 @@ enum class Filter(val label: String, val kinds: List<String>) {
     Files("Files", listOf("file")),
 }
 
-/** Something on its way up: a note or a file. Shown at the bottom of the feed until it lands. */
+/** Something on its way up: a note or a file, shown at the bottom of the feed until it lands. */
 class Pending(val key: Int, val text: String?, val file: LocalFile?, val caption: String?) {
     var progress by mutableFloatStateOf(0f)
     var error by mutableStateOf<String?>(null)
 }
 
 /**
- * One realm's feed, as one tile of the [Home] overview sees it through [api]. Without [loadImages],
- * images only download when asked to, for links where every download spends a use. With [cache], it starts
- * from the first page kept last time, known at once, and keeps it as it changes.
+ * One realm's feed, through [api]. Without [loadImages], images download only when asked, as every
+ * download spends a link's use. With [cache], it starts from the first page kept last time.
  */
 class Model(
     val platform: Platform,
@@ -50,7 +49,7 @@ class Model(
 ) {
     private val kept = cache?.first()
 
-    val items = mutableStateListOf<Item>().apply { kept?.let { addAll(it.items) } } // newest first
+    val items = mutableStateListOf<Item>().apply { kept?.let { addAll(it.items) } }
 
     /** The feed's scroll position, kept here so it survives a trip through the tab overview. */
     val listState = LazyListState()
@@ -59,10 +58,10 @@ class Model(
     /** Files waiting in the composer for a caption and a tap on send. */
     val staged = mutableStateListOf<LocalFile>()
 
-    /** Text from outside (share sheet, drag & drop) for the composer to pick up. */
+    /** Text from outside for the composer to pick up. */
     var incomingText by mutableStateOf<String?>(null)
 
-    /** The realm's active share links, for the owner; fetched as the realm opens, so the share sheet has them. */
+    /** The realm's active share links, for the owner. */
     val links = Fetched<List<Link>>(scope, "Looking at the share links") { message = it }
 
     var query by mutableStateOf("")
@@ -70,16 +69,13 @@ class Model(
     var loading by mutableStateOf(false)
         private set
 
-    /**
-     * The first page is known: the server has answered for it, or it was kept from last time. Until then (or
-     * if the server can't be reached) an empty feed isn't known to be empty.
-     */
+    /** The first page is known, from the server or kept from last time; until then an empty feed isn't known to be empty. */
     var loaded by mutableStateOf(kept != null)
         private set
     var message by mutableStateOf<String?>(null)
     var editing by mutableStateOf<Item?>(null)
 
-    /** The search field is open in the top bar; like a browser's find bar, it stays open through the overview. */
+    /** The search field is open; it stays open through the overview. */
     var searching by mutableStateOf(false)
 
     /** The share sheet is up. */
@@ -97,29 +93,26 @@ class Model(
         filter = Filter.All
     }
 
-    /** A realm just made: known to be empty without asking, so it opens straight onto its empty state. */
+    /** A realm just made: known to be empty without asking. */
     fun startEmpty() {
         loaded = true
     }
 
-    /** Known to have nothing in it yet (not loading, not a search, not a drop-only link): the empty state shows. */
+    /** Known to have nothing in it yet: the empty state shows. */
     val isEmpty get() = loaded && canRead && !filtering && items.isEmpty() && pending.isEmpty()
 
     private var next: String? = kept?.next
     private var listJob: Job? = null
 
-    /** What the first-page ask under way is for: the query and filter; null for a later page. */
     private var asking: Pair<String, Filter>? = null
 
-    /** When the first page was last asked for and came back, to skip asking again so soon when prefetching. */
     private var fetchedAt: TimeSource.Monotonic.ValueTimeMark? = null
     private val uploads = Semaphore(2)
     private var pendingKeys = 0
 
-    /** Rows the feed has shown once; only new ones fade in. What was kept shows at once, as it was. */
     private val shown = kept?.items.orEmpty().mapTo(HashSet()) { it.id }
 
-    /** True the first time the feed shows the row with [key]. */
+    /** True the first time the feed shows the row with [key]; only new rows fade in. */
     fun firstShown(key: String): Boolean = shown.add(key)
 
     private val images = mutableStateMapOf<String, ImageBitmap>()
@@ -128,12 +121,9 @@ class Model(
 
     val isOwner get() = api.isOwner
 
-    // ---------- feed ----------
-
     /**
-     * Asks for the first page again, in place: rows that are the same stay as they are, and only a page that
-     * differs is shown, and kept. An ask for the same that's under way already, as from a prefetch, is left to
-     * finish rather than started over.
+     * Asks for the first page again, in place; only a page that differs is shown and kept. The same ask under
+     * way is left to finish.
      */
     fun refresh() {
         if (listJob?.isActive == true && asking == query to filter) return
@@ -168,17 +158,13 @@ class Model(
         }
     }
 
-    /**
-     * The first page, fetched ahead of opening the feed, unless it was in the last minute or a search is up;
-     * returns once it's there.
-     */
+    /** Fetches the first page ahead of opening, unless it was in the last minute or a search is up. */
     suspend fun prefetch() {
         if (filtering || fetchedAt?.let { it.elapsedNow() < 1.minutes } == true) return
         refresh()
         listJob?.join()
     }
 
-    /** Keeps the first page as it stands for the next run: not a search's, which isn't the feed. */
     private fun keep() {
         if (!filtering && canRead) cache?.keepFirst(Page(items.toList(), next))
     }
@@ -204,12 +190,11 @@ class Model(
         }
     }
 
-    /** Pull in anything dumped from other devices since the newest item we have. */
+    /** Pulls in anything added from other devices since the newest item. */
     suspend fun poll() {
         if (filtering || loading || !canRead) return
         val newest = items.firstOrNull()
         if (newest == null) {
-            // Empty so far: ask quietly, without the loading state, so an empty page doesn't flicker every poll.
             runCatching { api.list() }.onSuccess { page ->
                 if (items.isEmpty() && !filtering) {
                     items.addAll(page.items)
@@ -220,7 +205,6 @@ class Model(
             }
             return
         }
-        // Ids are time-prefixed; re-ask for the last minute so items that landed slightly out of order aren't missed.
         val cursor = (newest.created - 60_000).coerceAtLeast(0).toString(36).padStart(9, '0')
         runCatching { api.list(after = cursor, limit = 100) }.onSuccess { page ->
             val before = items.size
@@ -235,8 +219,6 @@ class Model(
         val i = items.indexOfFirst { it.id < item.id }.let { if (it < 0) items.size else it }
         items.add(i, item)
     }
-
-    // ---------- sending ----------
 
     fun send(text: String) {
         val edit = editing
@@ -258,7 +240,7 @@ class Model(
         staged.addAll(files)
     }
 
-    /** Nothing from outside is sent straight away: it lands in the composer to be captioned or edited. */
+    /** Puts files or text from outside in the composer, to be captioned or edited before sending. */
     fun receive(incoming: Incoming) {
         when (incoming) {
             is Incoming.Files -> {
@@ -287,20 +269,18 @@ class Model(
         pending.add(p)
         scope.launch {
             try {
-                // Notes go straight out; files share a couple of upload slots so a big one can't block a note.
                 val item = if (p.file == null) {
                     api.note(p.text!!)
                 } else {
                     uploads.withPermit {
                         api.upload(p.file, p.caption) { f ->
-                            val pct = (f * 100).toInt() / 100f // whole percents: one recomposition per step, not per write
+                            val pct = (f * 100).toInt() / 100f
                             if (pct != p.progress) p.progress = pct
                         }
                     }
                 }
                 if (p.file != null && item.kind == "image") seedImage(item, p.file)
-                // Swap pending → real item in one snapshot so there's no frame with both or neither.
-                shown += item.id // it takes the sending row's place, already on screen: no fade
+                shown += item.id
                 Snapshot.withMutableSnapshot {
                     pending.remove(p)
                     prepend(item)
@@ -314,12 +294,11 @@ class Model(
         }
     }
 
-    /** We already have the image locally; decode it instead of downloading it straight back. */
     private suspend fun seedImage(item: Item, file: LocalFile) {
         if (file.size !in 1..MAX_INLINE_IMAGE) return
         val bmp = withContext(Dispatchers.IO) {
             runCatching { file.reader().use { it.readAll(file.size.toInt()) } }.getOrNull()?.let { bytes ->
-                platform.cacheImage(api.cacheKey(item.id), bytes) // on disk for next time, no download needed
+                platform.cacheImage(api.cacheKey(item.id), bytes)
                 platform.decodeImage(bytes, 1280)
             }
         } ?: return
@@ -338,8 +317,6 @@ class Model(
             }
         }
     }
-
-    // ---------- item actions ----------
 
     fun delete(item: Item) {
         val i = items.indexOf(item)
@@ -402,7 +379,6 @@ class Model(
         if (item.id in images || item.id in imageLoading || (item.size ?: 0) > MAX_INLINE_IMAGE) return
         imageLoading += item.id
         try {
-            // Without loadImages (every download spends a link's use), only what's already on disk.
             val bytes = imageBytes(platform, api, item.id, download = loadImages) ?: return
             val bmp = withContext(Dispatchers.Default) { platform.decodeImage(bytes, 1280) } ?: return
             remember(item.id, bmp)
@@ -419,8 +395,6 @@ class Model(
         imageOrder.addLast(id)
         while (imageOrder.size > 80) images.remove(imageOrder.removeFirst())
     }
-
-    // ---------- links ----------
 
     fun loadLinks() = links.refresh { api.links() }
 
@@ -452,10 +426,6 @@ class Model(
     }
 }
 
-/**
- * An item's image bytes: from the disk cache if they're there, else downloaded and kept for next time.
- * With [download] false, only what's already on disk.
- */
 internal suspend fun imageBytes(platform: Platform, api: Api, id: String, download: Boolean = true): ByteArray? {
     val key = api.cacheKey(id)
     withContext(Dispatchers.IO) { platform.cachedImage(key) }?.let { return it }
