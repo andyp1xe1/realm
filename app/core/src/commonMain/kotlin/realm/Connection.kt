@@ -1,4 +1,3 @@
-// What's saved between runs: where you're connected, in the CLI's config.json shape so either can read it.
 package realm
 
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -6,17 +5,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
-/** Strings kept between runs, by key. Implemented by each app's Platform. */
+/** Strings kept between runs, by key. */
 interface Prefs {
     fun get(key: String): String?
     fun set(key: String, value: String?)
 }
 
-/**
- * A saved connection: your own server's owner, by token or by Cloudflare login, or a share link. Every kind
- * has [cloudflare], the Cloudflare login kept for deploying, if there is one; for [ByCloudflare] it's the
- * login that is the owner's token.
- */
+/** A saved connection; [cloudflare] is the Cloudflare login kept for deploying, which for [ByCloudflare] is also the owner's token. */
 sealed interface Connection {
     val cloudflare: CloudflareLogin?
 
@@ -58,10 +53,7 @@ sealed interface Connection {
             prettyPrintIndent = "  "
         }
 
-        /**
-         * Reads the CLI's config.json. Null when it holds nothing; throws an [ApiException] when it's malformed
-         * or says something that can't be, like a share link with an owner token.
-         */
+        /** Reads the CLI's config.json: null when it holds nothing, an [ApiException] when it's malformed or contradicts itself. */
         fun decode(text: String): Connection? {
             val c = try {
                 json.decodeFromString<ConfigJson>(text)
@@ -94,7 +86,7 @@ sealed interface Connection {
             }
         }
 
-        /** Writes [connection] as the CLI's config.json, indented as the CLI writes it. */
+        /** Writes [connection] as the CLI's config.json. */
         fun encode(connection: Connection): String = json.encodeToString(
             when (connection) {
                 is ByToken -> ConfigJson(connection.server, connection.token, connection.realm, connection.cloudflare)
@@ -106,7 +98,6 @@ sealed interface Connection {
     }
 }
 
-/** config.json as the CLI writes it: url always, the rest only when set. */
 @Serializable
 private data class ConfigJson(
     val url: String = "",
@@ -115,11 +106,7 @@ private data class ConfigJson(
     val cloudflare: CloudflareLogin? = null,
 )
 
-/**
- * The connection of your own the app keeps, under the prefs keys it has always used: "server" and either
- * "token" or "cloudflare" for an owner, and "cloudflare" alone for a login with nothing deployed yet. Null
- * when there's none, or what's there can't be read.
- */
+/** The connection of your own kept by [saveOwn]; null when there's none or it can't be read. */
 fun Prefs.own(): Connection.Own? {
     val server = get("server")
     val login = Remembered(this, "cloudflare", CloudflareLogin.serializer()).get()

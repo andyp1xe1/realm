@@ -1,5 +1,3 @@
-// Deploying a release with the user's Cloudflare login: storage first, then the worker, its schedule and its
-// addresses, then waiting until it answers its owner. Every step can run again, so an update is the same run.
 package realm
 
 import io.ktor.client.request.forms.MultiPartFormDataContent
@@ -31,7 +29,6 @@ data class Choices(
 
 /** What deploying is doing now, to show while it runs. */
 sealed interface Step {
-    /** Giving the account its workers.dev subdomain. */
     data class Subdomain(val name: String) : Step
 
     data class Bucket(val name: String) : Step
@@ -40,10 +37,8 @@ sealed interface Step {
 
     data class Upload(val tag: Semver) : Step
 
-    /** Setting the worker's cron schedule, for its daily cleanup. */
     data object Schedule : Step
 
-    /** Turning on the worker's workers.dev address. */
     data class WorkersDev(val origin: String) : Step
 
     data class Domain(val hostname: String) : Step
@@ -52,44 +47,32 @@ sealed interface Step {
     data class Waiting(val origin: String) : Step
 }
 
-/** A finished deploy. */
 data class Deployed(
     val account: Account,
-    /** Where the worker answers: its custom domain if it has one, else workers.dev. Connect to this. */
+    /** Where to connect: its custom domain if it has one, else workers.dev. */
     val origin: String,
-    /**
-     * What the worker said at [origin] to its owner. Null when it didn't answer in time: it's deployed, but the
-     * address may take a few minutes to reach you, as new domains often do.
-     */
+    /** What the worker said at [origin] to its owner; null when it didn't answer in time, as a new domain may take minutes. */
     val info: Info?,
-    /** What came of [Choices.domain], if one was picked. A conflict leaves the worker on workers.dev for now. */
+    /** What came of [Choices.domain], if one was picked. */
     val domain: DomainOutcome?,
 )
 
-/** R2 is off on the account, and only the user can turn it on. */
 class R2NotEnabled : ApiException("Turn on R2 in the Cloudflare dashboard, then try again: $URL") {
     companion object {
         const val URL = "https://dash.cloudflare.com/?to=/:account/r2/overview"
     }
 }
 
-/** The account has as many D1 databases as the free plan allows. */
 class D1Limit : ApiException("Your Cloudflare account has 10 D1 databases, as many as the free plan allows. Delete one, then try again.")
 
-/** The account has no workers.dev subdomain and none was picked, so the worker would have no address. */
 class NeedsSubdomain : ApiException("Pick a workers.dev subdomain for your Cloudflare account first.")
 
-/**
- * Deploys [plan]'s release: creates what's missing, uploads the worker, and waits for it to answer. Runs again
- * safely, and an [Plan.Update] keeps the worker's data and its secrets, like REALM_TOKEN. Tells [progress]
- * each step as it starts.
- */
+/** Deploys [plan]'s release and waits for it to answer; safe to run again, and a [Plan.Update] keeps the worker's data and secrets. */
 suspend fun CloudflareApi.deploy(plan: Plan.Ready, choices: Choices = Choices(), progress: suspend (Step) -> Unit = {}): Deployed {
     val found = plan.found
     val account = found.account
     val m = plan.release.manifest
     val a = "/accounts/${account.id}/workers"
-    // A new worker is off workers.dev until it's turned on; an existing one keeps the addresses it has.
     val wantsWorkersDev = plan is Plan.Fresh || (found.domains.isEmpty() && !found.workersDevOn)
     val newSubdomain = choices.subdomain?.trim()?.lowercase()?.ifEmpty { null }.takeIf { found.subdomain == null }
     val subdomain = found.subdomain ?: newSubdomain
@@ -97,7 +80,6 @@ suspend fun CloudflareApi.deploy(plan: Plan.Ready, choices: Choices = Choices(),
 
     if (newSubdomain != null) {
         progress(Step.Subdomain(newSubdomain))
-        // Verified: how an account without a workers.dev subdomain gets one.
         call<JsonElement?>(HttpMethod.Put, "$a/subdomain", buildJsonObject { put("subdomain", newSubdomain) })
     }
     for (b in m.buckets) {
@@ -141,16 +123,11 @@ suspend fun CloudflareApi.deploy(plan: Plan.Ready, choices: Choices = Choices(),
     return Deployed(account, origin, waitForOwner(origin), domain)
 }
 
-/**
- * Asks the worker at [origin] what it is, with this login as its owner, every couple of seconds until it says
- * so or [within] runs out; null then. A new address answers within seconds, though a resolver that asked too
- * early may take minutes.
- */
+/** Polls the worker at [origin] until it takes this login as its owner; null when [within] runs out first. */
 suspend fun CloudflareApi.waitForOwner(origin: String, within: Duration = 60.seconds): Info? {
     val api = Api.server(origin, bearer, "deploy", engine)
     val start = TimeSource.Monotonic.markNow()
     try {
-        // Bounded by tries as well as by the clock, which coroutine tests don't move.
         repeat((within / POLL).toInt().coerceAtLeast(1)) {
             try {
                 api.info().takeIf { it.scope == "owner" }?.let { return it }
@@ -159,7 +136,6 @@ suspend fun CloudflareApi.waitForOwner(origin: String, within: Duration = 60.sec
             } catch (e: CloudflareRejected) {
                 throw e
             } catch (e: Exception) {
-                // not there yet: DNS, the certificate, or REALM_ACCOUNT still on its way
             }
             if (start.elapsedNow() >= within) return null
             delay(POLL)
@@ -184,7 +160,6 @@ private suspend fun CloudflareApi.ensureBucket(account: Account, name: String) {
     }
 }
 
-/** The id of the D1 database called [name], created if there's none. Looks first: the plan limit is checked before "exists". */
 private suspend fun CloudflareApi.ensureDatabase(account: Account, name: String): String {
     database(account, name)?.let { return it.uuid }
     return try {
@@ -198,11 +173,6 @@ private suspend fun CloudflareApi.ensureDatabase(account: Account, name: String)
     }
 }
 
-/**
- * Uploads the worker with its bindings. The module part's file name must be main_module (else 10021);
- * REALM_ACCOUNT goes inline, so Cloudflare logins own it from the start, and keep_bindings keeps the other
- * secrets, like REALM_TOKEN, on an update.
- */
 private suspend fun CloudflareApi.upload(account: Account, release: Release, databases: Map<String, String>) {
     val m = release.manifest
     val metadata = buildJsonObject {
@@ -247,7 +217,6 @@ private suspend fun CloudflareApi.upload(account: Account, release: Release, dat
     send(HttpMethod.Put, "/accounts/${account.id}/workers/scripts/${Cloudflare.WORKER}") { setBody(form) }
 }
 
-// Cloudflare's error codes, as seen in a live run unless they say otherwise.
 private const val BUCKET_EXISTS = 10004
 private const val D1_EXISTS = 7502
 private const val D1_LIMIT = 7406

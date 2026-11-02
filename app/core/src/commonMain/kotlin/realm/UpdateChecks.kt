@@ -1,11 +1,6 @@
-// Noticing a newer worker without asking too often: the server and GitHub at most once a day, unless asked
-// to, as on every sign-in. What GitHub said last is kept, so a restart doesn't ask again.
 package realm
 
-/**
- * When to look for a newer worker, and the newest release's version, with [prefs] keeping the last one GitHub
- * named and [now] the time in Unix seconds. [fetch] asks GitHub for the newest release.
- */
+/** When to look for a newer worker, at most once a day unless forced; [now] is in Unix seconds. */
 class UpdateChecks(private val prefs: Prefs, private val fetch: suspend () -> Release, private val now: () -> Long = Cloudflare::now) {
     private var last: Long? = null
 
@@ -38,7 +33,6 @@ class UpdateChecks(private val prefs: Prefs, private val fetch: suspend () -> Re
     }
 
     private companion object {
-        /** When the newest release was last asked for, its API version and tag: "<unix seconds> <version> <tag>". */
         const val KEY = "release"
         const val DAY = 24 * 60 * 60L
     }

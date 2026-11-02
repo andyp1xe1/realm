@@ -1,35 +1,23 @@
-// After deploying: putting the worker on its custom domain past the DNS records in the way, once the user
-// agrees, then signing in to it as logging in would. The app shows each step and asks; this decides what's next.
 package realm
 
 import kotlinx.coroutines.CancellationException
 
-/** Where a finished deploy came to. */
 sealed interface Landed {
     /** [plan] updated the worker in place: the sign-in to it still holds. */
     data class Updated(val plan: Plan.Update) : Landed
 
-    /**
-     * Deployed, but its address doesn't reach us yet, as a new one may not for a few minutes: sign in to
-     * [connection] and fetch its realms once it answers.
-     */
+    /** Deployed, but not answering yet: sign in to [connection] once it does. */
     data class NotAnswering(val connection: Connection.ByCloudflare) : Landed
 
-    /** Deployed and signed in to, with its realms. */
     class SignedInTo(val signedIn: SignedIn) : Landed
 }
 
-/**
- * DNS records stand in the way of [conflict]'s hostname: may they go? The worker answers on [origin] either
- * way; [problem] is why the last try failed.
- */
+/** May the DNS records in [conflict] go? The worker answers on [origin] either way; [problem] is why the last try failed. */
 data class ReplaceQuestion(val conflict: DomainOutcome.Conflict, val origin: String, val problem: ApiException?)
 
 /**
- * Lands [deployed], what deploying [plan] with this API's login came to after [steps]. A custom domain with
- * DNS records in the way is put in place only if [agrees] to deleting them says so, asked again after a
- * failed try; otherwise the worker stays on workers.dev. A fresh worker is then signed in to with [login],
- * as [signInWithCloudflare] does with [source] and [session]. [progress] gets every step so far as it starts.
+ * Finishes [deployed]: replaces DNS records in the way of its custom domain only while [agrees] says so, then
+ * signs in to a fresh worker with [login]. [progress] gets every step so far as it starts.
  */
 suspend fun CloudflareApi.land(
     plan: Plan.Ready,
@@ -43,7 +31,6 @@ suspend fun CloudflareApi.land(
 ): Landed {
     var done = deployed
     var conflict = done.domain as? DomainOutcome.Conflict
-    // Up to the domain: putting it there starts again once the user has answered.
     val before = steps.takeWhile { it !is Step.Domain }
     var problem: ApiException? = null
     while (conflict != null && agrees(ReplaceQuestion(conflict, done.origin, problem))) {

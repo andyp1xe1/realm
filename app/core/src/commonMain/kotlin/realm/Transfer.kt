@@ -1,4 +1,3 @@
-// Moving bytes: uploading files, streaming downloads, and the file behind a link to just it.
 package realm
 
 import io.ktor.client.call.body
@@ -33,10 +32,7 @@ private data class Part(val part: Int, val etag: String)
 @Serializable
 private data class Parts(val parts: List<Part>)
 
-/**
- * Uploads a file; small ones in one request, big ones as an R2 multipart upload. One of unknown size goes
- * up in parts until it ends.
- */
+/** Uploads a file: one request up to [Api.PART], else a multipart upload, as is one of unknown size. */
 suspend fun Api.upload(file: LocalFile, caption: String?, progress: (Float) -> Unit): Item = withContext(Dispatchers.IO) {
     val type = file.mime ?: "application/octet-stream"
     file.reader().use { r ->
@@ -78,11 +74,7 @@ suspend fun Api.upload(file: LocalFile, caption: String?, progress: (Float) -> U
     }
 }
 
-/**
- * Streams an item's bytes into [to] a piece at a time, so a big file never sits in memory. [progress] gets the
- * bytes so far and the total, when the server says it. Returns how many bytes came. On a use-limited link,
- * this spends a use.
- */
+/** Streams an item's bytes into [to] and returns how many came; on a use-limited link, spends a use. */
 suspend fun Api.download(id: String, to: ByteWriter, progress: (done: Long, total: Long?) -> Unit = { _, _ -> }): Long =
     withContext(Dispatchers.IO) {
         http.prepareGet(rawUrl(id)).execute { res ->
@@ -105,10 +97,7 @@ suspend fun Api.download(id: String, to: ByteWriter, progress: (done: Long, tota
 /** A file someone shared with a link to just it. Close [api] once it's downloaded. */
 class SharedFile(val api: Api, val item: Item)
 
-/**
- * The one file behind a share link to it, found without connecting to the link: `realm get <link>`. Asking
- * spends none of the link's uses; downloading it spends one.
- */
+/** The one file behind a share link to it; asking spends none of the link's uses, downloading spends one. */
 suspend fun sharedFile(link: String, source: String, engine: HttpClientEngine? = null): SharedFile {
     val url = linkUrl(link) ?: throw ApiException("That's not a share link")
     val api = Api(url, null, source, engine)
@@ -118,10 +107,7 @@ suspend fun sharedFile(link: String, source: String, engine: HttpClientEngine? =
     return SharedFile(api, item)
 }
 
-/**
- * The name to save an item under: its file name, without any folders a server could slip into it, or its
- * id as a .txt for a note.
- */
+/** The name to save an item under: its file name stripped of any folders, or its id as a .txt for a note. */
 val Item.fileName: String
     get() = name?.substringAfterLast('/')?.substringAfterLast('\\')?.takeIf { it.isNotBlank() && it != "." && it != ".." }
         ?: "$id.txt"

@@ -60,9 +60,9 @@ data class Info(
     val label: String? = null,
     val expires: Long? = null,
     @SerialName("uses_left") val usesLeft: Long? = null,
-    /** Set for links with an upload budget: how many bytes they can still add. */
+    /** Bytes a link with an upload budget can still add. */
     @SerialName("bytes_left") val bytesLeft: Long? = null,
-    /** Set for links that share picked items: how many. */
+    /** How many items a link that shares picked items shares. */
     val items: Int? = null,
     /** The item, when exactly one is picked. */
     val item: Item? = null,
@@ -100,10 +100,7 @@ private data class NewLink(
     @SerialName("max_bytes") val maxBytes: Long? = null,
 )
 
-/**
- * What went wrong, in words for the user. [status] is the HTTP status when a server said so; [cause] is what
- * went wrong underneath, for the log.
- */
+/** What went wrong, in words for the user; [status] is the HTTP status when a server sent one. */
 open class ApiException(message: String, val status: Int? = null, cause: Throwable? = null) : Exception(message, cause)
 
 /** Where an owner's token comes from: a fixed owner token, or a Cloudflare login that renews itself. */
@@ -111,11 +108,7 @@ fun interface Bearer {
     suspend fun token(): String
 }
 
-/**
- * [base] is either the owner API (…/api, or one realm of it, used with [bearer]) or a share link
- * (…/s/<token>), which carries its own permissions and needs no token. [engine] is the platform's own
- * HTTP engine unless one is given, as tests do.
- */
+/** [base] is the owner API (…/api, or one realm of it), used with [bearer], or a share link (…/s/<token>), which needs no token. */
 class Api(base: String, private val bearer: Bearer?, private val source: String, private val engine: HttpClientEngine? = null) {
     val base: String = base.trimEnd('/')
     val isOwner get() = bearer != null
@@ -147,8 +140,6 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
 
     suspend fun info(): Info = http.get("$base/info").ok().body()
 
-    // ---------- realms (owner API only) ----------
-
     /** The same server, scoped to one realm. */
     fun realm(id: String) = Api("$base/realms/${id.encodeURLPathPart()}", bearer, source, engine)
 
@@ -167,8 +158,6 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
     suspend fun deleteRealm(id: String) {
         http.delete("$base/realms/${id.encodeURLPathPart()}").ok()
     }
-
-    // ---------- items ----------
 
     suspend fun list(
         query: String? = null,
@@ -246,7 +235,7 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
         val FORK: String? = null
         const val VERSION = 3
 
-        /** What's worth saying about a server whose code isn't the one this app is written for, if anything. */
+        /** A warning for a server running other code than this app is written for, or null. */
         fun mismatch(info: Info): String? = when {
             info.fork != FORK -> "That server runs ${info.fork ?: "realm"}, version ${info.version}. Some things may not work."
             info.version < VERSION -> "That server needs updating: redeploy the worker."

@@ -1,5 +1,3 @@
-// What settings shows about the server you're signed in to, fetched in one go. It's all serializable, so the
-// next run can show the last of it at once, from a Remembered, while it asks again.
 package realm
 
 import io.ktor.client.engine.HttpClientEngine

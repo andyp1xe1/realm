@@ -1,5 +1,3 @@
-// What deploying a release to an account would do, worked out before anything changes, for the app to show
-// and ask about: what's there already, what gets created, and whether to deploy at all.
 package realm
 
 import io.ktor.http.HttpMethod
@@ -21,10 +19,9 @@ sealed interface Resource {
 
 /** The realm worker already on the account. */
 sealed interface Existing {
-    /** It answered at [origin] and said what it runs. */
     data class Answered(val origin: String, val info: Info) : Existing
 
-    /** It's there, but what it runs couldn't be told: [why] says why, in words for the user. */
+    /** It's there, but what it runs couldn't be told: [why] says why, for the user. */
     data class Silent(val origin: String?, val why: String) : Existing
 }
 
@@ -37,15 +34,13 @@ data class Found(
     val buckets: Set<String>,
     /** Of the release's D1 databases, the ones that exist, by exact name. */
     val databases: Set<String>,
-    /** False when R2 is off on the account; deploying then stops at the bucket and says to turn it on. */
+    /** False when R2 is off on the account. */
     val r2Enabled: Boolean,
     /** The account's workers.dev subdomain; null when it has none, so one has to be picked. */
     val subdomain: String?,
-    /** Whether the worker answers on its workers.dev address now. */
     val workersDevOn: Boolean,
     /** The account's active domains, to pick a custom domain from. */
     val zones: List<Zone>,
-    /** The custom domains the worker answers on now. */
     val domains: List<Domain>,
 )
 
@@ -53,22 +48,18 @@ data class Found(
 sealed interface Refusal {
     val message: String
 
-    /** The worker is newer than the release: deploying would downgrade it. */
     data class Newer(val info: Info) : Refusal {
         override val message get() = "That worker runs version ${info.version}, newer than this release. Update the app."
     }
 
-    /** The worker runs another fork's code, which realm's release would overwrite. */
     data class OtherFork(val info: Info) : Refusal {
         override val message get() = "That worker runs ${info.fork ?: "realm"}, not ${Api.FORK ?: "realm"}, so it isn't replaced."
     }
 
-    /** It runs this release's version already. */
     data class Current(val info: Info) : Refusal {
         override val message get() = "That worker is up to date."
     }
 
-    /** What it runs couldn't be told, so it isn't overwritten. */
     data class Unknown(override val message: String) : Refusal
 }
 
@@ -88,10 +79,8 @@ sealed interface Plan {
 
     data class Refused(override val release: Release, override val found: Found, val reason: Refusal) : Plan
 
-    /** What deploying creates. */
     val create: List<Resource> get() = resources().filter { !it.second }.map { it.first }
 
-    /** What deploying keeps and reuses, the worker itself updated in place. */
     val reuse: List<Resource> get() = resources().filter { it.second }.map { it.first }
 
     private fun resources(): List<Pair<Resource, Boolean>> =
@@ -117,10 +106,7 @@ fun decide(release: Release, found: Found): Plan = when (val script = found.scri
     }
 }
 
-/**
- * Looks at [account] and works out what deploying [release] there would do. Changes nothing, except that a
- * worker that doesn't know its account yet is told it, as logging in does, so it can say what it runs.
- */
+/** What deploying [release] on [account] would do; tells a worker that doesn't know its account yet which one it is. */
 suspend fun CloudflareApi.plan(account: Account, release: Release): Plan {
     val a = "/accounts/${account.id}"
     val subdomain = subdomain(account)
@@ -148,7 +134,6 @@ suspend fun CloudflareApi.plan(account: Account, release: Release): Plan {
     return decide(release, found)
 }
 
-/** What the worker that's there runs, asked at its address with this login as its owner. */
 private suspend fun CloudflareApi.existing(account: Account, domains: List<Domain>, subdomain: String?): Existing {
     val origin = domains.firstOrNull()?.let { "https://${it.hostname}" } ?: subdomain?.let { CloudflareApi.workersDev(it) }
         ?: return Existing.Silent(null, "That worker has no address to ask what it runs: turn on its workers.dev address.")
@@ -175,10 +160,6 @@ private suspend fun CloudflareApi.existing(account: Account, domains: List<Domai
     }
 }
 
-/**
- * What the worker behind [api] runs, asked as its owner. A worker deployed with wrangler and never logged in
- * to turns this login away until it knows its account, so it's told and asked again, as logging in does.
- */
 private suspend fun CloudflareApi.ownerInfo(account: Account, api: Api): Info = try {
     api.info()
 } catch (e: ApiException) {
@@ -187,11 +168,10 @@ private suspend fun CloudflareApi.ownerInfo(account: Account, api: Api): Info = 
     try {
         Cloudflare.checkOwner(api)
     } catch (still: ApiException) {
-        throw ApiException(still.message ?: "", 401) // it never took the login
+        throw ApiException(still.message ?: "", 401)
     }
 }
 
-/** The D1 database called exactly [name], if there is one. The name filter matches parts of names too. */
 internal suspend fun CloudflareApi.database(account: Account, name: String): D1? =
     call<List<D1>>(HttpMethod.Get, "/accounts/${account.id}/d1/database?name=${name.encodeURLParameter()}")
         .firstOrNull { it.name == name }
@@ -205,5 +185,4 @@ internal data class BucketList(val buckets: List<Named> = emptyList())
 @Serializable
 internal data class Named(val name: String)
 
-/** What R2 answers, with HTTP 403, on an account that hasn't turned it on (verified, [Recorded] R2_OFF). */
 internal const val R2_OFF = 10042

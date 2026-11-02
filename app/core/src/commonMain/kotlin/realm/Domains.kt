@@ -1,5 +1,3 @@
-// Putting the worker on a domain of the user's own: picking one of the account's zones, attaching it, and
-// clearing DNS records in the way only once the user has seen them and agreed.
 package realm
 
 import io.ktor.http.HttpMethod
@@ -13,14 +11,10 @@ data class DomainChoice(val zone: Zone, val name: String? = null) {
     val hostname: String get() = name?.trim()?.trim('.')?.lowercase()?.ifEmpty { null }?.let { "$it.${zone.name}" } ?: zone.name
 }
 
-/** What attaching a custom domain came to. */
 sealed interface DomainOutcome {
     data class Attached(val domain: Domain) : DomainOutcome
 
-    /**
-     * [choice]'s hostname has DNS records already, and Cloudflare won't replace them for the worker. Show
-     * [records]; if the user agrees, pass this back to [attachDomain] to delete exactly these and attach.
-     */
+    /** DNS records Cloudflare won't replace stand on the hostname; pass this back to [attachDomain] to delete exactly [records]. */
     data class Conflict(val choice: DomainChoice, val records: List<DnsRecord>) : DomainOutcome
 }
 
@@ -38,10 +32,8 @@ suspend fun CloudflareApi.zones(account: Account): List<Zone> {
 }
 
 /**
- * Puts the realm worker on [choice]'s hostname. When DNS records stand in the way, returns a
- * [DomainOutcome.Conflict] listing them and changes nothing. Given [replace], the conflict the user agreed
- * to, it deletes those records and attaches; if records it didn't list turned up since, it deletes none and
- * returns the new conflict to ask about again. The certificate can't be read with this login: poll HTTPS.
+ * Puts the realm worker on [choice]'s hostname, or returns a [DomainOutcome.Conflict] and changes nothing. Given
+ * [replace], deletes only the records it lists. The certificate can't be read with this login: poll HTTPS.
  */
 suspend fun CloudflareApi.attachDomain(account: Account, choice: DomainChoice, replace: DomainOutcome.Conflict? = null): DomainOutcome {
     val body = buildJsonObject {
@@ -53,7 +45,6 @@ suspend fun CloudflareApi.attachDomain(account: Account, choice: DomainChoice, r
     suspend fun attach(): Domain? = try {
         call<Domain>(HttpMethod.Put, "/accounts/${account.id}/workers/domains", body)
     } catch (e: CloudflareError) {
-        // Verified: 409 with 100117 when the hostname has records; override_existing_dns_record is ignored.
         if (DNS_IN_THE_WAY in e.codes) null else throw e
     }
     attach()?.let { return DomainOutcome.Attached(it) }

@@ -1,10 +1,6 @@
-// Finding things by what a person types: a realm by its name, an item by `last`, a link by its URL.
 package realm
 
-/**
- * The realm [query] names: its id, its name, or the start of just one name, in any case. Throws an
- * [ApiException] saying so when none match, or which ones it could be when several do.
- */
+/** The realm [query] names: its id, its name, or the start of just one name, in any case; else an [ApiException]. */
 fun findRealm(realms: List<Realm>, query: String): Realm {
     val q = query.lowercase()
     realms.firstOrNull { it.id == query || it.name.lowercase() == q }?.let { return it }

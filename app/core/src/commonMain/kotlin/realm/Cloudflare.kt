@@ -1,5 +1,3 @@
-// Logging in with Cloudflare, as the CLI does: OAuth with PKCE against realm's Cloudflare client, caught on
-// localhost, then finding the realm worker on the chosen account. The login is then the owner's token.
 package realm
 
 import io.ktor.client.HttpClient
@@ -18,12 +16,9 @@ import kotlinx.serialization.Serializable
 import kotlin.io.encoding.Base64
 import kotlin.time.Clock
 
-/** The browser, for logins that come back to localhost. Implemented by each app's Platform. */
+/** The browser, for logins that come back to localhost. */
 interface Browser {
-    /**
-     * Opens [url] in the browser and waits for it to come back to http://localhost:[port][path], as an OAuth
-     * login does. Returns the query parameters it came back with.
-     */
+    /** Opens [url] and waits for it to come back to http://localhost:[port][path]; returns its query parameters. */
     suspend fun authorize(url: String, port: Int, path: String): Map<String, String>
 }
 
@@ -37,23 +32,21 @@ data class CloudflareLogin(
     val account: String? = null,
 )
 
-/** A realm worker found on a Cloudflare account. */
 data class Worker(val account: String, val accountName: String, val origin: String)
 
 /** Cloudflare turned the login down: the only way on is logging in again. */
 class CloudflareRejected : Exception("Your Cloudflare login has expired. Log in again.")
 
 object Cloudflare {
-    private const val CLIENT_ID = "e48e69845742def220449dec54f713b3" // realm's OAuth client; public, not a secret
+    private const val CLIENT_ID = "e48e69845742def220449dec54f713b3"
     private const val AUTHORIZE = "https://dash.cloudflare.com/oauth2/auth"
     private const val TOKEN = "https://dash.cloudflare.com/oauth2/token"
     private const val REVOKE = "https://dash.cloudflare.com/oauth2/revoke"
-    private const val PORT = 53134 // registered as http://localhost:53134/oauth/callback
+    private const val PORT = 53134
     private const val CALLBACK = "/oauth/callback"
     private const val REDIRECT = "http://localhost:$PORT$CALLBACK"
     const val WORKER = "realm"
 
-    /** The same scopes as the CLI's; offline_access is what gets a refresh token, as access tokens last an hour. */
     private val scopes = listOf(
         "account-settings.read",
         "workers-scripts.admin",
@@ -100,14 +93,14 @@ object Cloudflare {
         )
     }
 
-    /** A fresh access token for [login]. Refresh tokens are single-use, so the result replaces [login]. */
+    /** Refresh tokens are single-use, so the result replaces [login]. */
     suspend fun refresh(login: CloudflareLogin): CloudflareLogin {
         val refresh = login.refresh ?: throw CloudflareRejected()
         return exchange(mapOf("grant_type" to "refresh_token", "refresh_token" to refresh, "client_id" to CLIENT_ID), keep = refresh)
             .copy(account = login.account)
     }
 
-    /** Ends the login on Cloudflare's side too. Best effort: signing out goes ahead either way. */
+    /** Ends the login on Cloudflare's side; best effort. */
     suspend fun revoke(login: CloudflareLogin) {
         val refresh = login.refresh ?: return
         runCatching {
@@ -131,7 +124,6 @@ object Cloudflare {
         @SerialName("error_description") val description: String? = null,
     )
 
-    /** Posts to the token endpoint, form-encoded. A reply without a new refresh token leaves [keep] valid. */
     private suspend fun exchange(form: Map<String, String>, keep: String?, engine: HttpClientEngine? = null): CloudflareLogin {
         if (engine != null) return client(engine).use { exchange(it, form, keep) }
         return exchange(http, form, keep)
@@ -143,7 +135,6 @@ object Cloudflare {
         } catch (e: Exception) {
             throw ApiException("Can't reach Cloudflare", cause = e)
         }
-        // No cause: what didn't parse quotes the reply, and that holds the tokens.
         val t = runCatching {
             res.body<TokenReply>()
         }.getOrElse { throw ApiException("Cloudflare sent something odd (HTTP ${res.status.value})") }
@@ -154,10 +145,7 @@ object Cloudflare {
         return CloudflareLogin(t.accessToken, t.refreshToken ?: keep, now() + t.expiresIn)
     }
 
-    /**
-     * Checks that [api] takes its Cloudflare login as the owner's. A REALM_ACCOUNT just set takes a few seconds
-     * to reach the worker, so it's asked a few times.
-     */
+    /** Checks that [api] takes its Cloudflare login as the owner's, waiting up to ~8 s for a just-set REALM_ACCOUNT to arrive. */
     suspend fun checkOwner(api: Api): Info {
         repeat(5) { attempt ->
             try {
@@ -175,10 +163,7 @@ object Cloudflare {
     fun now() = Clock.System.now().epochSeconds
 }
 
-/**
- * A Cloudflare login as an owner's [Bearer]: its access token, renewed as its hour runs out. [save] keeps
- * every new one (refresh tokens are single-use), and gets null once Cloudflare turns the login down.
- */
+/** A Cloudflare login as an owner's [Bearer], renewed as it runs out; [save] gets every new login, and null once Cloudflare rejects it. */
 class CloudflareSession(login: CloudflareLogin, private val save: (CloudflareLogin?) -> Unit) : Bearer {
     var login = login
         private set

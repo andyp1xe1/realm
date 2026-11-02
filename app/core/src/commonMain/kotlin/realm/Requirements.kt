@@ -1,5 +1,3 @@
-// What a Cloudflare account needs before realm can be deployed there, checked in one go so onboarding can show
-// every requirement at once, and the one way to get a plan to deploy from it: only when every one is met.
 package realm
 
 import io.ktor.http.HttpMethod
@@ -17,10 +15,7 @@ sealed interface SubdomainCheck {
     /** It has one: realm answers on realm.[name].workers.dev. */
     data class Has(val name: String) : SubdomainCheck
 
-    /**
-     * It has none yet: one is typed, and deploying gives it to the account first; or opening Workers & Pages in
-     * the dashboard, at [URL], gives it one, as Cloudflare says.
-     */
+    /** It has none yet: deploying gives it the one typed, or opening [URL] in the dashboard gives it one. */
     data object Missing : SubdomainCheck {
         const val URL = "https://dash.cloudflare.com/?to=/:account/workers/workers-and-pages"
     }
@@ -28,13 +23,11 @@ sealed interface SubdomainCheck {
 
 /** Whether there's a D1 database for realm's items, or room for one. */
 sealed interface DatabaseCheck {
-    /** The database [name] is there already, and deploying uses it. */
     data class Reuses(val name: String) : DatabaseCheck
 
     /** There's room: the account has [count] of the free plan's [D1_FREE_LIMIT]. */
     data class Room(val count: Int) : DatabaseCheck
 
-    /** The account has [count] databases, as many as the free plan allows: one has to go first. */
     data class Full(val count: Int) : DatabaseCheck {
         companion object {
             const val URL = "https://dash.cloudflare.com/?to=/:account/workers/d1"
@@ -46,20 +39,15 @@ sealed interface DatabaseCheck {
 sealed interface ReleaseCheck {
     data class Ready(val release: Release) : ReleaseCheck
 
-    /** The newest release, [newer], needs a newer app than this one. */
     data class NeedsNewerApp(val newer: Semver) : ReleaseCheck
 
-    /** realm has no release yet. */
     data object None : ReleaseCheck
 
-    /** GitHub couldn't say, or the release isn't what it claims: [message] says which, in words for the user. */
+    /** GitHub couldn't say, or the release isn't what it claims: [message] says which, for the user. */
     data class Failed(val message: String) : ReleaseCheck
 }
 
-/**
- * What deploying realm to [account] needs, each requirement checked. [deployed] when there's a realm worker
- * on it already, to sign in to instead. [zones] are its domains, to put realm on one of them.
- */
+/** What deploying realm to [account] needs, each requirement checked; [deployed] means there's a worker to sign in to instead. */
 data class Requirements(
     val account: Account,
     val deployed: Boolean,
@@ -68,18 +56,13 @@ data class Requirements(
     val database: DatabaseCheck,
     val release: ReleaseCheck,
     val zones: List<Zone>,
-    /** Of the release's R2 buckets, the ones there already. */
     internal val buckets: Set<String>,
 )
 
 /** A fresh deploy every requirement allows: [plan] with [choices], whose address is a valid one. */
 data class Deployment(val plan: Plan.Fresh, val choices: Choices)
 
-/**
- * Checks what deploying realm to [account] needs: R2, a workers.dev subdomain, room for a D1 database, and a
- * release, from GitHub with this API's engine. Changes nothing. A release GitHub can't give is a failed
- * requirement, as is the rest; it throws only when Cloudflare can't be asked.
- */
+/** Checks what deploying realm to [account] needs. Changes nothing; throws only when Cloudflare can't be asked. */
 suspend fun CloudflareApi.requirements(account: Account): Requirements {
     val a = "/accounts/${account.id}"
     val release = try {
@@ -115,11 +98,7 @@ suspend fun CloudflareApi.requirements(account: Account): Requirements {
 val Requirements.met: Boolean
     get() = !deployed && r2 == R2Check.On && database !is DatabaseCheck.Full && release is ReleaseCheck.Ready
 
-/**
- * The deploy [choices] make, when every requirement is met and the address is a valid one: a workers.dev
- * subdomain picked if the account has none, and a custom domain's subdomain, if one is picked, a valid name.
- * Null otherwise: nothing else gives a fresh deploy to start.
- */
+/** The deploy [choices] make, or null unless every requirement is [met] and the picked names are valid. */
 fun Requirements.deployment(choices: Choices): Deployment? {
     if (!met) return null
     val release = (release as ReleaseCheck.Ready).release
@@ -140,10 +119,7 @@ fun Requirements.deployment(choices: Choices): Deployment? {
     return Deployment(Plan.Fresh(release, found), Choices(subdomain = picked, domain = choices.domain))
 }
 
-/**
- * [input] as a workers.dev subdomain or a DNS name's label: lowercased, letters, digits and hyphens, not
- * starting or ending with one, at most 63 long. Null when it isn't one.
- */
+/** [input] lowercased as a valid DNS label (letters, digits, inner hyphens, at most 63), or null. */
 fun validSubdomain(input: String): String? = input.trim().lowercase().takeIf { label.matches(it) }
 
 /** Whether the subdomain picked is blank, the domain itself, or valid labels like notes or my.notes. */
@@ -152,8 +128,7 @@ val DomainChoice.isValid: Boolean
 
 private val label = Regex("[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
 
-/** How many D1 databases the free plan allows; making one more is refused with 7406. */
+/** How many D1 databases Cloudflare's free plan allows. */
 const val D1_FREE_LIMIT = 10
 
-/** Enough to tell whether there's room under [D1_FREE_LIMIT]. */
 private const val D1_PAGE = 100

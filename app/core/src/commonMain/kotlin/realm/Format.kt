@@ -1,4 +1,3 @@
-// Reading and writing the small things people type and see: durations, sizes, one-line previews.
 package realm
 
 import kotlin.time.Duration
@@ -12,10 +11,7 @@ import kotlin.time.Duration.Companion.seconds
 
 private val durationPart = Regex("""(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|ms|s|m|h|d|w)""")
 
-/**
- * A lifetime as typed: "30m", "12h", "7d", "2w", or parts like "1h30m", with fractions like "1.5d".
- * Null unless it's one of those and longer than nothing.
- */
+/** A lifetime as typed: "30m", "12h", "7d", "2w", "1h30m", "1.5d"; null unless it's one of those and positive. */
 fun parseDuration(text: String): Duration? {
     val s = text.trim()
     if (s.isEmpty()) return null
@@ -90,7 +86,7 @@ fun oneLine(text: String, max: Int): String {
     val s = text.split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
     if (s.length <= max) return s
     var cut = max - 1
-    if (cut > 0 && s[cut - 1].isHighSurrogate()) cut-- // not half an emoji
+    if (cut > 0 && s[cut - 1].isHighSurrogate()) cut--
     return s.take(cut) + '…'
 }
 

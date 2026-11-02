@@ -1,5 +1,3 @@
-// Where the worker the app deploys comes from: the newest release of this app's own repo on GitHub that this
-// app understands, checked against the checksum its manifest gives.
 package realm
 
 import io.ktor.client.engine.HttpClientEngine
@@ -17,7 +15,7 @@ import kotlinx.serialization.Serializable
 /** worker.json as worker/scripts/build.ts writes it: how to upload the worker.js beside it. */
 @Serializable
 data class Manifest(
-    /** The GitHub "owner/repo" of the fork, or null for realm itself, as in [Info]. */
+    /** The GitHub "owner/repo" of the fork, or null for realm itself. */
     val fork: String? = null,
     val version: Int,
     val name: String,
@@ -50,10 +48,7 @@ data class Semver(val major: Int, val minor: Int, val patch: Int) : Comparable<S
     }
 }
 
-/**
- * The worker to deploy: [code] is worker.js, checked against [manifest]'s sha256. [newer] is a later release
- * that needs a newer app than this one, if there is one, so the app can say to update it.
- */
+/** The worker to deploy: [code] is worker.js, checked against [manifest]; [newer] is a later release that needs a newer app. */
 class Release(val tag: Semver, val manifest: Manifest, val code: ByteArray, val newer: Semver?)
 
 /** There's no release this app can deploy. With [newer], there is one, but it needs a newer app. */
@@ -68,17 +63,11 @@ class NoRelease(val newer: Semver?) :
         },
     )
 
-/** A release's worker.js isn't what its worker.json says it is, so it isn't deployed. */
 class ChecksumMismatch(val tag: Semver) : ApiException("The worker in release $tag doesn't match its checksum, so it can't be deployed.")
 
-/** The GitHub repo releases come from: this app's own, never one a server names. */
 internal val RELEASES = Api.FORK ?: "andyp1xe1/realm"
 
-/**
- * The newest release this app can deploy: of [RELEASES], tagged vMAJOR.MINOR.PATCH, neither draft nor
- * pre-release, built from this app's fork, and of an API version no newer than [Api.VERSION]. Throws
- * [NoRelease] when there's none, and [ChecksumMismatch] when its worker.js isn't the one its manifest names.
- */
+/** The newest stable release of this app's fork with an API version up to [Api.VERSION]; else [NoRelease] or [ChecksumMismatch]. */
 suspend fun latestRelease(engine: HttpClientEngine? = null): Release = client(engine).use { http ->
     suspend fun fetch(url: String): HttpResponse {
         val res = try {
@@ -107,7 +96,6 @@ suspend fun latestRelease(engine: HttpClientEngine? = null): Release = client(en
     var newer: Semver? = null
     for ((tag, r) in candidates) {
         val manifestUrl = r.asset("worker.json") ?: continue
-        // Release assets come as application/octet-stream, so this reads the JSON itself.
         val text = fetch(manifestUrl).bodyAsText()
         val manifest = runCatching { cloudflareJson.decodeFromString<Manifest>(text) }.getOrNull() ?: continue
         if (manifest.fork != Api.FORK) continue
