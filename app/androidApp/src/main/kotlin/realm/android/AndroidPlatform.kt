@@ -50,28 +50,13 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.concurrent.thread
 import kotlin.math.sqrt
+import kotlin.time.Duration.Companion.days
 
 class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     override val name = "android"
     override val canTakePhoto = true
     override val isForeground get() = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-
-    init {
-        thread(isDaemon = true) {
-            val cutoff = System.currentTimeMillis() - 24 * 3600 * 1000
-            listOf("open", "camera", "voice").forEach { dir ->
-                File(activity.cacheDir, dir).walkBottomUp().forEach { f ->
-                    if (f.isFile && f.lastModified() < cutoff) {
-                        f.delete()
-                    } else if (f.isDirectory && f.list()?.isEmpty() == true) {
-                        f.delete()
-                    }
-                }
-            }
-        }
-    }
 
     private val sp = activity.getSharedPreferences("realm", Context.MODE_PRIVATE)
     override val prefs = object : Prefs {
@@ -90,6 +75,20 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     private val photo = activity.bridge(ActivityResultContracts.TakePicture())
     private val permission = activity.bridge(ActivityResultContracts.RequestPermission())
 
+    /** Deletes files opened, photographed or recorded more than a day ago. Blocks on disk. */
+    fun sweepTempFiles() {
+        val cutoff = System.currentTimeMillis() - 1.days.inWholeMilliseconds
+        Temp.entries.forEach { temp ->
+            File(activity.cacheDir, temp.dir).walkBottomUp().forEach { f ->
+                if (f.isFile && f.lastModified() < cutoff) {
+                    f.delete()
+                } else if (f.isDirectory && f.list()?.isEmpty() == true) {
+                    f.delete()
+                }
+            }
+        }
+    }
+
     fun handleShare(intent: Intent?) {
         intent ?: return
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
@@ -103,14 +102,13 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         } else if (!text.isNullOrBlank()) {
             incomingChannel.trySend(Incoming.Text(text))
         }
-        intent.action = null
     }
 
     override suspend fun pickFiles(): List<LocalFile> = pick("*/*").map { UriFile(activity, it) }
 
     override suspend fun takePhoto(): LocalFile? {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val file = File(activity.cacheDir, "camera/IMG_$stamp.jpg").apply { parentFile?.mkdirs() }
+        val file = activity.tempFile(Temp.Camera, "IMG_$stamp.jpg")
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
         return if (photo(uri) && file.length() > 0) JFile(file, "image/jpeg") else null.also { file.delete() }
     }
@@ -120,7 +118,7 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
             if (!permission(Manifest.permission.RECORD_AUDIO)) return null
         }
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val file = File(activity.cacheDir, "voice/voice_$stamp.m4a").apply { parentFile?.mkdirs() }
+        val file = activity.tempFile(Temp.Voice, "voice_$stamp.m4a")
         return runCatching { AndroidRecording(activity, file) }.getOrNull()
     }
 
@@ -144,7 +142,7 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     }
 
     override suspend fun open(url: String, auth: String?, name: String) {
-        val file = File(activity.cacheDir, "open/${url.hashCode().toUInt()}/$name")
+        val file = activity.tempFile(Temp.Open, "${url.hashCode().toUInt()}/$name")
         withContext(Dispatchers.IO) { if (!file.exists()) download(url, auth, file) }
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
         val intent = Intent(Intent.ACTION_VIEW)
@@ -157,7 +155,9 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         }
     }
 
-    override suspend fun authorize(url: String, port: Int, path: String) = awaitRedirect(port, path, back = "realm-login://back") {
+    private val loginBack get() = "${activity.getString(R.string.login_scheme)}://back"
+
+    override suspend fun authorize(url: String, port: Int, path: String) = awaitRedirect(port, path, loginBack) {
         try {
             activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (_: ActivityNotFoundException) {
@@ -199,6 +199,10 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     override fun formatTime(epochMs: Long) = Dates.time(epochMs)
     override fun formatDay(epochMs: Long) = Dates.day(epochMs)
 }
+
+private enum class Temp(val dir: String) { Open("open"), Camera("camera"), Voice("voice") }
+
+private fun Context.tempFile(temp: Temp, name: String) = File(File(cacheDir, temp.dir), name).apply { parentFile?.mkdirs() }
 
 private class UriFile(private val context: Context, private val uri: Uri) : LocalFile {
     override val name: String

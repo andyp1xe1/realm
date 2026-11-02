@@ -36,7 +36,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="realm-login" />
+                <data android:scheme="@string/login_scheme" />
             </intent-filter>
             <!-- "Share → realm" from any app -->
             <intent-filter>
