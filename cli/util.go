@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 func parse(fs *flag.FlagSet, args []string) {
@@ -118,10 +120,5 @@ func (p *progressReader) Read(b []byte) (int, error) {
 }
 
 func isTerminal(f *os.File) bool {
-	st, err := f.Stat()
-	if err != nil || st.Mode()&os.ModeCharDevice == 0 {
-		return false
-	}
-	null, err := os.Stat(os.DevNull)
-	return err != nil || !os.SameFile(st, null)
+	return term.IsTerminal(int(f.Fd()))
 }

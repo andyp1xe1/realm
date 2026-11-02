@@ -28,7 +28,7 @@ const (
 	cfAuthorize = "https://dash.cloudflare.com/oauth2/auth"
 	cfRevokeURL = "https://dash.cloudflare.com/oauth2/revoke"
 	cfAPI       = "https://api.cloudflare.com/client/v4"
-	cfPort      = 53134
+	cfRedirect  = "http://localhost:53134/oauth/callback"
 	workerName  = "realm"
 )
 
@@ -171,17 +171,13 @@ func cfOAuth() (*cfAuth, error) {
 	sum := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
 	state := randomString(24)
-	redirect := fmt.Sprintf("http://localhost:%d/oauth/callback", cfPort)
-	scopes := cfScopes
-	if v := os.Getenv("REALM_CF_SCOPES"); v != "" {
-		scopes = strings.Fields(v)
-	}
+	callback, _ := url.Parse(cfRedirect)
 
 	q := url.Values{}
 	q.Set("response_type", "code")
 	q.Set("client_id", cfClientID)
-	q.Set("redirect_uri", redirect)
-	q.Set("scope", strings.Join(scopes, " "))
+	q.Set("redirect_uri", cfRedirect)
+	q.Set("scope", strings.Join(cfScopes, " "))
 	q.Set("state", state)
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
@@ -193,7 +189,7 @@ func cfOAuth() (*cfAuth, error) {
 	}
 	done := make(chan result, 1)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth/callback", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(callback.Path, func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Query()
 		var res result
 		switch {
@@ -218,13 +214,13 @@ func cfOAuth() (*cfAuth, error) {
 	srv := &http.Server{Handler: mux}
 	listening := 0
 	for _, host := range []string{"127.0.0.1", "::1"} {
-		if ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(cfPort))); err == nil {
+		if ln, err := net.Listen("tcp", net.JoinHostPort(host, callback.Port())); err == nil {
 			listening++
 			go srv.Serve(ln)
 		}
 	}
 	if listening == 0 {
-		return nil, fmt.Errorf("port %d is busy", cfPort)
+		return nil, fmt.Errorf("port %s is busy", callback.Port())
 	}
 	defer srv.Shutdown(context.Background())
 
@@ -245,7 +241,7 @@ func cfOAuth() (*cfAuth, error) {
 	return cfExchange(url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {res.code},
-		"redirect_uri":  {redirect},
+		"redirect_uri":  {cfRedirect},
 		"client_id":     {cfClientID},
 		"code_verifier": {verifier},
 	}, "")
@@ -285,21 +281,21 @@ func (a *cfAuth) fresh() bool {
 	return time.Now().Unix() < a.Expires-60
 }
 
-func cfAccess() (string, error) {
+func cfAccess() (*cfAuth, error) {
 	if auth := readConfig().Cloudflare; auth != nil && auth.fresh() {
-		return auth.Access, nil
+		return auth, nil
 	}
 	defer lockConfig()()
 	cfg := readConfig()
 	auth := cfg.Cloudflare
 	if auth == nil {
-		return "", errors.New("not logged in: realm login")
+		return nil, errors.New("not logged in: realm login")
 	}
 	if auth.fresh() {
-		return auth.Access, nil
+		return auth, nil
 	}
 	if auth.Refresh == "" {
-		return "", errCFRejected
+		return nil, errCFRejected
 	}
 	next, err := cfExchange(url.Values{
 		"grant_type":    {"refresh_token"},
@@ -311,14 +307,14 @@ func cfAccess() (string, error) {
 			cfg.Cloudflare = nil
 			_ = saveConfig(cfg)
 		}
-		return "", err
+		return nil, err
 	}
 	next.Account = auth.Account
 	cfg.Cloudflare = next
 	if err := saveConfig(cfg); err != nil {
-		return "", err
+		return nil, err
 	}
-	return next.Access, nil
+	return next, nil
 }
 
 func cfRevoke(auth *cfAuth) {

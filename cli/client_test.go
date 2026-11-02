@@ -43,6 +43,23 @@ func TestRefusalOfAnAlreadyClaimedWorkerIsFinal(t *testing.T) {
 	}
 }
 
+func TestAFreshCloudflareLoginWorksBeforeItIsSaved(t *testing.T) {
+	tempConfig(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer a1" {
+			w.WriteHeader(401)
+			fmt.Fprint(w, `{"error":"bad token"}`)
+			return
+		}
+		fmt.Fprintf(w, `{"fork":"","version":%d,"scope":"owner"}`, workerVersion)
+	}))
+	t.Cleanup(srv.Close)
+	login := &cfAuth{Access: "a1", Refresh: "r1", Expires: time.Now().Unix() + 3600}
+	if _, err := ownerInfo(newClient(config{URL: srv.URL, Cloudflare: login}), false); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestJustClaimedWorkerIsAskedUntilItAgrees(t *testing.T) {
 	c, asked := fakeWorker(t, 2)
 	info, err := ownerInfo(c, true)

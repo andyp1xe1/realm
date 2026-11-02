@@ -96,7 +96,7 @@ type Client struct {
 	server string
 	realm  string
 	token  string
-	viaCF  bool
+	cf     *cfAuth
 	http   *http.Client
 }
 
@@ -292,7 +292,10 @@ func loadClient(realm string, needsRealm bool) (*Client, error) {
 }
 
 func newClient(cfg config) *Client {
-	c := &Client{token: cfg.Token, viaCF: cfg.Token == "" && cfg.Cloudflare != nil && !isLink(cfg.URL)}
+	c := &Client{token: cfg.Token}
+	if cfg.Token == "" && !isLink(cfg.URL) {
+		c.cf = cfg.Cloudflare
+	}
 	if isLink(cfg.URL) {
 		c.base = strings.TrimRight(cfg.URL, "/")
 	} else {
@@ -322,12 +325,15 @@ func (c *Client) req(method, path string, body io.Reader, size int64, ctype stri
 	}
 	if c.token != "" {
 		r.Header.Set("Authorization", "Bearer "+c.token)
-	} else if c.viaCF {
-		t, err := cfAccess()
-		if err != nil {
-			return nil, err
+	} else if c.cf != nil {
+		if !c.cf.fresh() {
+			next, err := cfAccess()
+			if err != nil {
+				return nil, err
+			}
+			c.cf = next
 		}
-		r.Header.Set("Authorization", "Bearer "+t)
+		r.Header.Set("Authorization", "Bearer "+c.cf.Access)
 	}
 	r.Header.Set("X-Realm-Source", "cli")
 	res, err := c.http.Do(r)
