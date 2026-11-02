@@ -25,6 +25,7 @@ import kotlinx.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.concurrent.Volatile
 
 @Serializable
 data class Item(
@@ -118,7 +119,14 @@ fun interface Bearer {
 
 /** [base] is the owner API (…/api, or one realm of it), used with [bearer], or a share link (…/s/<token>), which needs no token. */
 class Api(base: String, private val bearer: Bearer?, private val source: String, private val engine: HttpClientEngine? = null) {
-    val base: String = base.trimEnd('/')
+    @Volatile var base: String = base.trimEnd('/')
+        private set
+
+    /** Moves this API to the same path at [origin], as when its server answers at another address. */
+    fun rebase(origin: String) {
+        val rest = base.substringAfter("://")
+        base = origin.trimEnd('/') + rest.indexOf('/').let { if (it < 0) "" else rest.substring(it) }
+    }
     val isOwner get() = bearer != null
 
     /** The Authorization header for this API; asking may renew a login first. */

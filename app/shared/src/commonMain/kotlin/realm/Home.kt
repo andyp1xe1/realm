@@ -18,8 +18,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.TimeSource
 
 /**
  * Everything above one feed: the server you're signed in to, its realms, the share links, and which is
@@ -78,7 +76,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     val previews get() = tiles.previews
 
     private val prefetching = Semaphore(2)
-    private var lastRefresh: TimeSource.Monotonic.ValueTimeMark? = null
+    private var refreshing: Job? = null
 
     val spaces: List<Space> get() = realms.map { own(it) } + shared
     val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
@@ -98,7 +96,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
                 }
                 phase = signedIn(Api.server(own.server, bearer, platform.name, engine), session)
                 realms.addAll(knownRealms.get().orEmpty())
-                serverSettings.refresh()
             }
         }
         knownLinks.get()?.forEach { url ->
@@ -106,21 +103,14 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         }
         tiles.restore(spaces.map { it.key })
         openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
-        refresh()
-        model?.refresh()
+        fetchAhead(phase as? Phase.SignedIn, known = null, force = false)
     }
 
-    private fun checkForUpdate(force: Boolean) {
-        (phase as? Phase.SignedIn)?.let { cloudflare.checkForUpdate(it, force) }
-    }
-
-    /** Re-asks the server for its realms and every link for what it is, then refreshes the tile previews. */
-    fun refresh(force: Boolean = false) {
-        if (!force && lastRefresh?.let { it.elapsedNow() < 3.seconds } == true) return
-        lastRefresh = TimeSource.Monotonic.markNow()
-        checkForUpdate(force = false)
+    /** Re-asks the server for its realms and every link for what it is, then refreshes the tile previews, unless that's under way. */
+    fun refresh() {
+        if (refreshing?.isActive == true) return
         val signedIn = phase as? Phase.SignedIn
-        scope.launch {
+        refreshing = scope.launch {
             loading = true
             try {
                 coroutineScope {
@@ -225,7 +215,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         Model(platform, scopeOf(space), space.api, loadImages = !space.limited, FeedCache(platform.cache, space.key))
     }
 
-    internal fun sessionFor(owner: Connection.ByCloudflare): CloudflareSession = sessionFor(owner.login) { owner.copy(login = it) }
+    internal fun sessionFor(owner: Connection.ByCloudflare): CloudflareSession =
+        sessionFor(owner.login) { Connection.ByCloudflare(server?.base?.removeSuffix("/api") ?: owner.server, it) }
 
     internal fun sessionFor(login: CloudflareLogin, kept: (CloudflareLogin) -> Connection.Own) = CloudflareSession(login) { next ->
         if (next != null) {
@@ -251,25 +242,37 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     }
 
     internal fun signedIn(s: SignedIn) {
-        leave(switching = false, revoke = false)
-        adoptOwner(s)
-        serverSettings.refresh()
+        endSession()
+        val p = signedIn(s.api, s.session)
+        phase = p
+        prefs.saveOwn(s.connection)
+        realms.addAll(s.realms)
+        knownRealms.set(s.realms)
+        if (open == null) reopen()
+        message = Api.mismatch(s.info)
+        fetchAhead(p, s.info, force = true)
     }
 
-    /** Signed in to the same server at another address, with [facts] about it there. */
-    internal fun switchedTo(s: SignedIn, facts: ServerFacts) {
-        val was = openKey
-        leave(switching = true, revoke = false)
-        adoptOwner(s, facts)
-        if (spaces.any { it.key == was }) {
-            openKey = was
-            prefs.set("open", was)
-        }
+    private fun fetchAhead(p: Phase.SignedIn?, known: Info?, force: Boolean) {
+        p?.let { serverSettings.lookAt(it, known, force) }
+        refreshing?.cancel()
+        refresh()
+        model?.refresh()
     }
 
-    private fun signedIn(api: Api, session: CloudflareSession?, facts: ServerFacts? = null): Phase.SignedIn {
+    internal fun movedTo(facts: ServerFacts) {
+        val p = phase as? Phase.SignedIn ?: return
+        val session = p.session ?: return
+        p.facts.forget()
+        p.server.rebase(facts.origin)
+        realms.forEach { apis[ownKey(it.id)]?.rebase(facts.origin) }
+        phase = Phase.SignedIn(p.server, session, serverSettings.factsAt(p.server, p.scope).apply { set(facts) }, p.scope)
+        prefs.saveOwn(Connection.ByCloudflare(facts.origin, session.login))
+    }
+
+    private fun signedIn(api: Api, session: CloudflareSession?): Phase.SignedIn {
         val work = childScope()
-        return Phase.SignedIn(api, session, serverSettings.factsAt(api, work).apply { facts?.let(::set) }, work)
+        return Phase.SignedIn(api, session, serverSettings.factsAt(api, work), work)
     }
 
     internal fun childScope(): CoroutineScope {
@@ -279,32 +282,22 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         return CoroutineScope(scope.coroutineContext + job)
     }
 
-    private fun adoptOwner(s: SignedIn, facts: ServerFacts? = null) {
-        phase = signedIn(s.api, s.session, facts)
-        prefs.saveOwn(s.connection)
-        checkForUpdate(force = true)
-        realms.addAll(s.realms)
-        knownRealms.set(s.realms)
-        if (open == null) reopen()
-        refresh(force = true)
-        message = Api.mismatch(s.info)
-        model?.refresh()
-    }
-
     /** Signs out, ending the Cloudflare login there is. */
-    fun signOut() = leave(switching = false, revoke = true)
+    fun signOut() {
+        endSession()?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
+    }
 
     /** Leaves the server for the account chooser, with the same Cloudflare login: no new consent. */
     fun useAnotherAccount() {
         val login = session?.login ?: return
-        leave(switching = false, revoke = false)
+        endSession()
         onboarding.start(login.copy(account = null), null)
     }
 
-    private fun leave(switching: Boolean, revoke: Boolean) {
+    private fun endSession(): CloudflareSession? {
         val was = phase
         phase = Phase.Setup
-        realms.forEach { forget(ownKey(it.id), drop = !switching) }
+        realms.forEach { forget(ownKey(it.id), drop = true) }
         realms.clear()
         onboarding.forget()
         val login = when (was) {
@@ -319,12 +312,12 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             Phase.Setup -> null
         }
         login?.close()
-        if (revoke) login?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
         cloudflare.signedOut()
         serverSettings.signedOut()
         prefs.saveOwn(null)
         knownRealms.set(null)
         if (open == null) reopen()
+        return login
     }
 
     /** Adds a share link as a tile and opens it; returns an error message or null. */

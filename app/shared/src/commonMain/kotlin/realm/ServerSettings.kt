@@ -30,8 +30,11 @@ class ServerSettings internal constructor(private val home: Home, private val en
 
     /** Asks the server what the section shows. */
     fun refresh() {
-        val signedIn = home.phase as? Phase.SignedIn ?: return
-        signedIn.facts.refresh { serverFacts(signedIn.server, signedIn.session, engine) }
+        (home.phase as? Phase.SignedIn)?.let { lookAt(it, known = null, force = false) }
+    }
+
+    internal fun lookAt(signedIn: Phase.SignedIn, known: Info?, force: Boolean) = signedIn.facts.refresh {
+        serverFacts(signedIn.server, signedIn.session, engine, known).also { home.cloudflare.checkForUpdate(signedIn, it.info, force) }
     }
 
     internal fun signedOut() {
@@ -122,16 +125,16 @@ class ServerSettings internal constructor(private val home: Home, private val en
         this.task = task
         p.scope.launch {
             try {
-                val s = signInWithCloudflare(origin, session.login, home.platform.name, fresh = false, home::sessionFor, engine)
+                val there = Api.server(origin, session, home.platform.name, engine)
                 val next = try {
+                    val info = Cloudflare.checkOwner(there, fresh = false)
                     CloudflareApi(session, engine).use { then(it, a) }
-                    serverFacts(s.api, s.session, engine)
-                } catch (e: Exception) {
-                    s.api.close()
-                    throw e
+                    serverFacts(there, session, engine, info)
+                } finally {
+                    there.close()
                 }
                 Snapshot.withMutableSnapshot {
-                    home.switchedTo(s, next)
+                    home.movedTo(next)
                     check = Check.NotYet
                     this@ServerSettings.task = null
                 }

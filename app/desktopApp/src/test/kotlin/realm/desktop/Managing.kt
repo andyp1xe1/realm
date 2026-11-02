@@ -72,12 +72,14 @@ internal fun managing() {
         val p = settings.facts?.state?.value
         if (p == null || p.origin != home.server?.base?.removeSuffix("/api")) torn++
     }
+    val feed = checkNotNull(home.model) { "no realm open" }
     settings.use("https://notes.jo.dev")
     film.roll("manage-switch", max = 400) {
         look()
         settings.facts?.state?.value?.origin == "https://notes.jo.dev"
     }
     film.roll("manage-switch", max = 30) { false.also { look() } }
+    check(home.model === feed) { "switching the address started the open realm's feed over" }
 
     settings.remove("https://realm.jo.workers.dev")
     film.roll("manage-workersdev", max = 30)

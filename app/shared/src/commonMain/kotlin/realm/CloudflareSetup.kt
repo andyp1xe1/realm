@@ -161,11 +161,10 @@ class CloudflareSetup internal constructor(
         }
     }
 
-    internal fun checkForUpdate(signedIn: Phase.SignedIn, force: Boolean) {
+    internal fun checkForUpdate(signedIn: Phase.SignedIn, info: Info, force: Boolean) {
         if (!updateChecks.due(force)) return
         signedIn.scope.launch {
             try {
-                val info = signedIn.server.info()
                 val newer = updateChecks.newerFor(info, force)
                 Snapshot.withMutableSnapshot {
                     update = newer?.let { ServerUpdate(info.version, it, canDeploy = signedIn.session?.login?.account != null) }
