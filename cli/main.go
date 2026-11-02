@@ -198,7 +198,7 @@ func login(args []string) error {
 	c := newClient(cfg)
 	var info Info
 	if err := c.do("GET", "/info", nil, &info); err != nil {
-		if strings.Contains(err.Error(), "(404)") {
+		if hasStatus(err, http.StatusNotFound) {
 			return errors.New("worker too old: redeploy it")
 		}
 		return fmt.Errorf("can't sign in to %s: %w", cfg.URL, err)
@@ -327,12 +327,27 @@ func (c *Client) req(method, path string, body io.Reader, size int64, ctype stri
 		defer res.Body.Close()
 		var e struct{ Error string }
 		b, _ := io.ReadAll(res.Body)
-		if json.Unmarshal(b, &e) == nil && e.Error != "" {
-			return nil, fmt.Errorf("%s (%d)", e.Error, res.StatusCode)
-		}
-		return nil, fmt.Errorf("http %d", res.StatusCode)
+		_ = json.Unmarshal(b, &e)
+		return nil, &httpError{Status: res.StatusCode, Message: e.Error}
 	}
 	return res, nil
+}
+
+type httpError struct {
+	Status  int
+	Message string
+}
+
+func (e *httpError) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("http %d", e.Status)
+	}
+	return fmt.Sprintf("%s (%d)", e.Message, e.Status)
+}
+
+func hasStatus(err error, status int) bool {
+	var he *httpError
+	return errors.As(err, &he) && he.Status == status
 }
 
 func (c *Client) do(method, path string, in, out any) error {

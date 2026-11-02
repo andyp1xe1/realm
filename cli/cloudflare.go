@@ -114,21 +114,27 @@ func loginCloudflare() error {
 		return err
 	}
 	c := newClient(cfg)
-	var info Info
-	for try := 0; try < 5; try++ {
-		if err = c.do("GET", "/info", nil, &info); err == nil || !strings.Contains(err.Error(), "(401)") {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
+	info, err := ownerInfo(c, !has)
 	if err != nil {
-		if strings.Contains(err.Error(), "(401)") {
-			return errors.New("worker too old for Cloudflare login: redeploy it, then realm login")
-		}
 		return err
 	}
 	warnMismatch(info)
 	return c.status()
+}
+
+var ownerPoll = 2 * time.Second
+
+func ownerInfo(c *Client, claimed bool) (Info, error) {
+	var info Info
+	err := c.do("GET", "/info", nil, &info)
+	for try := 1; claimed && try < 5 && hasStatus(err, http.StatusUnauthorized); try++ {
+		time.Sleep(ownerPoll)
+		err = c.do("GET", "/info", nil, &info)
+	}
+	if err != nil {
+		return info, fmt.Errorf("the worker refused your Cloudflare login: %w", err)
+	}
+	return info, nil
 }
 
 func workerOrigin(token, account, script string) (string, error) {
