@@ -148,12 +148,12 @@ class CloudflareApi(internal val bearer: Bearer, internal val engine: HttpClient
         return env.result
     }
 
-    /** Tells the realm worker which account it runs on, if it doesn't know yet, so Cloudflare logins own it. */
-    suspend fun claim(account: String) {
+    /** Tells the realm worker which account it runs on, if it doesn't know yet, so Cloudflare logins own it; true when it was told. */
+    suspend fun claim(account: String): Boolean {
         val script = "/accounts/$account/workers/scripts/${Cloudflare.WORKER}/secrets"
-        if (call<List<WorkerSecret>>(HttpMethod.Get, script).none { it.name == "REALM_ACCOUNT" }) {
-            call<JsonElement?>(HttpMethod.Put, script, cloudflareJson.encodeToJsonElement(WorkerSecret("REALM_ACCOUNT", account)))
-        }
+        if (call<List<WorkerSecret>>(HttpMethod.Get, script).any { it.name == "REALM_ACCOUNT" }) return false
+        call<JsonElement?>(HttpMethod.Put, script, cloudflareJson.encodeToJsonElement(WorkerSecret("REALM_ACCOUNT", account)))
+        return true
     }
 
     @Serializable

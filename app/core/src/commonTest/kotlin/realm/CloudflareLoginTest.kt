@@ -1,5 +1,6 @@
 package realm
 
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -79,9 +80,11 @@ class CloudflareLoginTest {
 
     @Test
     fun oneWorkerSignsInToIt() = runTest {
-        val out = logInWithCloudflare(browser, "test", engine = cloudflare(worker = true).engine)
+        val cloud = cloudflare(worker = true)
+        val out = logInWithCloudflare(browser, "test", engine = cloud.engine)
 
         val s = assertIs<SignedIn>(out)
+        assertTrue(cloud.routes.none { "/secrets" in it }, cloud.routes.toString())
         assertEquals(listOf("Main", "Lisbon trip"), s.realms.map { it.name })
         val c = assertIs<Connection.ByCloudflare>(s.connection)
         assertEquals("https://realm.jo.workers.dev", c.server)
@@ -89,10 +92,33 @@ class CloudflareLoginTest {
     }
 
     @Test
+    fun aWorkerThatDoesNotKnowItsAccountIsToldOnSigningIn() = runTest {
+        var told = false
+        val c = FakeClouds { route, _ ->
+            when (route) {
+                "POST dash.cloudflare.com/oauth2/token" -> json("""{"access_token":"cf-token","refresh_token":"r1","expires_in":3600}""")
+
+                "GET $CF/accounts/a1/workers/scripts/realm/secrets" -> cf("[]")
+
+                "PUT $CF/accounts/a1/workers/scripts/realm/secrets" -> cf("{}").also { told = true }
+
+                "GET realm.jo.workers.dev/api/info" ->
+                    if (told) json(OWNER_INFO) else json("""{"error":"bad token"}""", HttpStatusCode.Unauthorized)
+
+                "GET realm.jo.workers.dev/api/realms" -> json(TWO_REALMS)
+
+                else -> null
+            }
+        }
+        assertIs<SignedIn>(logInWithCloudflare(browser, "test", engine = c.engine))
+        assertEquals(1, c.routes.count { it == "PUT cf/accounts/a1/workers/scripts/realm/secrets" })
+    }
+
+    @Test
     fun aWorkerJustDeployedIsSignedInToWithTheSameLogin() = runTest {
         val c = cloudflare(worker = true)
         val login = CloudflareLogin(Secret("cf-token"), Secret("r1"), Cloudflare.now() + 3600)
-        val s = signInWithCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"), "test", engine = c.engine)
+        val s = signInWithCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"), "test", fresh = true, engine = c.engine)
 
         assertEquals(2, s.realms.size)
         assertTrue(c.seen.all { it.headers["Authorization"] == "Bearer cf-token" })

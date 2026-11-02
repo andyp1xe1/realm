@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class PlanTest {
     private val oldOnly = """[{"uuid":"u1","name":"realm-old"}]"""
@@ -69,10 +70,19 @@ class PlanTest {
     }
 
     @Test
-    fun aWorkerNeverLoggedInToIsToldItsAccountThenAsked() = runTest {
-        // Deployed with wrangler: it takes Cloudflare logins only once it knows which account it's on.
+    fun planningAWorkerNeverLoggedInToChangesNothing() = runTest {
         val clouds = account(script = true) { claimed -> """{"version":2,"scope":"owner"}""".takeIf { claimed } }
         val plan = clouds.api().plan(ACCOUNT, RELEASE)
+
+        assertIs<Refusal.Unknown>(assertIs<Plan.Refused>(plan).reason)
+        assertTrue(clouds.routes.none { it.startsWith("PUT") || "/secrets" in it }, clouds.routes.toString())
+    }
+
+    @Test
+    fun updatingAWorkerNeverLoggedInToTellsItItsAccountThenAsks() = runTest {
+        // Deployed with wrangler: it takes Cloudflare logins only once it knows which account it's on.
+        val clouds = account(script = true) { claimed -> """{"version":2,"scope":"owner"}""".takeIf { claimed } }
+        val plan = clouds.api().planUpdate(ACCOUNT, RELEASE)
 
         assertEquals(2, assertIs<Plan.Update>(plan).from.version)
         val told = clouds.seen.single { it.route == "PUT $CF/accounts/a1/workers/scripts/realm/secrets" }

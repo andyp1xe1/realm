@@ -56,6 +56,6 @@ suspend fun CloudflareApi.land(
     return when {
         plan is Plan.Update -> Landed.Updated(plan)
         done.answer is Answer.NotYet -> Landed.NotAnswering(Connection.ByCloudflare(done.origin, owner))
-        else -> Landed.SignedInTo(signInWithCloudflare(done.origin, owner, source, session, engine))
+        else -> Landed.SignedInTo(signInWithCloudflare(done.origin, owner, source, fresh = true, session, engine))
     }
 }

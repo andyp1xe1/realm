@@ -254,6 +254,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
                     deployed.server,
                     s.login.copy(account = deployed.login.account),
                     home.platform.name,
+                    fresh = true,
                     home::sessionFor,
                     engine,
                 )

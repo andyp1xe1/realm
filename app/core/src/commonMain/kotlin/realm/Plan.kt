@@ -23,6 +23,9 @@ sealed interface Existing {
 
     /** It's there, but what it runs couldn't be told: [why] says why, for the user. */
     data class Silent(val origin: String?, val why: String) : Existing
+
+    /** It answers at [origin], but takes no Cloudflare login as its owner's: it doesn't know its account yet. */
+    data class Unclaimed(val origin: String) : Existing
 }
 
 /** What's on the account now, as far as deploying cares. */
@@ -95,6 +98,11 @@ fun decide(release: Release, found: Found): Plan = when (val script = found.scri
 
     is Existing.Silent -> Plan.Refused(release, found, Refusal.Unknown(script.why))
 
+    is Existing.Unclaimed -> {
+        val why = "That worker doesn't take Cloudflare logins. Redeploy it with wrangler, then try again."
+        Plan.Refused(release, found, Refusal.Unknown(why))
+    }
+
     is Existing.Answered -> {
         val info = script.info
         when {
@@ -106,14 +114,14 @@ fun decide(release: Release, found: Found): Plan = when (val script = found.scri
     }
 }
 
-/** What deploying [release] on [account] would do; tells a worker that doesn't know its account yet which one it is. */
+/** What deploying [release] on [account] would do. Only reads. */
 suspend fun CloudflareApi.plan(account: Account, release: Release): Plan {
     val a = "/accounts/${account.id}"
     val subdomain = subdomain(account)
     val domains = domains(account)
     val hasScript = hasScript(account)
     val workersDevOn = hasScript && workersDevOn(account)
-    val script = if (hasScript) existing(account, domains, subdomain.takeIf { workersDevOn }) else null
+    val script = if (hasScript) existing(domains, subdomain.takeIf { workersDevOn }) else null
     val (buckets, r2Enabled) = try {
         call<BucketList>(HttpMethod.Get, "$a/r2/buckets?per_page=1000").buckets.map { it.name }.toSet() to true
     } catch (e: CloudflareError) {
@@ -134,25 +142,27 @@ suspend fun CloudflareApi.plan(account: Account, release: Release): Plan {
     return decide(release, found)
 }
 
-private suspend fun CloudflareApi.existing(account: Account, domains: List<Domain>, subdomain: String?): Existing {
+private suspend fun CloudflareApi.existing(domains: List<Domain>, subdomain: String?): Existing {
     val origin = domains.firstOrNull()?.let { "https://${it.hostname}" } ?: subdomain?.let { CloudflareApi.workersDev(it) }
         ?: return Existing.Silent(null, "That worker has no address to ask what it runs: turn on its workers.dev address.")
+    return ask(origin) { it.info() }
+}
+
+private suspend fun CloudflareApi.ask(origin: String, info: suspend (Api) -> Info): Existing {
     val api = Api.server(origin, bearer, "deploy", engine)
     return try {
-        Existing.Answered(origin, ownerInfo(account, api))
+        Existing.Answered(origin, info(api))
     } catch (e: CancellationException) {
         throw e
     } catch (e: CloudflareRejected) {
         throw e
     } catch (e: ApiException) {
-        Existing.Silent(
-            origin,
-            when {
-                e.status == 401 -> "That worker doesn't take Cloudflare logins. Redeploy it with wrangler, then try again."
-                e.status == 404 -> "That worker doesn't say what it runs. Redeploy it."
-                else -> "That worker didn't say what it runs: ${e.message}"
-            },
-        )
+        when {
+            e.status == 401 -> Existing.Unclaimed(origin)
+            e is Unreachable -> Existing.Silent(origin, "Can't reach that worker at $origin to ask what it runs.")
+            e.status == 404 -> Existing.Silent(origin, "That worker doesn't say what it runs. Redeploy it.")
+            else -> Existing.Silent(origin, "That worker didn't say what it runs: ${e.message}")
+        }
     } catch (e: Exception) {
         Existing.Silent(origin, "Can't reach that worker at $origin to ask what it runs.")
     } finally {
@@ -160,16 +170,15 @@ private suspend fun CloudflareApi.existing(account: Account, domains: List<Domai
     }
 }
 
-private suspend fun CloudflareApi.ownerInfo(account: Account, api: Api): Info = try {
-    api.info()
-} catch (e: ApiException) {
-    if (e.status != 401) throw e
-    claim(account.id)
-    try {
-        Cloudflare.checkOwner(api, fresh = true)
-    } catch (still: ApiException) {
-        throw ApiException(still.message ?: "", 401)
-    }
+/**
+ * What updating the worker on [account] to [release] would do, as [plan] says; a worker that doesn't know its
+ * account yet, as one deployed with wrangler, is told it first, so it can say what it runs.
+ */
+suspend fun CloudflareApi.planUpdate(account: Account, release: Release): Plan {
+    val plan = plan(account, release)
+    val unclaimed = plan.found.script as? Existing.Unclaimed ?: return plan
+    val wrote = claim(account.id)
+    return decide(release, plan.found.copy(script = ask(unclaimed.origin) { Cloudflare.checkOwner(it, fresh = wrote) }))
 }
 
 internal suspend fun CloudflareApi.database(account: Account, name: String): D1? =

@@ -123,7 +123,7 @@ class ServerSettings internal constructor(
         this.task = task
         scope.launch {
             try {
-                val s = signInWithCloudflare(origin, session.login, home.platform.name, home::sessionFor, engine)
+                val s = signInWithCloudflare(origin, session.login, home.platform.name, fresh = false, home::sessionFor, engine)
                 val next = try {
                     CloudflareApi(session, engine).use { then(it, a) }
                     serverFacts(s.api, s.session, engine)

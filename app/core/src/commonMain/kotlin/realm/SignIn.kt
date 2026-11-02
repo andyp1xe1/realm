@@ -102,21 +102,30 @@ private suspend fun signInTo(
     session: (Connection.ByCloudflare) -> CloudflareSession,
     engine: HttpClientEngine?,
 ): SignedIn {
-    CloudflareApi(login, engine).use { it.claim(worker.account) }
-    return signInWithCloudflare(worker.origin, login.login.copy(account = worker.account), source, session, engine)
+    val owner = login.login.copy(account = worker.account)
+    return try {
+        signInWithCloudflare(worker.origin, owner, source, fresh = false, session, engine)
+    } catch (e: NotOwner) {
+        if (!CloudflareApi(login, engine).use { it.claim(worker.account) }) throw e
+        signInWithCloudflare(worker.origin, owner, source, fresh = true, session, engine)
+    }
 }
 
-/** Signs in to the realm worker at [origin] with a Cloudflare [login] for its account; [session] is as for [logInWithCloudflare]. */
+/**
+ * Signs in to the realm worker at [origin] with a Cloudflare [login] for its account; [fresh] when its
+ * REALM_ACCOUNT was just written, as by a deploy. [session] is as for [logInWithCloudflare].
+ */
 suspend fun signInWithCloudflare(
     origin: String,
     login: CloudflareLogin,
     source: String,
+    fresh: Boolean,
     session: (Connection.ByCloudflare) -> CloudflareSession = { CloudflareSession(it.login) {} },
     engine: HttpClientEngine? = null,
 ): SignedIn = inWords {
     val s = session(Connection.ByCloudflare(origin, login))
     val api = Api.server(origin, s, source, engine)
-    val (info, realms) = api.closingOnFailure { Cloudflare.checkOwner(api, fresh = true) to api.realms() }
+    val (info, realms) = api.closingOnFailure { Cloudflare.checkOwner(api, fresh) to api.realms() }
     SignedIn(api, info, realms, Connection.ByCloudflare(origin, s.login), s)
 }
 
