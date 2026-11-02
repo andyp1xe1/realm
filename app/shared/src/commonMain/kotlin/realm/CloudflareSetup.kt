@@ -10,7 +10,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class CloudflareSetup internal constructor(
@@ -162,15 +161,14 @@ class CloudflareSetup internal constructor(
         }
     }
 
-    internal fun checkForUpdate(server: Api, canDeploy: Boolean, force: Boolean) {
+    internal fun checkForUpdate(signedIn: Phase.SignedIn, force: Boolean) {
         if (!updateChecks.due(force)) return
-        scope.launch {
+        signedIn.scope.launch {
             try {
-                val info = server.info()
+                val info = signedIn.server.info()
                 val newer = updateChecks.newerFor(info, force)
-                if (home.server !== server) return@launch
                 Snapshot.withMutableSnapshot {
-                    update = newer?.let { ServerUpdate(info.version, it, canDeploy) }
+                    update = newer?.let { ServerUpdate(info.version, it, canDeploy = signedIn.session?.login?.account != null) }
                     knownRelease = updateChecks.knownTag
                 }
             } catch (e: CancellationException) {
@@ -193,10 +191,7 @@ class CloudflareSetup internal constructor(
             try {
                 block()
             } catch (e: CancellationException) {
-                if (!isActive) throw e
-                logFailure("Logging in with Cloudflare", e)
-                login = null
-                home.message = "Logging in stopped: ${e.message}"
+                throw e
             } catch (e: Exception) {
                 logFailure("Logging in with Cloudflare", e)
                 Snapshot.withMutableSnapshot {

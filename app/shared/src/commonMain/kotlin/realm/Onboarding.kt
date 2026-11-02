@@ -4,6 +4,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.serializer
@@ -12,10 +13,12 @@ import kotlin.time.Duration.Companion.seconds
 class Onboarding internal constructor(private val home: Home, private val scope: CoroutineScope, private val engine: HttpClientEngine?) {
     /**
      * Where onboarding with [session] has got to: [account] is the id of the account chosen to deploy to, null
-     * while choosing, and [realms] whether realm runs on each account, by id.
+     * while choosing, and [realms] whether realm runs on each account, by id. [scope] runs the work for the
+     * session, ended with it.
      */
     data class State(
         val session: CloudflareSession,
+        val scope: CoroutineScope,
         val account: String?,
         val realms: Map<String, Fetched<RealmOn>> = emptyMap(),
         val problem: String? = null,
@@ -89,22 +92,14 @@ class Onboarding internal constructor(private val home: Home, private val scope:
     fun wasLast(a: Account) = lastUsed.get() == a.id
 
     internal fun start(login: CloudflareLogin, known: List<Account>?) {
-        lateinit var s: CloudflareSession
-        s = CloudflareSession(login) { next ->
-            if (session !== s) return@CloudflareSession
-            if (next != null) {
-                save(next)
-            } else {
-                scope.launch {
-                    if (session !== s) return@launch
-                    home.signOut()
-                    home.message = CloudflareRejected().message
-                }
-            }
+        val s = home.sessionFor(login) { Connection.LoginOnly(it.copy(account = at?.account)) }
+        at?.let {
+            it.scope.cancel()
+            it.session.close()
         }
         Snapshot.withMutableSnapshot {
             forget()
-            home.phase = Phase.Onboarding(State(s, login.account))
+            home.phase = Phase.Onboarding(State(s, home.childScope(), login.account))
             save(login)
             if (known != null) accounts.set(known)
             if (login.account != null) {
@@ -120,7 +115,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
 
     private fun loadAccounts(s: CloudflareSession) {
         edit(s) { copy(problem = null) }
-        scope.launch {
+        at?.scope?.launch {
             val list = try {
                 CloudflareApi(s, engine).use { it.accounts() }
             } catch (e: CancellationException) {
@@ -130,7 +125,6 @@ class Onboarding internal constructor(private val home: Home, private val scope:
                 edit(s) { copy(problem = explain(e)) }
                 return@launch
             }
-            if (session !== s) return@launch
             Snapshot.withMutableSnapshot {
                 accounts.set(list)
                 if (at?.account == null) askRealms(list)
@@ -139,13 +133,13 @@ class Onboarding internal constructor(private val home: Home, private val scope:
     }
 
     private fun askRealms(list: List<Account>) {
-        val s = session ?: return
+        val now = at ?: return
         val asked = list.associate { a ->
-            a.id to Fetched<RealmOn>(scope, "Looking for realm on ${a.id}", failed = ::failed).apply {
-                refresh { CloudflareApi(s, engine).use { it.realmOn(a) } }
+            a.id to Fetched<RealmOn>(now.scope, "Looking for realm on ${a.id}", failed = ::failed).apply {
+                refresh { CloudflareApi(now.session, engine).use { it.realmOn(a) } }
             }
         }
-        edit(s) { copy(realms = asked) }
+        edit(now.session) { copy(realms = asked) }
     }
 
     /** Signs in to realm on [a] if it runs there, else picks it to deploy to; either way it's offered first next time. */
@@ -201,7 +195,7 @@ class Onboarding internal constructor(private val home: Home, private val scope:
         val s = session ?: return
         if (a == null || busy) return
         edit { copy(busy = true, problem = null) }
-        scope.launch {
+        at?.scope?.launch {
             val signed = try {
                 signInOn(a, s, home.platform.name, home::sessionFor, engine)
             } catch (e: CancellationException) {
@@ -211,14 +205,14 @@ class Onboarding internal constructor(private val home: Home, private val scope:
                 edit(s) { copy(busy = false, problem = explain(e)) }
                 return@launch
             }
-            if (session === s) Snapshot.withMutableSnapshot { home.signedIn(signed) } else signed.api.close()
+            Snapshot.withMutableSnapshot { home.signedIn(signed) }
         }
     }
 
     internal fun comingUp(deployed: Connection.ByCloudflare) {
         val s = session ?: return
         edit { copy(comingUp = deployed.server, busy = true, problem = null, deployFailed = false) }
-        scope.launch {
+        at?.scope?.launch {
             val signed = try {
                 answering(deployed, s)
             } catch (e: CancellationException) {
@@ -228,15 +222,11 @@ class Onboarding internal constructor(private val home: Home, private val scope:
                 stop(s, explain(e))
                 return@launch
             }
-            when {
-                session !== s -> signed?.api?.close()
-
-                signed != null -> Snapshot.withMutableSnapshot { home.signedIn(signed) }
-
-                else -> {
-                    val host = deployed.server.removePrefix("https://")
-                    stop(s, "realm is deployed, but $host doesn't answer yet. Sign in again in a few minutes.")
-                }
+            if (signed != null) {
+                Snapshot.withMutableSnapshot { home.signedIn(signed) }
+            } else {
+                val host = deployed.server.removePrefix("https://")
+                stop(s, "realm is deployed, but $host doesn't answer yet. Sign in again in a few minutes.")
             }
         }
     }
@@ -244,7 +234,6 @@ class Onboarding internal constructor(private val home: Home, private val scope:
     private suspend fun answering(deployed: Connection.ByCloudflare, s: CloudflareSession): SignedIn? {
         repeat(COMING_UP_TRIES) {
             delay(COMING_UP_EVERY)
-            if (session !== s) return null
             try {
                 return signInWithCloudflare(
                     deployed.server,

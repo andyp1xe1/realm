@@ -9,11 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-class ServerSettings internal constructor(
-    private val home: Home,
-    private val scope: CoroutineScope,
-    private val engine: HttpClientEngine?,
-) {
+class ServerSettings internal constructor(private val home: Home, private val engine: HttpClientEngine?) {
     /** What the section shows about the server signed in to, kept between runs; null when signed in to none. */
     val facts: Fetched<ServerFacts>? get() = (home.phase as? Phase.SignedIn)?.facts
 
@@ -26,7 +22,7 @@ class ServerSettings internal constructor(
 
     private val addresses get() = facts?.state?.value?.addresses
 
-    internal fun factsAt(server: Api) = Fetched(
+    internal fun factsAt(server: Api, scope: CoroutineScope) = Fetched(
         scope,
         "Looking at the server",
         Remembered(home.platform.prefs, "server-facts/${server.base.removeSuffix("/api")}", ServerFacts.serializer()),
@@ -45,10 +41,11 @@ class ServerSettings internal constructor(
 
     /** Asks for the newest release and what deploying it would do. */
     fun checkForUpdates() {
-        val session = home.session ?: return
+        val p = home.phase as? Phase.SignedIn ?: return
+        val session = p.session ?: return
         val account = addresses?.account ?: return
         check = Check.Checking
-        scope.launch {
+        p.scope.launch {
             check = try {
                 Check.Done(CloudflareApi(session, engine).use { it.checkUpdate(account) })
             } catch (e: CancellationException) {
@@ -119,10 +116,11 @@ class ServerSettings internal constructor(
     fun use(origin: String) = switch(origin, AddressTask.Switching(origin)) { _, _ -> }
 
     private fun switch(origin: String, task: AddressTask, then: suspend (CloudflareApi, Addresses) -> Unit) {
-        val session = home.session ?: return
+        val p = home.phase as? Phase.SignedIn ?: return
+        val session = p.session ?: return
         val a = addresses ?: return
         this.task = task
-        scope.launch {
+        p.scope.launch {
             try {
                 val s = signInWithCloudflare(origin, session.login, home.platform.name, fresh = false, home::sessionFor, engine)
                 val next = try {
@@ -147,11 +145,12 @@ class ServerSettings internal constructor(
     }
 
     private fun work(task: AddressTask, block: suspend (CloudflareApi, Addresses) -> AddressTask?) {
-        val session = home.session ?: return
+        val p = home.phase as? Phase.SignedIn ?: return
+        val session = p.session ?: return
         val f = facts ?: return
         val a = addresses ?: return
         this.task = task
-        scope.launch {
+        p.scope.launch {
             try {
                 CloudflareApi(session, engine).use { cf ->
                     val next = block(cf, a)

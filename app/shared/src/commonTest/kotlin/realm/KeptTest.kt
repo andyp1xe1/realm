@@ -10,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -128,6 +129,20 @@ class KeptTest {
         assertNull(FeedCache(cache, "realm:main").first())
         assertNull(cache.get("preview/realm:main"))
         assertNotNull(cache.get("link-info/$link")) // still connected to it
+    }
+
+    @Test
+    fun signingOutWhileTheServerAnswersKeepsNothingOfIt() = runTest {
+        val servers = Servers(this, listOf(fresh, photo, note))
+        val kept = MapPrefs()
+        val home = Home(TestPlatform(prefs, kept), this, servers.engine)
+        runCurrent()
+        home.signOut()
+        servers.open.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(emptyList(), home.realms.toList())
+        assertEquals(emptyList(), kept.map.keys.filter { "realm:main" in it })
+        assertNull(home.message)
     }
 
     @Test

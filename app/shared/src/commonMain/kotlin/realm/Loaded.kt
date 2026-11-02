@@ -3,7 +3,6 @@ package realm
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.Snapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -37,12 +36,9 @@ class Fetched<T : Any>(
 
     private var job: Job? = null
 
-    private var generation = 0
-
     /** Fetches with [fetch] instead of any fetch under way; when it fails, what was known stays and [failed] says why. */
     fun refresh(fetch: suspend () -> T) {
         job?.cancel()
-        val mine = ++generation
         refreshing = true
         job = scope.launch {
             val next = try {
@@ -51,18 +47,17 @@ class Fetched<T : Any>(
                 throw e
             } catch (e: Exception) {
                 logFailure(doing, e)
-                if (mine != generation) return@launch
                 refreshing = false
                 failed(explain(e))
                 return@launch
             }
-            Snapshot.withMutableSnapshot { if (mine == generation) publish(next) }
+            publish(next)
         }
     }
 
     /** Publishes [value], dropping any fetch under way. */
     fun set(value: T) {
-        drop()
+        job?.cancel()
         publish(value)
     }
 
@@ -74,15 +69,10 @@ class Fetched<T : Any>(
 
     /** Back to nothing known, here and in the cache; drops any fetch under way. */
     fun forget() {
-        drop()
+        job?.cancel()
         refreshing = false
         state = Loaded.Unknown
         cache?.set(null)
-    }
-
-    private fun drop() {
-        job?.cancel()
-        generation++
     }
 
     private fun publish(value: T) {

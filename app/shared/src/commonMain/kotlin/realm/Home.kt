@@ -8,8 +8,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -58,7 +61,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** Logging in with Cloudflare, and deploying or updating the worker with it. */
     val cloudflare = CloudflareSetup(this, scope, engine)
 
-    val serverSettings = ServerSettings(this, scope, engine)
+    val serverSettings = ServerSettings(this, engine)
 
     /** Logged in with Cloudflare with no realm worker yet: choosing an account, and deploying. */
     val onboarding = Onboarding(this, scope, engine)
@@ -107,8 +110,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         model?.refresh()
     }
 
-    private fun checkForUpdate(force: Boolean, api: Api? = server) {
-        api?.let { cloudflare.checkForUpdate(it, canDeploy = session?.login?.account != null, force) }
+    private fun checkForUpdate(force: Boolean) {
+        (phase as? Phase.SignedIn)?.let { cloudflare.checkForUpdate(it, force) }
     }
 
     /** Re-asks the server for its realms and every link for what it is, then refreshes the tile previews. */
@@ -116,17 +119,18 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         if (!force && lastRefresh?.let { it.elapsedNow() < 3.seconds } == true) return
         lastRefresh = TimeSource.Monotonic.markNow()
         checkForUpdate(force = false)
+        val signedIn = phase as? Phase.SignedIn
         scope.launch {
             loading = true
             try {
                 coroutineScope {
-                    server?.let { s -> launch { loadRealms(s) } }
                     shared.toList().forEach { sp -> launch { updateShared(sp.url) } }
+                    signedIn?.run { scope.launch { loadRealms(server) }.join() }
                 }
             } finally {
                 loading = false
             }
-            spaces.filter { it.canRead }.forEach { sp -> launch { tiles.fetch(sp) } }
+            spaces.filter { it.canRead }.forEach { sp -> scopeOf(sp).launch { tiles.fetch(sp) } }
         }
     }
 
@@ -134,14 +138,16 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     fun prefetch(keys: Collection<Any?>) {
         spaces.filter { it.key in keys && it.canRead }.forEach { sp ->
             val m = modelOf(sp)
-            scope.launch { prefetching.withPermit { m.prefetch() } }
+            scopeOf(sp).launch { prefetching.withPermit { m.prefetch() } }
         }
     }
+
+    private fun scopeOf(space: Space): CoroutineScope = (phase as? Phase.SignedIn)?.takeIf { space is Space.Own }?.scope ?: scope
 
     private suspend fun loadRealms(s: Api) {
         try {
             val list = s.realms()
-            if (server !== s || realms.toList() == list) return
+            if (realms.toList() == list) return
             realms.clear()
             realms.addAll(list)
             knownRealms.set(list)
@@ -216,24 +222,20 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     /** [space]'s feed, starting from its first page as kept last time. */
     fun modelOf(space: Space): Model = models.getOrPut(space.key) {
-        Model(platform, scope, space.api, loadImages = !space.limited, FeedCache(platform.cache, space.key))
+        Model(platform, scopeOf(space), space.api, loadImages = !space.limited, FeedCache(platform.cache, space.key))
     }
 
-    internal fun sessionFor(owner: Connection.ByCloudflare): CloudflareSession {
-        lateinit var s: CloudflareSession
-        s = CloudflareSession(owner.login) { next ->
-            if (session !== s) return@CloudflareSession
-            if (next != null) {
-                prefs.saveOwn(owner.copy(login = next))
-            } else {
-                scope.launch {
-                    if (session !== s) return@launch
-                    signOut()
-                    message = CloudflareRejected().message
-                }
+    internal fun sessionFor(owner: Connection.ByCloudflare): CloudflareSession = sessionFor(owner.login) { owner.copy(login = it) }
+
+    internal fun sessionFor(login: CloudflareLogin, kept: (CloudflareLogin) -> Connection.Own) = CloudflareSession(login) { next ->
+        if (next != null) {
+            prefs.saveOwn(kept(next))
+        } else {
+            scope.launch {
+                signOut()
+                message = CloudflareRejected().message
             }
         }
-        return s
     }
 
     /** Signs in to your own server at [url]; returns an error message or null. */
@@ -265,13 +267,22 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         }
     }
 
-    private fun signedIn(api: Api, session: CloudflareSession?, facts: ServerFacts? = null) =
-        Phase.SignedIn(api, session, serverSettings.factsAt(api).apply { facts?.let(::set) })
+    private fun signedIn(api: Api, session: CloudflareSession?, facts: ServerFacts? = null): Phase.SignedIn {
+        val work = childScope()
+        return Phase.SignedIn(api, session, serverSettings.factsAt(api, work).apply { facts?.let(::set) }, work)
+    }
+
+    internal fun childScope(): CoroutineScope {
+        val job = Job()
+        val ended = scope.coroutineContext.job.invokeOnCompletion { job.cancel() }
+        job.invokeOnCompletion { ended.dispose() }
+        return CoroutineScope(scope.coroutineContext + job)
+    }
 
     private fun adoptOwner(s: SignedIn, facts: ServerFacts? = null) {
         phase = signedIn(s.api, s.session, facts)
         prefs.saveOwn(s.connection)
-        checkForUpdate(force = true, s.api)
+        checkForUpdate(force = true)
         realms.addAll(s.realms)
         knownRealms.set(s.realms)
         if (open == null) reopen()
@@ -298,14 +309,16 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         onboarding.forget()
         val login = when (was) {
             is Phase.SignedIn -> was.session.also {
+                was.scope.cancel()
                 was.server.close()
                 was.facts.forget()
             }
 
-            is Phase.Onboarding -> was.at.session
+            is Phase.Onboarding -> was.at.session.also { was.at.scope.cancel() }
 
             Phase.Setup -> null
         }
+        login?.close()
         if (revoke) login?.let { s -> scope.launch { Cloudflare.revoke(s.login) } }
         cloudflare.signedOut()
         serverSettings.signedOut()
@@ -351,40 +364,25 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     private fun saveLinks() = knownLinks.set(shared.map { it.url })
 
-    fun createRealm(name: String) {
-        val s = server ?: return
-        scope.launch {
-            try {
-                val r = s.createRealm(name)
-                realms += r
-                knownRealms.set(realms.toList())
-                val space = own(r)
-                modelOf(space).startEmpty()
-                arrive(space)
-            } catch (e: Exception) {
-                message = explain(e)
-            }
-        }
+    fun createRealm(name: String) = onServer { s ->
+        val r = s.createRealm(name)
+        realms += r
+        knownRealms.set(realms.toList())
+        val space = own(r)
+        modelOf(space).startEmpty()
+        arrive(space)
     }
 
-    fun renameRealm(realm: Realm, name: String) {
-        val s = server ?: return
-        scope.launch {
-            try {
-                val r = s.renameRealm(realm.id, name)
-                val i = realms.indexOfFirst { it.id == realm.id }
-                if (i >= 0) realms[i] = r
-            } catch (e: Exception) {
-                message = explain(e)
-            }
-        }
+    fun renameRealm(realm: Realm, name: String) = onServer { s ->
+        val r = s.renameRealm(realm.id, name)
+        val i = realms.indexOfFirst { it.id == realm.id }
+        if (i >= 0) realms[i] = r
     }
 
     fun deleteRealm(realm: Realm) {
-        val s = server ?: return
         val key = ownKey(realm.id)
-        leaving += key
-        scope.launch {
+        onServer { s ->
+            leaving += key
             try {
                 coroutineScope {
                     launch { delay(TILE_LEAVE_MILLIS) }
@@ -394,10 +392,21 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
                 forget(key, drop = true)
                 knownRealms.set(realms.toList())
                 if (open == null) reopen()
-            } catch (e: Exception) {
-                message = explain(e)
             } finally {
                 leaving -= key
+            }
+        }
+    }
+
+    private fun onServer(work: suspend (Api) -> Unit) {
+        val p = phase as? Phase.SignedIn ?: return
+        p.scope.launch {
+            try {
+                work(p.server)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message = explain(e)
             }
         }
     }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
@@ -177,21 +178,31 @@ object Cloudflare {
     fun now() = Clock.System.now().epochSeconds
 }
 
-/** A Cloudflare login as an owner's [Bearer], renewed as it runs out; [save] gets every new login, and null once Cloudflare rejects it. */
+/**
+ * A Cloudflare login as an owner's [Bearer], renewed as it runs out; [save] gets every new login, and null once
+ * Cloudflare rejects it, until [close].
+ */
 class CloudflareSession(login: CloudflareLogin, private val save: (CloudflareLogin?) -> Unit) : Bearer {
     var login = login
         private set
     private val lock = Mutex()
+
+    @Volatile private var open = true
+
+    /** Stops [save] getting anything more: what the login was for has ended. */
+    fun close() {
+        open = false
+    }
 
     override suspend fun token(): String = lock.withLock {
         if (Cloudflare.now() < login.expires - 60) return login.access.value
         try {
             login = Cloudflare.refresh(login)
         } catch (e: CloudflareRejected) {
-            save(null)
+            if (open) save(null)
             throw e
         }
-        save(login)
+        if (open) save(login)
         login.access.value
     }
 }
