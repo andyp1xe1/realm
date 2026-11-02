@@ -10,6 +10,9 @@ interface LocalFile {
 
     /** Opens a fresh blocking reader over the content. */
     fun reader(): ByteReader
+
+    /** The app is done with it: it's uploaded, or its failed upload was dismissed. A file made only to be sent deletes itself. */
+    fun finished() {}
 }
 
 interface ByteReader : AutoCloseable {

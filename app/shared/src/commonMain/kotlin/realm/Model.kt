@@ -273,6 +273,7 @@ class Model(
 
     fun dismiss(p: Pending) {
         pending.remove(p)
+        p.file?.finished()
     }
 
     private fun enqueue(p: Pending) {
@@ -290,6 +291,7 @@ class Model(
                     }
                 }
                 if (p.file != null && item.kind == "image") seedImage(item, p.file)
+                p.file?.finished()
                 landedAs[item.id] = Row.Sending(p).key
                 Snapshot.withMutableSnapshot {
                     pending.remove(p)

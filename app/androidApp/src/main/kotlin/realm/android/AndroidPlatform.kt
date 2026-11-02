@@ -75,7 +75,7 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     private val photo = activity.bridge(ActivityResultContracts.TakePicture())
     private val permission = activity.bridge(ActivityResultContracts.RequestPermission())
 
-    /** Deletes files opened, photographed or recorded more than a day ago. Blocks on disk. */
+    /** Deletes files opened, or photographed or recorded and never sent, more than a day ago. Blocks on disk. */
     fun sweepTempFiles() {
         val cutoff = System.currentTimeMillis() - 1.days.inWholeMilliseconds
         Temp.entries.forEach { temp ->
@@ -110,7 +110,7 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val file = activity.tempFile(Temp.Camera, "IMG_$stamp.jpg")
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
-        return if (photo(uri) && file.length() > 0) JFile(file, "image/jpeg") else null.also { file.delete() }
+        return if (photo(uri) && file.length() > 0) TempFile(file, "image/jpeg") else null.also { file.delete() }
     }
 
     override suspend fun startRecording(): Recording? {
@@ -204,6 +204,13 @@ private enum class Temp(val dir: String) { Open("open"), Camera("camera"), Voice
 
 private fun Context.tempFile(temp: Temp, name: String) = File(File(cacheDir, temp.dir), name).apply { parentFile?.mkdirs() }
 
+/** A photo or recording made only to be sent: gone once the app is done with it. */
+private class TempFile(private val file: File, mime: String) : LocalFile by JFile(file, mime) {
+    override fun finished() {
+        file.delete()
+    }
+}
+
 private class UriFile(private val context: Context, private val uri: Uri) : LocalFile {
     override val name: String
     override val size: Long
@@ -247,7 +254,7 @@ private class AndroidRecording(context: Context, private val file: File) : Recor
     override suspend fun stop(): LocalFile? {
         val ok = runCatching { rec.stop() }.isSuccess
         rec.release()
-        return if (ok && file.length() > 0) JFile(file, "audio/mp4") else null.also { file.delete() }
+        return if (ok && file.length() > 0) TempFile(file, "audio/mp4") else null.also { file.delete() }
     }
 
     override fun cancel() {

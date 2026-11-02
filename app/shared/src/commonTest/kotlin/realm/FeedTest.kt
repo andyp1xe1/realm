@@ -71,6 +71,52 @@ class FeedTest {
         assertEquals(listOf("c", "b", "a"), m.items.map { it.id })
     }
 
+    private class Photo : LocalFile {
+        var finished = 0
+        override val name = "IMG_1.jpg"
+        override val mime = "image/jpeg"
+        override val size = 3L
+        override fun reader() = object : ByteReader {
+            var left = 3
+            override fun read(buf: ByteArray, off: Int, len: Int): Int = if (left == 0) -1 else 1.also { left-- }
+            override fun close() {}
+        }
+        override fun finished() {
+            finished++
+        }
+    }
+
+    @Test
+    fun aFileIsFinishedWithOnceItsUploadedOrDismissedNotWhileItCanBeRetried() = runTest {
+        var fails = true
+        val m = feed {
+            if (fails) error("offline") else """{"id":"p","kind":"image","name":"IMG_1.jpg","created":1}"""
+        }
+        fun TestScope.settle(done: () -> Boolean) {
+            repeat(400) {
+                advanceUntilIdle()
+                if (done()) return
+                Thread.sleep(5)
+            }
+        }
+        val photo = Photo()
+        m.sendFiles(listOf(photo))
+        settle { m.pending.single().error != null }
+        assertEquals(0, photo.finished)
+
+        fails = false
+        m.retry(m.pending.single())
+        settle { m.pending.isEmpty() }
+        assertEquals(1, photo.finished)
+
+        fails = true
+        val other = Photo()
+        m.sendFiles(listOf(other))
+        settle { m.pending.single().error != null }
+        m.dismiss(m.pending.single())
+        assertEquals(1, other.finished)
+    }
+
     @Test
     fun aSentNoteKeepsItsRowAsItLands() = runTest {
         val m = feed { """{"id":"n1","kind":"note","text":"hi","created":1}""" }
