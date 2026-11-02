@@ -7,12 +7,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 
-class Tiles internal constructor(private val platform: Platform) {
+class Tiles internal constructor(private val platform: Platform, private val bitmaps: Bitmaps) {
     /** The latest few items of each space, by key; as kept from last time until they're fetched. */
     val previews = mutableStateMapOf<String, List<Item>>()
-    private val thumbs = mutableStateMapOf<String, ImageBitmap>()
-    private val thumbLoading = mutableSetOf<String>()
-    private val thumbOrder = ArrayDeque<String>()
 
     internal fun restore(keys: List<String>) = keys.forEach { k -> kept(k).get()?.let { previews[k] = it } }
 
@@ -37,26 +34,8 @@ class Tiles internal constructor(private val platform: Platform) {
         if (drop) kept(key).set(null)
     }
 
-    fun thumb(id: String): ImageBitmap? = thumbs[id]
-
     /** Loads a tile's picture of [item] from the disk cache, else downloads it unless [space] is use-limited. */
-    suspend fun loadThumb(space: Space, item: Item) {
-        if (item.id in thumbs || item.id in thumbLoading || (item.size ?: 0) > Model.MAX_INLINE_IMAGE) return
-        thumbLoading += item.id
-        try {
-            val bytes = imageBytes(platform, space.api, item.id, download = !space.limited) ?: return
-            withContext(Dispatchers.Default) { platform.decodeImage(bytes, 480) }?.let { bmp ->
-                thumbs[item.id] = bmp
-                thumbOrder.addLast(item.id)
-                while (thumbOrder.size > 120) thumbs.remove(thumbOrder.removeFirst())
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-        } finally {
-            thumbLoading -= item.id
-        }
-    }
+    suspend fun loadThumb(space: Space, item: Item) = bitmaps.load(space.api, item, Bitmaps.THUMB, download = !space.limited)
 
     private fun kept(key: String) = Remembered(platform.cache, "preview/$key", ListSerializer(Item.serializer()))
 

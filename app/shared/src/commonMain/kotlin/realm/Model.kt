@@ -57,6 +57,7 @@ class Model(
     val api: Api,
     private val loadImages: Boolean = true,
     private val cache: FeedCache? = null,
+    private val bitmaps: Bitmaps = Bitmaps(platform),
 ) {
     private val kept = cache?.first()
 
@@ -129,10 +130,6 @@ class Model(
 
     /** True the first time the feed shows the row with [key]; only new rows fade in. */
     fun firstShown(key: String): Boolean = shown.add(key)
-
-    private val images = mutableStateMapOf<String, ImageBitmap>()
-    private val imageOrder = ArrayDeque<String>()
-    private val imageLoading = mutableSetOf<String>()
 
     val isOwner get() = api.isOwner
 
@@ -305,10 +302,10 @@ class Model(
         val bmp = withContext(Dispatchers.IO) {
             runCatching { file.reader().use { it.readAll(file.size.toInt()) } }.getOrNull()?.let { bytes ->
                 platform.cacheImage(api.cacheKey(item.id), bytes)
-                platform.decodeImage(bytes, 1280)
+                platform.decodeImage(bytes, Bitmaps.FULL)
             }
         } ?: return
-        remember(item.id, bmp)
+        bitmaps.put(api.cacheKey(item.id), Bitmaps.FULL, bmp)
     }
 
     private fun saveEdit(item: Item, text: String) {
@@ -379,28 +376,9 @@ class Model(
 
     private fun fileName(item: Item) = item.name ?: "${item.id}.txt"
 
-    fun image(id: String): ImageBitmap? = images[id]
+    fun image(id: String): ImageBitmap? = bitmaps[api.cacheKey(id), Bitmaps.FULL]
 
-    suspend fun loadImage(item: Item) {
-        if (item.id in images || item.id in imageLoading || (item.size ?: 0) > MAX_INLINE_IMAGE) return
-        imageLoading += item.id
-        try {
-            val bytes = imageBytes(platform, api, item.id, download = loadImages) ?: return
-            val bmp = withContext(Dispatchers.Default) { platform.decodeImage(bytes, 1280) } ?: return
-            remember(item.id, bmp)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-        } finally {
-            imageLoading -= item.id
-        }
-    }
-
-    private fun remember(id: String, bmp: ImageBitmap) {
-        images[id] = bmp
-        imageOrder.addLast(id)
-        while (imageOrder.size > 80) images.remove(imageOrder.removeFirst())
-    }
+    suspend fun loadImage(item: Item) = bitmaps.load(api, item, Bitmaps.FULL, download = loadImages)
 
     fun loadLinks() = links.refresh { api.links() }
 

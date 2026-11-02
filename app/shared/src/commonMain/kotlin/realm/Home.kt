@@ -1,5 +1,6 @@
 package realm
 
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,13 +73,15 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     private val models = mutableMapOf<String, Model>()
 
     /** What each tile shows: its space's latest items and their pictures. */
-    val tiles = Tiles(platform)
+    private val bitmaps = Bitmaps(platform)
+    val tiles = Tiles(platform, bitmaps)
     val previews get() = tiles.previews
 
     private val prefetching = Semaphore(2)
     private var refreshing: Job? = null
 
-    val spaces: List<Space> get() = realms.map { own(it) } + shared
+    private val ownSpaces = mutableMapOf<String, Space.Own>()
+    val spaces: List<Space> by derivedStateOf { realms.map { own(it) } + shared }
     val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
     val model: Model? get() = open?.let(::modelOf)
     val isEmpty get() = server == null && shared.isEmpty()
@@ -174,7 +177,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         preview(space).isEmpty() && (previews[space.key] != null || (space is Space.Own && space.realm.count == 0L))
 
     /** An image for a tile: the open feed's copy if it has one, else the tile's own. */
-    fun image(space: Space, item: Item): ImageBitmap? = models[space.key]?.image(item.id) ?: tiles.thumb(item.id)
+    fun image(space: Space, item: Item): ImageBitmap? =
+        space.api.cacheKey(item.id).let { bitmaps[it, Bitmaps.FULL] ?: bitmaps[it, Bitmaps.THUMB] }
 
     fun open(space: Space) {
         if (fresh == space.key) fresh = null
@@ -212,7 +216,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     /** [space]'s feed, starting from its first page as kept last time. */
     fun modelOf(space: Space): Model = models.getOrPut(space.key) {
-        Model(platform, scopeOf(space), space.api, loadImages = !space.limited, FeedCache(platform.cache, space.key))
+        Model(platform, scopeOf(space), space.api, loadImages = !space.limited, FeedCache(platform.cache, space.key), bitmaps)
     }
 
     internal fun sessionFor(owner: Connection.ByCloudflare): CloudflareSession =
@@ -408,7 +412,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         if (showingTabs) fresh = space.key else open(space)
     }
 
-    private fun own(r: Realm) = Space.Own(r, apis.getOrPut(ownKey(r.id)) { server!!.realm(r.id) })
+    private fun own(r: Realm): Space.Own = ownSpaces[ownKey(r.id)]?.takeIf { it.realm == r }
+        ?: Space.Own(r, apis.getOrPut(ownKey(r.id)) { server!!.realm(r.id) }).also { ownSpaces[it.key] = it }
 
     private fun linkApi(url: String) = apis.getOrPut(sharedKey(url)) { Api(url, null, platform.name, engine) }
 
@@ -416,6 +421,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
     private fun forget(key: String, drop: Boolean) {
         apis.remove(key)?.close()
+        ownSpaces.remove(key)
         models.remove(key)
         tiles.forget(key, drop)
         if (drop) FeedCache(platform.cache, key).forget()

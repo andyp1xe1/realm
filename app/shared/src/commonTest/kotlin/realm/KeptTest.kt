@@ -148,6 +148,19 @@ class KeptTest {
     }
 
     @Test
+    fun aSpaceStaysTheSameUntilWhatItIsChanges() = runTest {
+        val servers = Servers(this, listOf(note))
+        val home = Home(TestPlatform(prefs, cache), this, servers.engine)
+        val main = home.spaces.first()
+        assertSame(main, home.spaces.first())
+        servers.open.complete(Unit)
+        advanceUntilIdle()
+        val renamed = home.spaces.first() as Space.Own
+        assertEquals(3, renamed.realm.count)
+        assertSame(renamed, home.spaces.first())
+    }
+
+    @Test
     fun removingALinkForgetsWhatItSaid() = runTest {
         val servers = Servers(this, listOf(note))
         val home = Home(TestPlatform(prefs, cache), this, servers.engine)
