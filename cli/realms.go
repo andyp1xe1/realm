@@ -193,10 +193,11 @@ func (c *Client) realms(args []string) error {
 		if err := srv.do("DELETE", "/realms/"+url.PathEscape(r.ID), nil, nil); err != nil {
 			return err
 		}
-		if cfg := readConfig(); cfg.Realm == r.ID {
-			cfg.Realm = ""
-			_ = saveConfig(cfg)
-		}
+		_ = updateConfig(func(cfg *config) {
+			if cfg.Realm == r.ID {
+				cfg.Realm = ""
+			}
+		})
 		fmt.Printf("deleted “%s”\n", r.Name)
 		return nil
 	}
@@ -214,9 +215,7 @@ func (c *Client) use(args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg := readConfig()
-	cfg.Realm = r.ID
-	if err := saveConfig(cfg); err != nil {
+	if err := updateConfig(func(cfg *config) { cfg.Realm = r.ID }); err != nil {
 		return err
 	}
 	fmt.Printf("using “%s”\n", r.Name)

@@ -26,12 +26,13 @@ import (
 const (
 	cfClientID  = "e48e69845742def220449dec54f713b3"
 	cfAuthorize = "https://dash.cloudflare.com/oauth2/auth"
-	cfTokenURL  = "https://dash.cloudflare.com/oauth2/token"
 	cfRevokeURL = "https://dash.cloudflare.com/oauth2/revoke"
 	cfAPI       = "https://api.cloudflare.com/client/v4"
 	cfPort      = 53134
 	workerName  = "realm"
 )
+
+var cfTokenURL = "https://dash.cloudflare.com/oauth2/token"
 
 var cfScopes = []string{
 	"account-settings.read", "workers-scripts.admin", "d1.write", "workers-r2.write",
@@ -81,9 +82,7 @@ func loginCloudflare() error {
 		found = found || s.ID == workerName
 	}
 	if !found {
-		cfg := readConfig()
-		cfg.Cloudflare = tok
-		if err := saveConfig(cfg); err != nil {
+		if err := updateConfig(func(cfg *config) { cfg.Cloudflare = tok }); err != nil {
 			return err
 		}
 		return fmt.Errorf("no %q worker on %s: deploy it from the app, or with npm run deploy in worker/", workerName, acc.Name)
@@ -275,13 +274,21 @@ func cfExchange(form url.Values, keep string) (*cfAuth, error) {
 	return &cfAuth{Access: t.AccessToken, Refresh: t.RefreshToken, Expires: time.Now().Unix() + t.ExpiresIn}, nil
 }
 
+func (a *cfAuth) fresh() bool {
+	return time.Now().Unix() < a.Expires-60
+}
+
 func cfAccess() (string, error) {
+	if auth := readConfig().Cloudflare; auth != nil && auth.fresh() {
+		return auth.Access, nil
+	}
+	defer lockConfig()()
 	cfg := readConfig()
 	auth := cfg.Cloudflare
 	if auth == nil {
 		return "", errors.New("not logged in: realm login")
 	}
-	if time.Now().Unix() < auth.Expires-60 {
+	if auth.fresh() {
 		return auth.Access, nil
 	}
 	if auth.Refresh == "" {

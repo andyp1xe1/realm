@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -176,39 +175,6 @@ func check(err error) {
 		fmt.Fprintln(os.Stderr, "realm:", err)
 		os.Exit(1)
 	}
-}
-
-type config struct {
-	URL   string `json:"url"`
-	Token string `json:"token,omitempty"`
-	Realm string `json:"realm,omitempty"`
-
-	Cloudflare *cfAuth `json:"cloudflare,omitempty"`
-}
-
-func configPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		dir = filepath.Join(os.Getenv("HOME"), ".config")
-	}
-	return filepath.Join(dir, "realm", "config.json")
-}
-
-func readConfig() config {
-	var cfg config
-	if b, err := os.ReadFile(configPath()); err == nil {
-		_ = json.Unmarshal(b, &cfg)
-	}
-	return cfg
-}
-
-func saveConfig(cfg config) error {
-	p := configPath()
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return err
-	}
-	b, _ := json.MarshalIndent(cfg, "", "  ")
-	return os.WriteFile(p, b, 0o600)
 }
 
 func isLink(s string) bool {
