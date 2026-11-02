@@ -116,7 +116,7 @@ suspend fun signInWithCloudflare(
 ): SignedIn = inWords {
     val s = session(Connection.ByCloudflare(origin, login))
     val api = Api.server(origin, s, source, engine)
-    val (info, realms) = api.closingOnFailure { Cloudflare.checkOwner(api) to api.realms() }
+    val (info, realms) = api.closingOnFailure { Cloudflare.checkOwner(api, fresh = true) to api.realms() }
     SignedIn(api, info, realms, Connection.ByCloudflare(origin, s.login), s)
 }
 
@@ -139,8 +139,13 @@ private suspend fun <T> inWords(block: suspend () -> T): T = try {
     block()
 } catch (e: CancellationException) {
     throw e
+} catch (e: CloudflareRejected) {
+    throw e
+} catch (e: ApiException) {
+    val words = explain(e)
+    throw if (words == e.message) e else ApiException(words, e.status, e)
 } catch (e: Exception) {
-    throw ApiException(explain(e), (e as? ApiException)?.status, e)
+    throw ApiException(explain(e), cause = e)
 }
 
 internal suspend fun <T> Api.closingOnFailure(block: suspend () -> T): T = try {

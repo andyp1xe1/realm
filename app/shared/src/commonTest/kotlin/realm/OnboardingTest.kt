@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -40,6 +41,9 @@ class OnboardingTest {
         var answersAt = 0L
 
         var worker = false
+
+        /** Whether the worker turns this login down as its owner's, as one bound to another account would. */
+        var refuses = false
         val gh = "github.com/andyp1xe1/realm/releases/download/v1.2.0"
 
         // On the test's clock, so advancing it runs every request to the end.
@@ -114,7 +118,9 @@ class OnboardingTest {
 
                 "GET realm.jo.workers.dev/api/info" ->
                     if (scope.testScheduler.currentTime < answersAt) {
-                        throw IllegalStateException("Network is unreachable") // its certificate isn't there yet
+                        throw IOException("Network is unreachable") // its certificate isn't there yet
+                    } else if (refuses) {
+                        json("""{"error":"bad token"}""", HttpStatusCode.Unauthorized)
                     } else if (worker) {
                         json("""{"version":3,"scope":"owner"}""")
                     } else {
@@ -254,5 +260,20 @@ class OnboardingTest {
         assertEquals(Screen.Tabs, home.screen)
         assertEquals(listOf("Main"), home.realms.map { it.name })
         assertIs<Connection.ByCloudflare>(prefs.own())
+    }
+
+    @Test
+    fun aDeployedWorkerThatRefusesTheLoginSaysSoAtOnce() = runTest {
+        val prefs = MapPrefs(kept)
+        val cloud = Cloud(this).apply { refuses = true }
+        val home = home(prefs, cloud)
+        advanceUntilIdle()
+
+        home.onboarding.deploy()
+        advanceTimeBy(2 * 60_000L) // the deploy's minute of waiting, then one sign-in try
+        assertEquals(Screen.Onboarding, home.screen)
+        assertNull(home.onboarding.comingUp)
+        assertEquals(NotOwner().message, home.onboarding.problem)
+        assertIs<Connection.LoginOnly>(prefs.own())
     }
 }

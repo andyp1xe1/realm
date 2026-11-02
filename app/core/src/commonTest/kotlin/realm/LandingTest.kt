@@ -48,7 +48,7 @@ class LandingTest {
 
     private suspend fun FakeClouds.conflict(): Deployed {
         val conflict = api().attachDomain(ACCOUNT, DomainChoice(zone, "notes")) as DomainOutcome.Conflict
-        return Deployed(ACCOUNT, "https://realm.jo.workers.dev", Info(version = 3, scope = "owner"), conflict)
+        return Deployed(ACCOUNT, "https://realm.jo.workers.dev", Answer.Owner(Info(version = 3, scope = "owner")), conflict)
     }
 
     private class Run(val landed: Landed, val progress: List<List<Step>>, val asked: List<ReplaceQuestion>)
@@ -114,7 +114,7 @@ class LandingTest {
     fun anUpdateNeedsNoNewSignIn() = runTest {
         val c = cloud()
         val update = Plan.Update(RELEASE, found(), Info(version = 2, scope = "owner"))
-        val run = c.land(update, Deployed(ACCOUNT, "https://realm.jo.workers.dev", Info(version = 3, scope = "owner"), null))
+        val run = c.land(update, Deployed(ACCOUNT, "https://realm.jo.workers.dev", Answer.Owner(Info(version = 3, scope = "owner")), null))
 
         assertIs<Landed.Updated>(run.landed)
         assertEquals(emptyList(), c.routes)
@@ -123,7 +123,7 @@ class LandingTest {
     @Test
     fun aWorkerThatDoesNotAnswerYetIsSignedInToLater() = runTest {
         val c = cloud()
-        val run = c.land(Plan.Fresh(RELEASE, found()), Deployed(ACCOUNT, "https://realm.jo.workers.dev", null, null))
+        val run = c.land(Plan.Fresh(RELEASE, found()), Deployed(ACCOUNT, "https://realm.jo.workers.dev", Answer.NotYet(null), null))
 
         val later = assertIs<Landed.NotAnswering>(run.landed).connection
         assertEquals("https://realm.jo.workers.dev", later.server)

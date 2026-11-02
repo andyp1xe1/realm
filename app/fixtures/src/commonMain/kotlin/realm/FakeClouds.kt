@@ -1,14 +1,17 @@
 package realm
 
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
+import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
 import io.ktor.http.headersOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -22,11 +25,14 @@ class Seen(val route: String, val url: Url, val headers: Map<String, String?>, v
 /**
  * Stand-ins for Cloudflare, GitHub and a deployed worker at once, routed by "METHOD host/path". Reads a test
  * leaves alone get Cloudflare's [Recorded] answers about Jo's account and GitHub's [RecordedGitHub] release
- * list; any other route nobody answers is a Cloudflare 404, so a test sees the call it didn't expect.
+ * list; any other route nobody answers is a Cloudflare 404, so a test sees the call it didn't expect. Answers
+ * come on the caller's thread, so a test's virtual clock never runs on while one is on its way.
  */
 class FakeClouds(private val answer: suspend MockRequestHandleScope.(route: String, seen: Seen) -> HttpResponseData?) {
     val seen = mutableListOf<Seen>()
-    val engine = MockEngine { req ->
+    val engine = MockEngine(MockEngineConfig().apply { dispatcher = Dispatchers.Unconfined }.also { it.addHandler { req -> respondTo(req) } })
+
+    private suspend fun MockRequestHandleScope.respondTo(req: HttpRequestData): HttpResponseData {
         val s = Seen(
             "${req.method.value} ${req.url.host}${req.url.encodedPath}",
             req.url,
@@ -34,7 +40,7 @@ class FakeClouds(private val answer: suspend MockRequestHandleScope.(route: Stri
             req.body.toByteArray(),
         )
         seen += s
-        answer(s.route, s) ?: recorded(s.route)?.let { json(it) } ?: cfError(HttpStatusCode.NotFound, 7003, "No route for ${s.route}")
+        return answer(s.route, s) ?: recorded(s.route)?.let { json(it) } ?: cfError(HttpStatusCode.NotFound, 7003, "No route for ${s.route}")
     }
 
     /** The routes called, in order, without the Cloudflare API's prefix. */

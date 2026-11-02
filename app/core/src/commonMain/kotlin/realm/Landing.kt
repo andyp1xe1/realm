@@ -1,7 +1,5 @@
 package realm
 
-import kotlinx.coroutines.CancellationException
-
 sealed interface Landed {
     /** [plan] updated the worker in place: the sign-in to it still holds. */
     data class Updated(val plan: Plan.Update) : Landed
@@ -45,21 +43,19 @@ suspend fun CloudflareApi.land(
                 is DomainOutcome.Attached -> {
                     val origin = "https://${out.domain.hostname}"
                     progress(trying + Step.Waiting(origin))
-                    done = done.copy(origin = origin, info = waitForOwner(origin), domain = out)
+                    done = done.copy(origin = origin, answer = waitForOwner(origin), domain = out)
                     conflict = null
                 }
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
+        } catch (e: ApiException) {
             logFailure("Putting realm on $hostname", e)
-            problem = e as? ApiException ?: ApiException(explain(e), cause = e)
+            problem = e
         }
     }
     val owner = login.copy(account = done.account.id)
     return when {
         plan is Plan.Update -> Landed.Updated(plan)
-        done.info == null -> Landed.NotAnswering(Connection.ByCloudflare(done.origin, owner))
+        done.answer is Answer.NotYet -> Landed.NotAnswering(Connection.ByCloudflare(done.origin, owner))
         else -> Landed.SignedInTo(signInWithCloudflare(done.origin, owner, source, session, engine))
     }
 }

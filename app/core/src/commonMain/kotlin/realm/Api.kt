@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.delete
@@ -20,6 +21,7 @@ import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -103,6 +105,12 @@ private data class NewLink(
 /** What went wrong, in words for the user; [status] is the HTTP status when a server sent one. */
 open class ApiException(message: String, val status: Int? = null, cause: Throwable? = null) : Exception(message, cause)
 
+/** The server couldn't be reached: no address yet, no connection, no certificate, or no answer in time. */
+class Unreachable(cause: Throwable) : ApiException("Can't reach the server", cause = cause)
+
+/** Whether asking again later may get another answer: the server couldn't be reached, or failed on its side. */
+val ApiException.mayPassLater: Boolean get() = this is Unreachable || (status ?: 0) >= 500
+
 /** Where an owner's token comes from: a fixed owner token, or a Cloudflare login that renews itself. */
 fun interface Bearer {
     suspend fun token(): String
@@ -118,6 +126,9 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
 
     private val setup: HttpClientConfig<*>.() -> Unit = {
         expectSuccess = false
+        HttpResponseValidator {
+            handleResponseExceptionWithRequest { cause, _ -> if (cause is IOException) throw Unreachable(cause) }
+        }
         install(ContentNegotiation) {
             json(
                 Json {

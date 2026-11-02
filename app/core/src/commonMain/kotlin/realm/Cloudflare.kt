@@ -15,6 +15,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.io.encoding.Base64
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
 
 /** The browser, for logins that come back to localhost. */
 interface Browser {
@@ -33,6 +34,9 @@ data class CloudflareLogin(
 )
 
 data class Worker(val account: String, val accountName: String, val origin: String)
+
+/** The worker answers, but not to this Cloudflare login as its owner. */
+class NotOwner : ApiException("That worker doesn't take this Cloudflare login as its owner. Redeploy it, then log in again.", 401)
 
 /** Cloudflare turned the login down: the only way on is logging in again. */
 class CloudflareRejected : Exception("Your Cloudflare login has expired. Log in again.")
@@ -145,20 +149,24 @@ object Cloudflare {
         return CloudflareLogin(t.accessToken, t.refreshToken ?: keep, now() + t.expiresIn)
     }
 
-    /** Checks that [api] takes its Cloudflare login as the owner's, waiting up to ~8 s for a just-set REALM_ACCOUNT to arrive. */
-    suspend fun checkOwner(api: Api): Info {
-        repeat(5) { attempt ->
+    /**
+     * Checks that [api] takes its Cloudflare login as the owner's. When the caller has [fresh]ly written
+     * REALM_ACCOUNT, a refusal is asked again for ~8 s while the secret arrives.
+     */
+    suspend fun checkOwner(api: Api, fresh: Boolean): Info {
+        repeat(if (fresh) OWNER_TRIES else 1) { attempt ->
+            if (attempt > 0) delay(OWNER_EVERY)
             try {
-                val info = api.info()
-                if (info.scope != "owner") throw ApiException("not an owner token")
-                return info
+                return api.info().takeIf { it.scope == "owner" } ?: throw NotOwner()
             } catch (e: ApiException) {
-                if (e.message != "bad token") throw e
+                if (e.status != 401) throw e
             }
-            if (attempt < 4) delay(2_000)
         }
-        throw ApiException("That worker doesn't take this Cloudflare login as its owner. Redeploy it, then log in again.")
+        throw NotOwner()
     }
+
+    private const val OWNER_TRIES = 5
+    private val OWNER_EVERY = 2.seconds
 
     fun now() = Clock.System.now().epochSeconds
 }

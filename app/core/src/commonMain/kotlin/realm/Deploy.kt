@@ -6,8 +6,8 @@ import io.ktor.client.request.setBody
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
@@ -17,7 +17,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.TimeSource
 
 /** What the user picked in the confirm dialog. */
 data class Choices(
@@ -47,12 +46,20 @@ sealed interface Step {
     data class Waiting(val origin: String) : Step
 }
 
+/** How a just-deployed worker answered its owner. */
+sealed interface Answer {
+    data class Owner(val info: Info) : Answer
+
+    /** It didn't take the login as its owner's in time; [last] is the last error it gave, null when it gave none. */
+    data class NotYet(val last: ApiException?) : Answer
+}
+
 data class Deployed(
     val account: Account,
     /** Where to connect: its custom domain if it has one, else workers.dev. */
     val origin: String,
-    /** What the worker said at [origin] to its owner; null when it didn't answer in time, as a new domain may take minutes. */
-    val info: Info?,
+    /** What the worker said at [origin] to its owner, or that it didn't in time, as a new domain may take minutes. */
+    val answer: Answer,
     /** What came of [Choices.domain], if one was picked. */
     val domain: DomainOutcome?,
 )
@@ -126,26 +133,25 @@ suspend fun CloudflareApi.deploy(plan: Plan.Ready, choices: Choices = Choices(),
     return Deployed(account, origin, waitForOwner(origin), domain)
 }
 
-/** Polls the worker at [origin] until it takes this login as its owner; null when [within] runs out first. */
-suspend fun CloudflareApi.waitForOwner(origin: String, within: Duration = 60.seconds): Info? {
+/** Polls the worker at [origin] until it takes this login as its owner, for at most [within]. */
+suspend fun CloudflareApi.waitForOwner(origin: String, within: Duration = 60.seconds): Answer {
     val api = Api.server(origin, bearer, "deploy", engine)
-    val start = TimeSource.Monotonic.markNow()
-    try {
-        repeat((within / POLL).toInt().coerceAtLeast(1)) {
-            try {
-                api.info().takeIf { it.scope == "owner" }?.let { return it }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: CloudflareRejected) {
-                throw e
-            } catch (e: Exception) {
-            }
-            if (start.elapsedNow() >= within) return null
-            delay(POLL)
-        }
-        return null
+    var last: ApiException? = null
+    return try {
+        withTimeoutOrNull(within) { pollOwner(api) { last = it } }?.let(Answer::Owner) ?: Answer.NotYet(last)
     } finally {
         api.close()
+    }
+}
+
+private suspend fun pollOwner(api: Api, failed: (ApiException) -> Unit): Info {
+    while (true) {
+        try {
+            api.info().takeIf { it.scope == "owner" }?.let { return it }
+        } catch (e: ApiException) {
+            failed(e)
+        }
+        delay(POLL)
     }
 }
 

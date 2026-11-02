@@ -223,36 +223,52 @@ class Onboarding internal constructor(private val home: Home, private val scope:
             deployFailed = false
         }
         scope.launch {
-            repeat(COMING_UP_TRIES) {
-                delay(COMING_UP_EVERY)
-                if (session !== s) return@launch
-                val signed = try {
-                    signInWithCloudflare(
-                        deployed.server,
-                        s.login.copy(account = deployed.login.account),
-                        home.platform.name,
-                        home::sessionFor,
-                        engine,
-                    )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    null
-                }
-                if (signed != null) {
-                    if (session === s) Snapshot.withMutableSnapshot { home.signedIn(signed) } else signed.api.close()
-                    return@launch
-                }
+            val signed = try {
+                answering(deployed, s)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logFailure("Signing in to ${deployed.server}", e)
+                if (session === s) stopComingUp(explain(e))
+                return@launch
             }
-            if (session !== s) return@launch
-            Snapshot.withMutableSnapshot {
-                comingUp = null
-                busy = false
-                check()
-                problem =
-                    "realm is deployed, but ${deployed.server.removePrefix("https://")} doesn't answer yet. Sign in again in a few minutes."
+            when {
+                session !== s -> signed?.api?.close()
+
+                signed != null -> Snapshot.withMutableSnapshot { home.signedIn(signed) }
+
+                else -> {
+                    val host = deployed.server.removePrefix("https://")
+                    stopComingUp("realm is deployed, but $host doesn't answer yet. Sign in again in a few minutes.")
+                }
             }
         }
+    }
+
+    private suspend fun answering(deployed: Connection.ByCloudflare, s: CloudflareSession): SignedIn? {
+        repeat(COMING_UP_TRIES) {
+            delay(COMING_UP_EVERY)
+            if (session !== s) return null
+            try {
+                return signInWithCloudflare(
+                    deployed.server,
+                    s.login.copy(account = deployed.login.account),
+                    home.platform.name,
+                    home::sessionFor,
+                    engine,
+                )
+            } catch (e: ApiException) {
+                if (!e.mayPassLater) throw e
+            }
+        }
+        return null
+    }
+
+    private fun stopComingUp(why: String) = Snapshot.withMutableSnapshot {
+        comingUp = null
+        busy = false
+        check()
+        problem = why
     }
 
     internal fun handOver(): CloudflareSession? {

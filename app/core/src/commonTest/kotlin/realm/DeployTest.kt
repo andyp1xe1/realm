@@ -4,6 +4,7 @@ import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.IOException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -12,6 +13,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -63,7 +65,7 @@ class DeployTest {
             steps,
         )
         assertEquals("https://realm.jo.workers.dev", done.origin)
-        assertEquals("owner", done.info?.scope)
+        assertEquals("owner", assertIs<Answer.Owner>(done.answer).info.scope)
 
         val upload = c.seen.single { it.route == "PUT $CF/accounts/a1/workers/scripts/realm" }
         val module = part(upload.text, "worker.js")
@@ -127,7 +129,7 @@ class DeployTest {
         val c = clouds { route ->
             if (route == "POST $CF/accounts/a1/r2/buckets") cfError(HttpStatusCode.Conflict, 10004, "exists") else null
         }
-        assertEquals("owner", c.api().deploy(Plan.Fresh(RELEASE, found())).info?.scope)
+        assertEquals("owner", assertIs<Answer.Owner>(c.api().deploy(Plan.Fresh(RELEASE, found())).answer).info.scope)
     }
 
     @Test
@@ -148,10 +150,19 @@ class DeployTest {
 
     @Test
     fun aNewAddressThatIsSlowToResolveIsStillADeploy() = runTest {
-        val c = clouds { route -> if (route == "GET realm.jo.workers.dev/api/info") throw IllegalStateException("NXDOMAIN") else null }
+        val c = clouds { route -> if (route == "GET realm.jo.workers.dev/api/info") throw IOException("NXDOMAIN") else null }
         val done = c.api().deploy(Plan.Fresh(RELEASE, found()))
         assertEquals("https://realm.jo.workers.dev", done.origin)
-        assertNull(done.info)
+        assertIs<Unreachable>(assertIs<Answer.NotYet>(done.answer).last)
+    }
+
+    @Test
+    fun aWorkerThatKeepsFailingIsADeployThatSaysWhy() = runTest {
+        val c = clouds { route ->
+            if (route == "GET realm.jo.workers.dev/api/info") json("""{"error":"internal"}""", HttpStatusCode.InternalServerError) else null
+        }
+        val done = c.api().deploy(Plan.Fresh(RELEASE, found()))
+        assertEquals(500, assertIs<Answer.NotYet>(done.answer).last?.status)
     }
 
     private class Part(val headers: String, val body: String)

@@ -166,7 +166,7 @@ private suspend fun CloudflareApi.ownerInfo(account: Account, api: Api): Info = 
     if (e.status != 401) throw e
     claim(account.id)
     try {
-        Cloudflare.checkOwner(api)
+        Cloudflare.checkOwner(api, fresh = true)
     } catch (still: ApiException) {
         throw ApiException(still.message ?: "", 401)
     }
