@@ -39,7 +39,9 @@ private fun answer(client: Socket, path: String, back: String?): Map<String, Str
     client.soTimeout = 10_000
     val input = client.getInputStream().bufferedReader()
     val target = runCatching { input.readLine()?.split(' ')?.getOrNull(1) }.getOrNull()
-    while (runCatching { input.readLine() }.getOrNull()?.isNotEmpty() == true) Unit
+    do {
+        val header = runCatching { input.readLine() }.getOrNull()
+    } while (!header.isNullOrEmpty())
     val out = client.getOutputStream()
     if (target == null || target.substringBefore('?') != path) {
         out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())

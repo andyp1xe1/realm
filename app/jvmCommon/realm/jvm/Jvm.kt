@@ -8,7 +8,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URI
 import java.net.URLConnection
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileSystems
@@ -47,7 +47,7 @@ fun guessMime(name: String): String? = URLConnection.guessContentTypeFromName(na
 
 /** Streams [url] into [dest], which appears only once whole. Blocking; call from an IO thread. */
 fun download(url: String, auth: String?, dest: File) {
-    val conn = URL(url).openConnection() as HttpURLConnection
+    val conn = URI(url).toURL().openConnection() as HttpURLConnection
     auth?.let { conn.setRequestProperty("Authorization", it) }
     conn.setRequestProperty("X-Realm-Source", "download")
     try {
@@ -153,7 +153,7 @@ fun writeAtomically(file: File, bytes: ByteArray, ownerOnly: Boolean = false) = 
  * With [ownerOnly], the file and any folder this creates for it are readable only by the user, where the file system has POSIX permissions.
  */
 fun writeAtomically(file: File, ownerOnly: Boolean = false, write: (Path) -> Unit) {
-    val dir = file.absoluteFile.parentFile.toPath()
+    val dir = file.toPath().toAbsolutePath().parent
     val private = ownerOnly && "posix" in FileSystems.getDefault().supportedFileAttributeViews()
     val tmp = if (private) {
         if (!Files.isDirectory(dir)) Files.createDirectories(dir, ownerOnlyMode("rwx------"))

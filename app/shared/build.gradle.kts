@@ -28,6 +28,7 @@ kotlin {
             implementation(libs.navigationevent.compose)
             implementation(libs.material.icons.extended)
         }
+        matching { it.name.endsWith("Test") }.configureEach { languageSettings.optIn("kotlinx.coroutines.ExperimentalCoroutinesApi") }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
