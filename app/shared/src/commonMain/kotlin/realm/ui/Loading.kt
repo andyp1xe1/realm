@@ -38,7 +38,8 @@ const val INDICATOR_DELAY_MILLIS = 400
 
 private const val INDICATOR_FADE_MILLIS = 200
 
-private const val ARRIVE_MILLIS = 300
+/** How long data takes to fade in as it arrives. */
+const val ARRIVE_MILLIS = 300
 
 /** The skeletons and spinners on screen, for tests to count. */
 class Indicators {

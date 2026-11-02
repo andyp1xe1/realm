@@ -23,8 +23,8 @@ internal fun ItemMenu(item: Item, model: Model, open: Boolean, onDismiss: () -> 
         }
         val isFile = item.name != null
         if (linkStep) {
-            TTLS.forEach { (label, ttl) ->
-                DropdownMenuItem(text = { Text(label) }, onClick = act { model.shareLink(item, ttl) })
+            Ttl.entries.forEach { ttl ->
+                DropdownMenuItem(text = { Text(ttl.label) }, onClick = act { model.shareLink(item, ttl.seconds) })
             }
         } else {
             if (isFile) {
@@ -57,4 +57,11 @@ internal fun ItemMenu(item: Item, model: Model, open: Boolean, onDismiss: () -> 
     }
 }
 
-val TTLS = listOf("1 hour" to 3600L, "1 day" to 86_400L, "7 days" to 604_800L, "30 days" to 2_592_000L, "Forever" to null)
+/** How long a share link works; [seconds] is null for ever. */
+enum class Ttl(val label: String, val seconds: Long?) {
+    Hour("1 hour", 3600L),
+    Day("1 day", 86_400L),
+    Week("7 days", 604_800L),
+    Month("30 days", 2_592_000L),
+    Forever("Forever", null),
+}

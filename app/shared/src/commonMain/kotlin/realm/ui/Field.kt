@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 
@@ -33,6 +34,7 @@ fun Field(
     onLines: (Int) -> Unit = {},
 ) {
     val style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
+    val gap = with(LocalDensity.current) { ((ControlHeight.toPx() - style.lineHeight.toPx()) / 2).toInt().coerceAtLeast(0).toDp() }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -46,7 +48,9 @@ fun Field(
         onTextLayout = { onLines(it.lineCount) },
         decorationBox = { inner ->
             Box(
-                Modifier.heightIn(min = ControlHeight).padding(horizontal = 4.dp, vertical = 13.dp),
+                Modifier.heightIn(
+                    min = ControlHeight,
+                ).padding(horizontal = 4.dp, vertical = gap),
                 contentAlignment = if (alignTop) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty()) Text(placeholder, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)

@@ -178,7 +178,7 @@ fun FeedPicture(items: List<Item>, platform: Platform, image: (Item) -> ImageBit
 @Composable
 private fun Modifier.fadeInOnce(model: Model, key: String): Modifier {
     val alpha = remember(key) { Animatable(if (model.firstShown(key)) 0f else 1f) }
-    LaunchedEffect(key) { alpha.animateTo(1f, tween(260)) }
+    LaunchedEffect(key) { alpha.animateTo(1f, tween(ARRIVE_MILLIS)) }
     return graphicsLayer { this.alpha = alpha.value }
 }
 
@@ -299,7 +299,7 @@ private fun Caption(text: String?) {
 @Composable
 private fun ImageContent(item: Item, image: ImageBitmap?) {
     Column(Modifier.widthIn(max = 340.dp).fillMaxWidth()) {
-        Crossfade(image, animationSpec = tween(260)) { bmp ->
+        Crossfade(image, animationSpec = tween(ARRIVE_MILLIS)) { bmp ->
             if (bmp != null) {
                 val ratio = (bmp.width.toFloat() / bmp.height).coerceIn(0.5f, 2.5f)
                 Image(

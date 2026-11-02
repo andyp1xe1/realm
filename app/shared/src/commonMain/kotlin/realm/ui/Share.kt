@@ -112,6 +112,14 @@ private val GitHub =
         "M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z",
     )
 
+private val LinkActionSize = 36.dp
+
+private val BadgeOverlap = 10.dp
+
+private val BadgeGap = 4.dp
+
+private val BadgeSpread = 8.dp
+
 private val AgentIcons = listOf(Claude to true, OpenAI to false, OpenCode to false, Cursor to false)
 
 /** Stacked agent badges that fan out on hover or press. [expanded] pins them open. */
@@ -124,9 +132,9 @@ fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier, expanded: Bo
     val badge = 24.dp
     val step by animateDpAsState(
         when {
-            expanded && active -> badge + 8.dp
-            expanded || active -> badge + 4.dp
-            else -> badge - 10.dp
+            expanded && active -> badge + BadgeSpread
+            expanded || active -> badge + BadgeGap
+            else -> badge - BadgeOverlap
         },
     )
     val pill by animateColorAsState(
@@ -180,7 +188,7 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
     val api = model.api
     val scope = rememberCoroutineScope()
     var access by remember { mutableStateOf("read") }
-    var ttl by remember { mutableIntStateOf(1) }
+    var ttl by remember { mutableStateOf(Ttl.Day) }
     var label by remember { mutableStateOf("") }
     var url by remember { mutableStateOf(if (model.isOwner) initialUrl else api.base) }
     var format by remember { mutableStateOf(Format.Prompt) }
@@ -237,8 +245,8 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
             )
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TTLS.forEachIndexed { i, (l, _) ->
-                    FilterChip(selected = ttl == i, onClick = { ttl = i }, label = { Text(l) }, shape = CircleShape)
+                Ttl.entries.forEach { t ->
+                    FilterChip(selected = ttl == t, onClick = { ttl = t }, label = { Text(t.label) }, shape = CircleShape)
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -282,7 +290,7 @@ fun ShareSheet(model: Model, onClose: () -> Unit, modifier: Modifier = Modifier,
                     onClick = {
                         busy = true
                         scope.launch {
-                            model.createLink(access, TTLS[ttl].second, label)?.let {
+                            model.createLink(access, ttl.seconds, label)?.let {
                                 url = it.url
                                 label = ""
                             }
@@ -353,7 +361,7 @@ private fun LinkRowSkeleton() {
             SkeletonLine(0.5f, style = MaterialTheme.typography.bodyMedium)
             SkeletonLine(0.35f, style = MaterialTheme.typography.labelSmall)
         }
-        Spacer(Modifier.size(36.dp))
+        Spacer(Modifier.size(LinkActionSize))
     }
 }
 
@@ -396,7 +404,7 @@ private fun LinkRow(l: Link, model: Model, selected: Boolean, onSelect: () -> Un
                 )
             }
         }
-        IconButton(onClick = { revoking = true }, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { revoking = true }, modifier = Modifier.size(LinkActionSize)) {
             Icon(Icons.Outlined.Delete, "Revoke", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

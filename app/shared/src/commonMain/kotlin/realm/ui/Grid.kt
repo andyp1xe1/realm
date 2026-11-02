@@ -81,13 +81,13 @@ import realm.Space
 fun Grid(home: Home, modifier: Modifier = Modifier) {
     var adding by remember { mutableStateOf(false) }
     val spaces = home.spaces
-    val grid = rememberLazyGridState(initialFirstVisibleItemIndex = spaces.indexOfFirst { it.key == home.openKey } + 1)
+    fun gridIndexOf(key: String?) = spaces.indexOfFirst { it.key == key }.takeIf { it >= 0 }?.plus(1)
+    val grid = rememberLazyGridState(initialFirstVisibleItemIndex = gridIndexOf(home.openKey) ?: 0)
     LaunchedEffect(Unit) { home.refresh() }
     LaunchedEffect(grid) { snapshotFlow { grid.layoutInfo.visibleItemsInfo.map { it.key } }.collect(home::prefetch) }
     LaunchedEffect(home.fresh) {
         val key = home.fresh ?: return@LaunchedEffect
-        val i = home.spaces.indexOfFirst { it.key == key }
-        if (i >= 0) grid.animateScrollToItem(i + 1)
+        gridIndexOf(key)?.let { grid.animateScrollToItem(it) }
     }
     NavigationBackHandler(rememberNavigationEventState(NavigationEventInfo.None), isBackEnabled = home.open != null) { home.hideTabs() }
 

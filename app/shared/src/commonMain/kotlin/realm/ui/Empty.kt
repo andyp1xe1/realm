@@ -72,8 +72,8 @@ private fun GhostFeed(drift: () -> Float) {
     val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
     val tile = MaterialTheme.colorScheme.primaryContainer
     val accent = MaterialTheme.colorScheme.primary
-    Canvas(Modifier.size(240.dp, 200.dp)) {
-        val u = size.width / 240f
+    Canvas(Modifier.size(GHOST_WIDTH.dp, 200.dp)) {
+        val u = size.width / GHOST_WIDTH
 
         fun bob(phase: Float) = sin((drift() + phase) * 2 * PI).toFloat() * 3f * u
 
@@ -143,8 +143,8 @@ fun WelcomeArt(modifier: Modifier = Modifier) {
     val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
     val tile = MaterialTheme.colorScheme.primaryContainer
     val accent = MaterialTheme.colorScheme.primary
-    Canvas(modifier.size(260.dp, 180.dp).graphicsLayer { alpha = appear.value }) {
-        val u = size.width / 260f
+    Canvas(modifier.size(ART_WIDTH.dp, 180.dp).graphicsLayer { alpha = appear.value }) {
+        val u = size.width / ART_WIDTH
         fun bob(phase: Float, amp: Float = 3f) = sin((drift + phase) * 2 * PI).toFloat() * amp * u
 
         for ((x, turn, phase) in listOf(Triple(28f, -9f, 0.1f), Triple(122f, 9f, 0.6f))) {
@@ -210,3 +210,7 @@ private fun DrawScope.card(x: Float, y: Float, w: Float, h: Float, u: Float, col
 
 private fun DrawScope.bar(x: Float, y: Float, w: Float, u: Float, color: Color) =
     drawRoundRect(color, Offset(x * u, y * u), Size(w * u, 6f * u), CornerRadius(3f * u))
+
+private const val GHOST_WIDTH = 240f
+
+private const val ART_WIDTH = 260f
