@@ -1,4 +1,4 @@
-// realm — command line client for the realm dump.
+// Command realm is the command line client for realm.
 package main
 
 import (

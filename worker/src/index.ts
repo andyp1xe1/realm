@@ -1,4 +1,4 @@
-// realm — a personal dump. One Worker, one R2 bucket, one D1 database, any number of realms.
+// realm is a personal dump. One Worker, one R2 bucket, one D1 database, any number of realms.
 
 import {
   HttpError,
