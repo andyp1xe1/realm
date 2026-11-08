@@ -4,19 +4,15 @@ realm is a personal dump for notes and files. Anything you type, paste, drop, or
 
 <p align="center"><img src="docs/screens.png" alt="Three phone screens. A realm's feed with notes, a link, a voice note, and a PDF. The tab overview with realms and share links as tiles. The Share dialog, where you choose what a link allows and how long it lasts, above the realm's active links." width="900"></p>
 
-The server is a Cloudflare Worker in `worker/`. It keeps files in R2, and items and the search index in D1. The app runs on Android and desktop. Its client logic lives in `app/core/`, which a future Kotlin CLI will share, and its Compose Multiplatform UI lives in `app/shared/`. The Go CLI in `cli/` is maintained but not extended, and does a subset of what the app does.
+The server is a Cloudflare Worker in `worker/`. It keeps files in R2 and items in D1. The app runs on Android and desktop, with client logic in `app/core/` and the Compose UI in `app/shared/`. The CLI in `cli/` is written in Go.
 
-`nix-shell` in the repo root provides JDK 21, Go, Node, and ktlint. Without Nix, install JDK 17 or later with `JAVA_HOME` set, Go 1.24 or later, and Node 22 or later.
-
-Before you commit, read [CONTRIBUTING.md](CONTRIBUTING.md).
+`nix-shell` provides JDK 21, Go, Node, and ktlint. Without Nix, install JDK 17, Go 1.24, and Node 22, or later. Read [CONTRIBUTING.md](CONTRIBUTING.md) before you commit.
 
 ## Deploy the worker
 
-The app deploys the worker for you. Run the app, log in with Cloudflare, and pick the account. If the account has no realm worker, you stay logged in and the app lists what deploying needs: R2 turned on in the Cloudflare dashboard, a workers.dev subdomain, room for a D1 database (the free plan allows 10), and a released worker. It checks each one and deploys once all are met. You pick the address, either workers.dev or a domain on your Cloudflare account.
+Run the app and log in with Cloudflare. The app lists what the account still needs, then deploys the worker from the newest GitHub release, never a release candidate. Settings offers updates and manages the worker's addresses.
 
-The app deploys the worker built for the newest GitHub release. It never deploys a release candidate. [docs/releases.md](docs/releases.md) lists what each release contains. When a newer release is out, Settings offers the update. The app checks once a day, and **Check for updates** checks now. Settings also adds and removes domains, turns workers.dev on and off, and switches the address the app uses.
-
-To deploy by hand instead:
+To deploy by hand:
 
 ```sh
 cd worker
@@ -25,11 +21,21 @@ npx wrangler login
 npm run deploy      # creates the R2 bucket and D1 database
 ```
 
-Then log in with Cloudflare from the app, or run `realm login` from the CLI. Logging in finds the worker and tells it which account it runs on. From then on, any Cloudflare login that can manage the worker is its owner, so there's no token to keep. The worker sets up and upgrades its own tables on the first request, so to upgrade, you only redeploy. The Go CLI logs in but doesn't deploy.
+Then log in from the app or with `realm login`. Any Cloudflare login that can manage the worker owns it. The worker upgrades its own tables, so to upgrade, redeploy.
 
-For scripts or agents that can't log in through a browser, you can also give the worker a fixed owner token: `openssl rand -base64 32 | tee /dev/stderr | npx wrangler secret put REALM_TOKEN`. To run the worker locally with in-memory storage and the token `dev`, run `npm run serve`.
+For scripts that can't log in through a browser, set an owner token: `openssl rand -base64 32 | tee /dev/stderr | npx wrangler secret put REALM_TOKEN`. `npm run serve` runs the worker locally with in-memory storage and the token `dev`.
 
-`GET /api/info` reports the worker's `version` and, for a fork, its `fork` as `owner/repo`. To fork realm, set `FORK` in `worker/src/common.ts` and `Api.FORK` in `app/core/src/commonMain/kotlin/realm/Api.kt`. The app then deploys your fork's releases, and it never replaces a worker that runs another fork.
+To fork realm, set `FORK` in `worker/src/common.ts` and `Api.FORK` in `app/core/src/commonMain/kotlin/realm/Api.kt`. The app then deploys your fork's releases and never replaces a worker that runs another fork.
+
+## Run the app
+
+```sh
+cd app
+./gradlew :desktopApp:run       # REALM_LOG=debug logs more
+./gradlew :androidApp:installDebug
+```
+
+The desktop app keeps its state in `realm/app.json` in the OS config folder, such as `~/.config` on Linux.
 
 ## Use the CLI
 
@@ -37,33 +43,16 @@ For scripts or agents that can't log in through a browser, you can also give the
 cd cli && make
 realm login
 realm add buy oat milk
-realm realms add Tax 2026
-realm use tax
-realm add ~/Downloads/*.pdf -t "receipts"
-realm -r main ls invoice -k file
-realm get last
+realm add ~/Downloads/*.pdf -t receipts
+realm ls invoice -k file
 realm link --read --ttl 1d
 ```
 
-`realm connect <link>` uses a share link instead of your own server, and `realm get <link>` downloads a link to one file without connecting. Deleting asks first. `-y` skips the question. Run `realm` with no arguments for the full command list.
-
-## Run the app
-
-```sh
-cd app
-./gradlew :desktopApp:run
-./gradlew :androidApp:installDebug
-```
-
-The desktop app logs warnings to the terminal. For more detail, run it as `REALM_LOG=debug ./gradlew :desktopApp:run`.
-
-The desktop app keeps your logins, realms, and share links in `realm/app.json` in your config folder: `~/.config` (or `$XDG_CONFIG_HOME`) on Linux, `~/Library/Application Support` on macOS, and `%APPDATA%` on Windows.
-
-On first launch, log in with Cloudflare, as [Deploy the worker](#deploy-the-worker) describes. You can also connect with the worker URL and an owner token, or with a share link. The app opens on your Main realm. The tabs button in the corner zooms out to all your realms, like a browser's tab overview, and share links you connect show up there as tiles too. The agent icons share the realm you have open.
+`realm connect <link>` works through a share link instead of your own server. Run `realm` alone to list every command.
 
 ## Share links
 
-Each link opens one realm at `https://…/s/<token>` and can have an expiry and a use limit. Links that can upload can also have a size budget.
+A link at `https://…/s/<token>` opens one realm. It can expire, run out of uses, or cap how much it uploads.
 
 | Scope  | Allows                                   |
 |--------|------------------------------------------|
@@ -71,12 +60,10 @@ Each link opens one realm at `https://…/s/<token>` and can have an expiry and 
 | `read` | Listing, searching, and downloading      |
 | `full` | Everything except managing links         |
 
-A `read` link can also share just a selection of items, and you can change the selection later. A selection of one item downloads straight from the link. `GET /s/<token>/info` describes a link without counting as a use.
-
-Fetched with curl, a link returns markdown instructions for exactly what it allows. In a browser, a drop link shows an upload page and a read link shows a searchable list. The owner API is the same at `/api/realms/<id>/` with `Authorization: Bearer $REALM_TOKEN`. `/api/realms` lists and creates realms.
+A `read` link can share a selection of items instead of the whole realm. Fetched with curl, a link returns markdown instructions for what it allows. In a browser, it shows an upload page or a searchable list. The owner API is the same under `/api/realms/<id>/` with `Authorization: Bearer $REALM_TOKEN`.
 
 ## Limits
 
-- Cloudflare caps a Worker request body at about 100 MB, so larger files upload in parts. The CLI and the app do this for you.
+- Cloudflare caps a Worker request body at about 100 MB, so the CLI and the app upload larger files in parts.
 - Search matches note text, captions, and file names, not file contents.
 - `wrangler d1 export` skips the search index. After a restore, run `INSERT INTO items_fts(items_fts) VALUES('rebuild')`.
