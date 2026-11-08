@@ -4,7 +4,7 @@ realm is a personal dump for notes and files. Anything you type, paste, drop, or
 
 <p align="center"><img src="docs/screens.png" alt="Three phone screens. A realm's feed with notes, a link, a voice note, and a PDF. The tab overview with realms and share links as tiles. The Share dialog, where you choose what a link allows and how long it lasts, above the realm's active links." width="900"></p>
 
-The server is a Cloudflare Worker in `worker/`. It keeps files in R2, and items and the search index in D1. The app runs on Android and desktop. Its client logic lives in `app/core/`, which a future Kotlin CLI will share, and its Compose Multiplatform UI lives in `app/shared/`. The Go CLI in `cli/` is maintained but not extended, and does a subset of what the app does.
+The server is a Cloudflare Worker in `worker/`. It keeps files in R2, and items and the search index in D1. The app runs on Android and desktop. Its client logic lives in `app/core/`, and its Compose Multiplatform UI lives in `app/shared/`. The Go CLI is in `cli/`.
 
 `nix-shell` in the repo root provides JDK 21, Go, Node, and ktlint. Without Nix, install JDK 17 or later with `JAVA_HOME` set, Go 1.24 or later, and Node 22 or later.
 

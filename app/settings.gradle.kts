@@ -15,4 +15,4 @@ dependencyResolutionManagement {
     }
 }
 
-include(":core", ":fixtures", ":shared", ":androidApp", ":desktopApp")
+include(":core", ":fixtures", ":shared", ":androidApp", ":desktopApp", ":cliApp")

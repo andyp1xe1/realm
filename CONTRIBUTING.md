@@ -6,10 +6,9 @@ Run `git config core.hooksPath .githooks` and `git config core.fileMode false` o
 
 ## Follow the rules no check catches
 
-- Put client logic in `app/core`: signing in, the server and Cloudflare APIs, deploying, and transfers. A Kotlin CLI will build on it. `app/shared` adds only state and screens.
+- Put client logic in `app/core`: signing in, the server and Cloudflare APIs, deploying, and transfers. `app/shared` adds only state and screens.
 - Load data the way [docs/loading.md](docs/loading.md) describes. Fetch it before the screen that shows it opens.
 - Write comments only as short docs on a module's public API, where the name and signature don't say enough, and as one description at the top of each module. If code needs a comment to explain itself, fix the code.
-- Keep the Go CLI in `cli/` working, but add no features to it.
 - Write commit messages that say what changed for someone using realm: "Log in with Cloudflare from the app", not "Add CloudflareSession bearer to Api".
 
 To make a lint accept an intended exception, give the reason on the line: `// grows: <reason>`.

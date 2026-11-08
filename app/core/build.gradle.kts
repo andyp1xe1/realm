@@ -15,6 +15,7 @@ kotlin {
         compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
     }
     jvm("desktop") { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+    linuxX64()
 
     sourceSets {
         commonMain.dependencies {
