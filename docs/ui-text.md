@@ -1,8 +1,6 @@
 # UI text
 
-No stand-in text where content goes: no "Loading…", "Empty…", or captions on empty tiles. An empty or loading area stays blank, or fades its content in when it arrives. Text that says something real is fine, like "Nothing matches." for a search.
-
-`./lint` and the pre-commit hook reject app strings starting with "Loading" or "Empty", and any string with "…" or "..." that isn't listed below. Adding one to the list is the review: ask first. Whether an area stays blank or fades in is checked by eye.
+Leave a loading or empty area blank, or fade its content in. Don't fill it with stand-in text like "Loading…" or "Empty". Text that says something real, like "Nothing matches.", is fine. The `placeholders` check rejects app strings with "…" or "..." unless this list has them. Ask before you add one.
 
 ## Allowed
 
