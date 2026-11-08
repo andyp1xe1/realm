@@ -58,7 +58,7 @@ fun Modifier.tabBounds(key: String, shape: Shape): Modifier {
     }
 }
 
-/** Setup until something is signed in or connected, then the realms, or onboarding while nothing is deployed. */
+/** Setup until you sign in or go on without an account, then the realms, or onboarding while nothing is deployed. */
 @Composable
 fun SetupOrTabs(home: Home, modifier: Modifier = Modifier) {
     AnimatedContent(

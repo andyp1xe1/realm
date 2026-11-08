@@ -28,11 +28,6 @@ class ConnectionTest {
           }
         }
     """.trimIndent()
-    private val goLink = """
-        {
-          "url": "https://realm.jo.workers.dev/s/tok123"
-        }
-    """.trimIndent()
     private val goLoginOnly = """
         {
           "url": "",
@@ -50,13 +45,12 @@ class ConnectionTest {
             Connection.ByCloudflare("https://realm.jo.workers.dev", CloudflareLogin(Secret("acc"), Secret("ref"), 1767225600, "a1b2")),
             Connection.decode(goCloudflare),
         )
-        assertEquals(Connection.Shared("https://realm.jo.workers.dev/s/tok123"), Connection.decode(goLink))
         assertEquals(Connection.LoginOnly(CloudflareLogin(Secret("acc"), expires = 1767225600)), Connection.decode(goLoginOnly))
     }
 
     @Test
     fun writesWhatTheGoCliWrites() {
-        for (go in listOf(goToken, goCloudflare, goLink, goLoginOnly)) assertEquals(go, Connection.encode(Connection.decode(go)!!))
+        for (go in listOf(goToken, goCloudflare, goLoginOnly)) assertEquals(go, Connection.encode(Connection.decode(go)!!))
     }
 
     @Test
@@ -77,7 +71,7 @@ class ConnectionTest {
             "{",
             """{"url": 5}""",
             """{"url": "https://realm.jo.dev"}""",
-            """{"url": "https://realm.jo.dev/s/abc", "token": "t"}""",
+            """{"url": "https://realm.jo.dev/s/abc"}""",
             """{"token": "t"}""",
         )
         ) {

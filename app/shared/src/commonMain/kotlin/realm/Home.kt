@@ -28,7 +28,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     var phase by mutableStateOf<Phase>(Phase.Setup)
         internal set
 
-    /** The owner API of the server you're signed in to; null when you only use share links. */
+    /** The owner API of the server you're signed in to; null when you only use shared realms. */
     val server: Api? get() = (phase as? Phase.SignedIn)?.server
 
     internal val session: CloudflareSession? get() = (phase as? Phase.SignedIn)?.session
@@ -81,11 +81,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     val spaces: List<Space> by derivedStateOf { realms.map { own(it) } + shared }
     val open: Space? get() = openKey?.let { k -> spaces.firstOrNull { it.key == k } }
     val model: Model? get() = open?.let(::modelOf)
-    val isEmpty get() = server == null && shared.isEmpty()
 
     init {
         when (val own = prefs.own()) {
-            null -> {}
+            null -> if (prefs.get(NO_ACCOUNT) != null) phase = Phase.NoAccount
 
             is Connection.LoginOnly -> onboarding.start(own.cloudflare, null)
 
@@ -231,6 +230,12 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             }
         }
 
+    /** Goes on with only realms shared with you, until you sign in. */
+    fun continueWithoutAccount() {
+        phase = Phase.NoAccount
+        prefs.set(NO_ACCOUNT, "1")
+    }
+
     /** Signs in to your own server at [url]; returns an error message or null. */
     suspend fun signIn(url: String, token: String): String? {
         val s = try {
@@ -311,12 +316,13 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 
             is Phase.Onboarding -> was.at.session.also { was.at.scope.cancel() }
 
-            Phase.Setup -> null
+            Phase.Setup, Phase.NoAccount -> null
         }
         login?.close()
         cloudflare.signedOut()
         serverSettings.signedOut()
         prefs.saveOwn(null)
+        prefs.set(NO_ACCOUNT, null)
         knownRealms.set(null)
         if (open == null) reopen()
         return login
@@ -415,3 +421,5 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         if (drop) FeedCache(platform.cache, key).forget()
     }
 }
+
+private const val NO_ACCOUNT = "no-account"

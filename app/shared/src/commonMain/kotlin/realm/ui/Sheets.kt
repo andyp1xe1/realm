@@ -32,23 +32,12 @@ import realm.isLink as isLinkUrl
 @Composable
 internal fun AddSheet(home: Home, onClose: () -> Unit) {
     Column {
-        if (home.server == null) {
-            Text("Add a share link", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "It shows up here next to your other realms.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(16.dp))
-            SignInForm(home, linksOnly = true, onDone = onClose)
-            return
-        }
         var text by remember { mutableStateOf("") }
         var error by remember { mutableStateOf<String?>(null) }
         var busy by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         val isLink = isLinkUrl(text)
+        val own = home.server != null
 
         fun go() {
             val t = text.trim()
@@ -65,10 +54,10 @@ internal fun AddSheet(home: Home, onClose: () -> Unit) {
             }
         }
 
-        Text("New realm", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(if (own) "New realm" else "Add a shared realm", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Name it, or paste a share link someone sent you to keep it here.",
+            if (own) "Name it, or paste a share link someone sent you to keep it here." else "Paste a share link someone sent you.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -79,7 +68,7 @@ internal fun AddSheet(home: Home, onClose: () -> Unit) {
                 text = it
                 error = null
             },
-            placeholder = { Text("Name or share link") },
+            placeholder = { Text(if (own) "Name or share link" else "Share link") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
             keyboardActions = KeyboardActions(onGo = { go() }),
@@ -93,7 +82,7 @@ internal fun AddSheet(home: Home, onClose: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
             TextButton(onClick = onClose) { Text("Cancel") }
-            Button(onClick = ::go, enabled = text.isNotBlank() && !busy, shape = MaterialTheme.shapes.small) {
+            Button(onClick = ::go, enabled = text.isNotBlank() && !busy && (own || isLink), shape = MaterialTheme.shapes.small) {
                 Text(if (isLink) (if (busy) "Connecting…" else "Connect") else "Create")
             }
         }

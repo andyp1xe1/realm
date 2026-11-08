@@ -109,7 +109,7 @@ func loginCloudflare() error {
 		}
 	}
 
-	cfg := config{URL: origin, Cloudflare: tok}
+	cfg := config{URL: origin, Cloudflare: tok, Links: readConfig().Links}
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}

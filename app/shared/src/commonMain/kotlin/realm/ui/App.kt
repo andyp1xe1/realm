@@ -45,6 +45,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -78,7 +79,6 @@ import realm.Home
 import realm.Login
 import realm.Model
 import realm.Platform
-import realm.isLink as isLinkUrl
 
 @Composable
 fun App(platform: Platform, modifier: Modifier = Modifier) {
@@ -265,6 +265,8 @@ fun Setup(home: Home, modifier: Modifier = Modifier) {
         CloudflareButton(onClick = home.cloudflare::logIn, busy = home.cloudflare.login == Login.LoggingIn)
         Spacer(Modifier.height(12.dp))
         TokenButton(onClick = { withToken = true })
+        Spacer(Modifier.height(4.dp))
+        TextButton(onClick = home::continueWithoutAccount) { Text("Continue without an account") }
     }
 
     if (withToken) Sheet({ withToken = false }) { TokenSheet(home) { withToken = false } }
@@ -308,7 +310,7 @@ private fun TokenSheet(home: Home, onDone: () -> Unit) {
         Text("Connect with a token", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Your server's address and owner token, or a share link someone sent you.",
+            "Your server's address and its owner token.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -317,24 +319,21 @@ private fun TokenSheet(home: Home, onDone: () -> Unit) {
     }
 }
 
-/**
- * One field for a server URL, which then asks for its owner token, or a share link. [onDone] runs after either succeeds.
- */
+/** A server URL and its owner token; [onDone] runs after signing in. */
 @Composable
-fun SignInForm(home: Home, modifier: Modifier = Modifier, linksOnly: Boolean = false, onDone: () -> Unit = {}) {
+fun SignInForm(home: Home, modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
     var url by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val isLink = linksOnly || isLinkUrl(url)
 
     fun go() {
-        if (url.isBlank() || busy || (!isLink && token.isBlank())) return
+        if (url.isBlank() || busy || token.isBlank()) return
         busy = true
         error = null
         scope.launch {
-            error = if (isLink) home.connect(url) else home.signIn(url, token.trim())
+            error = home.signIn(url, token.trim())
             busy = false
             if (error == null) onDone()
         }
@@ -342,28 +341,26 @@ fun SignInForm(home: Home, modifier: Modifier = Modifier, linksOnly: Boolean = f
 
     Column(modifier) {
         OutlinedTextField(
-            url, { url = it },
-            label = { Text(if (linksOnly) "Share link" else "Server or share link") },
-            placeholder = { Text(if (linksOnly) "realm.someone.dev/s/…" else "realm.you.workers.dev") },
+            url,
+            { url = it },
+            label = { Text("Server") },
+            placeholder = { Text("realm.you.workers.dev") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = if (isLink) ImeAction.Go else ImeAction.Next),
-            keyboardActions = KeyboardActions(onGo = { go() }),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.small,
         )
         Spacer(Modifier.height(12.dp))
-        AnimatedVisibility(!isLink) {
-            OutlinedTextField(
-                token, { token = it },
-                label = { Text("Owner token") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { go() }),
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.small,
-            )
-        }
+        OutlinedTextField(
+            token, { token = it },
+            label = { Text("Owner token") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { go() }),
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.small,
+        )
         error?.let {
             Spacer(Modifier.height(12.dp))
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
@@ -371,18 +368,11 @@ fun SignInForm(home: Home, modifier: Modifier = Modifier, linksOnly: Boolean = f
         Spacer(Modifier.height(20.dp))
         Button(
             onClick = ::go,
-            enabled = !busy && url.isNotBlank() && (isLink || token.isNotBlank()),
+            enabled = !busy && url.isNotBlank() && token.isNotBlank(),
             modifier = Modifier.fillMaxWidth().height(FormHeight),
             shape = MaterialTheme.shapes.small,
         ) {
-            Text(
-                when {
-                    busy && isLink -> "Connecting…"
-                    busy -> "Signing in…"
-                    isLink -> "Connect"
-                    else -> "Sign in"
-                },
-            )
+            Text(if (busy) "Signing in…" else "Sign in")
         }
     }
 }

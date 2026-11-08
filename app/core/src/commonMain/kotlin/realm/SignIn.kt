@@ -39,7 +39,7 @@ private fun withScheme(input: String) = input.trim().let {
 }
 
 suspend fun signInWithToken(server: String, token: String, source: String, engine: HttpClientEngine? = null): SignedIn {
-    if (isLink(server)) throw ApiException("That's a share link. Connect to it instead.")
+    if (isLink(server)) throw ApiException("That's a share link. Sign in to your server, then add it as a realm.")
     val origin = serverOrigin(server)
     val api = Api.server(origin, Bearer { token }, source, engine)
     val (info, realms) = inWords {

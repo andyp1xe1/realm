@@ -37,9 +37,6 @@ sealed interface Connection {
         override val cloudflare get() = login
     }
 
-    /** A share link, …/s/<token>; it carries its own access and realm. */
-    data class Shared(val url: String, override val cloudflare: CloudflareLogin? = null) : Connection
-
     /** Logged in with Cloudflare, but connected to nothing yet: there was no realm worker on the account. */
     data class LoginOnly(override val cloudflare: CloudflareLogin) : Own
 
@@ -73,10 +70,7 @@ sealed interface Connection {
                     else -> null
                 }
 
-                isLink(url) -> when {
-                    token != null || realm != null -> bad("is a share link, which takes no token or realm")
-                    else -> Shared(linkUrl(url) ?: bad("has a link that isn't one"), c.cloudflare)
-                }
+                isLink(url) -> bad("is a share link, which isn't a server")
 
                 token != null -> ByToken(serverOrigin(url), token, realm, c.cloudflare)
 
@@ -91,7 +85,6 @@ sealed interface Connection {
             when (connection) {
                 is ByToken -> ConfigJson(connection.server, connection.token, connection.realm, connection.cloudflare)
                 is ByCloudflare -> ConfigJson(connection.server, null, connection.realm, connection.login)
-                is Shared -> ConfigJson(connection.url, cloudflare = connection.cloudflare)
                 is LoginOnly -> ConfigJson("", cloudflare = connection.cloudflare)
             },
         )
