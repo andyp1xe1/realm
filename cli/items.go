@@ -222,15 +222,15 @@ func getLink(args []string) error {
 	parse(fs, args)
 	for _, link := range fs.Args() {
 		if !isLink(link) {
-			return fmt.Errorf("%s: mix of links and ids; get ids after realm login or connect", link)
+			return fmt.Errorf("%s: mix of links and ids; get ids and links separately", link)
 		}
-		c := newClient(config{URL: link})
+		c := newClient(config{Realm: link})
 		var info Info
 		if err := c.do("GET", "/info", nil, &info); err != nil {
 			return fmt.Errorf("%s: %w", link, err)
 		}
 		if info.Item == nil {
-			return fmt.Errorf("%s shares more than one file; realm connect it to look around", link)
+			return fmt.Errorf("%s shares more than one file; realm realms add it to look around", link)
 		}
 		if *out == "-" {
 			if err := c.stream("GET", "/items/"+info.Item.ID+"/raw", nil, os.Stdout); err != nil {

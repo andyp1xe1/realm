@@ -6,30 +6,33 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
 
 func (c *Client) status() error {
+	if c.server != "" {
+		fmt.Println("server ", strings.TrimSuffix(c.server, "/api"))
+	}
+	if c.realm == "" {
+		r, err := c.soleRealm()
+		switch {
+		case err == nil:
+			c.inRealm(r.key())
+		case c.server == "":
+			return err
+		default:
+			fmt.Println("realm  ", err)
+		}
+	}
 	ask := c
-	if c.server != "" && c.realm == "" {
+	if c.realm == "" {
 		ask = c.at(c.server)
 	}
 	var info Info
 	if err := ask.do("GET", "/info", nil, &info); err != nil {
 		return err
-	}
-	if c.server != "" {
-		fmt.Println("server ", strings.TrimSuffix(c.server, "/api"))
-		if c.realm == "" {
-			r, err := c.soleRealm()
-			if err != nil {
-				fmt.Println("realm  ", err)
-			}
-			info.Realm = r
-		}
-	} else {
-		fmt.Println("link   ", c.base)
 	}
 	if info.Realm != nil {
 		fmt.Println("realm  ", info.Realm.Name)
@@ -87,7 +90,26 @@ func describe(it *Item) string {
 
 func (c *Client) realmList() ([]Realm, error) {
 	var out struct{ Realms []Realm }
-	return out.Realms, c.at(c.server).do("GET", "/realms", nil, &out)
+	var err error
+	if c.server != "" {
+		err = c.at(c.server).do("GET", "/realms", nil, &out)
+	}
+	for _, l := range c.shared {
+		r, _ := c.linkRealm(l)
+		out.Realms = append(out.Realms, r)
+	}
+	return out.Realms, err
+}
+
+func (c *Client) linkRealm(link string) (Realm, error) {
+	var info Info
+	err := c.at(link).do("GET", "/info", nil, &info)
+	r := Realm{Name: link}
+	if info.Realm != nil {
+		r = *info.Realm
+	}
+	r.Link = link
+	return r, err
 }
 
 func (c *Client) findRealm(q string) (*Realm, error) {
@@ -98,7 +120,7 @@ func (c *Client) findRealm(q string) (*Realm, error) {
 	lq := strings.ToLower(q)
 	var starts []Realm
 	for _, r := range rs {
-		if r.ID == q || strings.ToLower(r.Name) == lq {
+		if r.ID == q || r.Link == q || strings.ToLower(r.Name) == lq {
 			return &r, nil
 		}
 		if strings.HasPrefix(strings.ToLower(r.Name), lq) {
@@ -132,9 +154,6 @@ func (c *Client) soleRealm() (*Realm, error) {
 }
 
 func (c *Client) realms(args []string) error {
-	if c.server == "" {
-		return errors.New("realms need realm login, not a link")
-	}
 	sub := ""
 	if len(args) > 0 {
 		sub, args = args[0], args[1:]
@@ -152,8 +171,12 @@ func (c *Client) realms(args []string) error {
 		}
 		for _, r := range rs {
 			mark := " "
-			if r.ID == c.realm {
+			if r.key() == c.realm {
 				mark = "*"
+			}
+			if r.Link != "" {
+				fmt.Printf("%s %-*s  shared: %s\n", mark, width, r.Name, r.Link)
+				continue
 			}
 			when := ""
 			if r.Updated != nil {
@@ -168,10 +191,20 @@ func (c *Client) realms(args []string) error {
 			return errors.New("usage: realm realms add <name>")
 		}
 		var r Realm
-		if err := srv.do("POST", "/realms", map[string]string{"name": name}, &r); err != nil {
+		var err error
+		if link := strings.TrimRight(name, "/"); isLink(link) {
+			if r, err = c.linkRealm(link); err == nil {
+				err = updateConfig(func(cfg *config) {
+					cfg.Links = append(slices.DeleteFunc(cfg.Links, func(l string) bool { return l == link }), link)
+				})
+			}
+		} else {
+			err = srv.do("POST", "/realms", map[string]string{"name": name}, &r)
+		}
+		if err != nil {
 			return err
 		}
-		fmt.Printf("made “%s” (realm use %s)\n", r.Name, quoteArg(r.Name))
+		fmt.Printf("added “%s” (realm use %s)\n", r.Name, quoteArg(r.Name))
 		return nil
 	case "rename", "mv":
 		if len(args) < 2 {
@@ -180,6 +213,8 @@ func (c *Client) realms(args []string) error {
 		r, err := c.findRealm(args[0])
 		if err != nil {
 			return err
+		} else if r.Link != "" {
+			return errors.New("only its owner can rename a shared realm")
 		}
 		return srv.do("PATCH", "/realms/"+url.PathEscape(r.ID), map[string]string{"name": strings.Join(args[1:], " ")}, nil)
 	case "rm", "del", "delete":
@@ -193,27 +228,29 @@ func (c *Client) realms(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := confirm(fmt.Sprintf("Delete “%s” and its %d item%s?", r.Name, r.Count, plural(int(r.Count))), *yes); err != nil {
-			return err
-		}
-		if err := srv.do("DELETE", "/realms/"+url.PathEscape(r.ID), nil, nil); err != nil {
-			return err
+		gone := "removed"
+		if r.Link == "" {
+			if err := confirm(fmt.Sprintf("Delete “%s” and its %d item%s?", r.Name, r.Count, plural(int(r.Count))), *yes); err != nil {
+				return err
+			}
+			if err := srv.do("DELETE", "/realms/"+url.PathEscape(r.ID), nil, nil); err != nil {
+				return err
+			}
+			gone = "deleted"
 		}
 		_ = updateConfig(func(cfg *config) {
-			if cfg.Realm == r.ID {
+			cfg.Links = slices.DeleteFunc(cfg.Links, func(l string) bool { return l == r.Link })
+			if cfg.Realm == r.key() {
 				cfg.Realm = ""
 			}
 		})
-		fmt.Printf("deleted “%s”\n", r.Name)
+		fmt.Printf("%s “%s”\n", gone, r.Name)
 		return nil
 	}
 	return fmt.Errorf("unknown: realm realms %s (add, rename, rm)", sub)
 }
 
 func (c *Client) use(args []string) error {
-	if c.server == "" {
-		return errors.New("realm use needs realm login, not a link")
-	}
 	if len(args) == 0 {
 		return errors.New("usage: realm use <realm>")
 	}
@@ -221,7 +258,7 @@ func (c *Client) use(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := updateConfig(func(cfg *config) { cfg.Realm = r.ID }); err != nil {
+	if err := updateConfig(func(cfg *config) { cfg.Realm = r.key() }); err != nil {
 		return err
 	}
 	fmt.Printf("using “%s”\n", r.Name)

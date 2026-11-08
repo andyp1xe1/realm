@@ -54,7 +54,7 @@ internal fun login() {
     repeat(20) { frame() }
     scope.launch { h.signIn("http://127.0.0.1:${server.address.port}", "t") }
     var waited = 0
-    while (h.isEmpty && waited++ < 400) {
+    while (h.server == null && waited++ < 400) {
         frame()
         Ui.pause(10)
     }

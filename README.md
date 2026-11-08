@@ -48,7 +48,7 @@ realm ls invoice -k file
 realm link --read --ttl 1d
 ```
 
-`realm connect <link>` works through a share link instead of your own server. Run `realm` alone to list every command.
+`realm realms add <link>` adds a realm someone shared with you, to use like your own, with or without a login of your own. Run `realm` alone to list every command.
 
 ## Share links
 

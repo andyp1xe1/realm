@@ -29,7 +29,7 @@ func serveRealms(t *testing.T, realms ...Realm) *realmsWorker {
 	w := &realmsWorker{}
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		w.mu.Lock()
-		w.seen = append(w.seen, r.Method+" "+r.URL.Path)
+		w.seen = append(w.seen, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization"))
 		w.mu.Unlock()
 		rw.Header().Set("Content-Type", "application/json")
 		reply := func(v any) { _ = json.NewEncoder(rw).Encode(v) }
@@ -38,6 +38,12 @@ func serveRealms(t *testing.T, realms ...Realm) *realmsWorker {
 		switch {
 		case r.URL.Path == "/api/info":
 			reply(info)
+			return
+		case r.URL.Path == "/s/k2/info":
+			reply(Info{Version: workerVersion, Scope: "read", Realm: &Realm{ID: "sam", Name: "Recipes"}})
+			return
+		case r.URL.Path == "/s/k2/items":
+			reply(map[string]any{"items": []Item{}})
 			return
 		case r.URL.Path == "/api/realms":
 			reply(map[string]any{"realms": realms})
@@ -65,11 +71,14 @@ func serveRealms(t *testing.T, realms ...Realm) *realmsWorker {
 		fmt.Fprint(rw, `{"error":"not found"}`)
 	}))
 	t.Cleanup(srv.Close)
+	link = srv.URL + "/s/k2"
 	if err := saveConfig(config{URL: srv.URL, Token: "t"}); err != nil {
 		t.Fatal(err)
 	}
 	return w
 }
+
+var link string
 
 func quietly(t *testing.T, f func() error) (string, error) {
 	t.Helper()
@@ -97,7 +106,7 @@ func TestTheOnlyRealmIsUsedWithoutPickingIt(t *testing.T) {
 			t.Errorf("realm %s: %v", cmd, err)
 		}
 	}
-	for _, want := range []string{"GET /api/realms/r1/items", "GET /api/realms/r1/links"} {
+	for _, want := range []string{"GET /api/realms/r1/items Bearer t", "GET /api/realms/r1/links Bearer t"} {
 		if !contains(w.paths(), want) {
 			t.Errorf("worker saw %v, want %s", w.paths(), want)
 		}
@@ -117,7 +126,7 @@ func TestSeveralRealmsAreNeverGuessed(t *testing.T) {
 		t.Errorf("status names a realm nobody picked:\n%s", out)
 	}
 	for _, p := range w.paths() {
-		if strings.HasSuffix(p, "/items") || strings.HasSuffix(p, "/links") {
+		if strings.Contains(p, "/items ") || strings.Contains(p, "/links ") {
 			t.Errorf("worker was asked %s", p)
 		}
 	}
@@ -138,10 +147,51 @@ func TestThePickedRealmIsUsed(t *testing.T) {
 	if _, err := quietly(t, func() error { return run("One", "ls", nil) }); err != nil {
 		t.Errorf("realm -r One ls: %v", err)
 	}
-	for _, want := range []string{"GET /api/realms/r2/info", "GET /api/realms/r1/items"} {
+	for _, want := range []string{"GET /api/realms/r2/info Bearer t", "GET /api/realms/r1/items Bearer t"} {
 		if !contains(w.paths(), want) {
 			t.Errorf("worker saw %v, want %s", w.paths(), want)
 		}
+	}
+}
+
+func TestASharedRealmIsUsedLikeYourOwn(t *testing.T) {
+	w := serveRealms(t, Realm{ID: "r1", Name: "One"})
+	for _, args := range [][]string{{"realms", "add", link}, {"use", "rec"}, {"ls"}} {
+		if _, err := quietly(t, func() error { return run("", args[0], args[1:]) }); err != nil {
+			t.Fatalf("realm %v: %v", args, err)
+		}
+	}
+	if _, err := quietly(t, func() error { return run("One", "ls", nil) }); err != nil {
+		t.Errorf("realm -r One ls: %v", err)
+	}
+	for _, want := range []string{"GET /s/k2/items ", "GET /api/realms/r1/items Bearer t"} {
+		if !contains(w.paths(), want) {
+			t.Errorf("worker saw %v, want %q", w.paths(), want)
+		}
+	}
+	if _, err := quietly(t, logout); err != nil || len(readConfig().Links) != 1 {
+		t.Errorf("realm logout: %v, links left %v", err, readConfig().Links)
+	}
+	if _, err := quietly(t, func() error { return run("", "realms", []string{"rm", "Recipes"}) }); err != nil || len(readConfig().Links) > 0 {
+		t.Errorf("realm realms rm Recipes: %v, links left %v", err, readConfig().Links)
+	}
+}
+
+func TestASharedRealmNeedsNoLogin(t *testing.T) {
+	w := serveRealms(t)
+	if err := saveConfig(config{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"realms", "add", link}, {"ls"}, {"status"}} {
+		if _, err := quietly(t, func() error { return run("", args[0], args[1:]) }); err != nil {
+			t.Fatalf("realm %v: %v", args, err)
+		}
+	}
+	if !contains(w.paths(), "GET /s/k2/items ") {
+		t.Errorf("worker saw %v, want the link's items", w.paths())
+	}
+	if _, err := quietly(t, func() error { return run("", "realms", []string{"add", "Ideas"}) }); err == nil {
+		t.Error("realm realms add Ideas with no server: want an error")
 	}
 }
 

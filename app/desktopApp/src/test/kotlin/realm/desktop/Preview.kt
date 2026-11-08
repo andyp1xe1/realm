@@ -31,6 +31,7 @@ import realm.ui.Main
 import realm.ui.RealmTheme
 import realm.ui.RecordingPanel
 import realm.ui.Setup
+import realm.ui.SetupOrTabs
 import realm.ui.ShareButton
 import realm.ui.ShareSheet
 import realm.ui.Tabs
@@ -415,6 +416,7 @@ fun main(args: Array<String>) {
     shot("empty-light", 400, 760, dark = false, realtimeMs = 1500) { FeedPage(empty, "Ideas", 7) }
     shot("setup", 400, 760) { Setup(Home(FakePlatform(), CoroutineScope(Ui))) }
     shot("setup-light", 400, 760, dark = false) { Setup(Home(FakePlatform(), CoroutineScope(Ui))) }
+    shot("no-account", 400, 760) { SetupOrTabs(Home(FakePlatform(), CoroutineScope(Ui)).apply { continueWithoutAccount() }) }
     shot("setup-token", 460, 440) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
             androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) {

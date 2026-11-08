@@ -4,8 +4,11 @@ import kotlinx.coroutines.CoroutineScope
 
 /** What the app is signed in to, as one value that changes whole. */
 sealed interface Phase {
-    /** Nothing of your own: setup, or share links only. */
+    /** Nothing chosen yet. */
     data object Setup : Phase
+
+    /** No account: only realms shared with you. */
+    data object NoAccount : Phase
 
     /** Logged in with Cloudflare with no realm worker yet. */
     data class Onboarding(val at: realm.Onboarding.State) : Phase
@@ -18,7 +21,7 @@ sealed interface Phase {
 }
 
 enum class Screen {
-    /** Nothing signed in or connected. */
+    /** Nothing chosen yet. */
     Setup,
 
     /** Logged in with Cloudflare but not signed in to a realm. */
@@ -29,7 +32,7 @@ enum class Screen {
 
 val Home.screen: Screen
     get() = when (phase) {
-        is Phase.SignedIn -> Screen.Tabs
+        is Phase.SignedIn, Phase.NoAccount -> Screen.Tabs
         is Phase.Onboarding -> Screen.Onboarding
-        Phase.Setup -> if (shared.isNotEmpty()) Screen.Tabs else Screen.Setup
+        Phase.Setup -> Screen.Setup
     }

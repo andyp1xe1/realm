@@ -7,9 +7,10 @@ import (
 )
 
 type config struct {
-	URL   string `json:"url"`
-	Token string `json:"token,omitempty"`
-	Realm string `json:"realm,omitempty"`
+	URL   string   `json:"url"`
+	Token string   `json:"token,omitempty"`
+	Realm string   `json:"realm,omitempty"` // an id, or one of Links
+	Links []string `json:"links,omitempty"` // share links added as realms
 
 	Cloudflare *cfAuth `json:"cloudflare,omitempty"`
 }

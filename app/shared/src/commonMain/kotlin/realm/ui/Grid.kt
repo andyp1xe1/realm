@@ -113,7 +113,7 @@ fun Grid(home: Home, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(PageGutter),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            item(key = "add") { AddTile(if (home.server != null) "New realm" else "Add a link") { adding = true } }
+            item(key = "add") { AddTile(if (home.server != null) "New realm" else "Add a shared realm") { adding = true } }
             items(spaces, key = { it.key }) {
                 Tile(
                     home,

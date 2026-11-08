@@ -202,6 +202,16 @@ class OnboardingTest {
     }
 
     @Test
+    fun goingOnWithoutAnAccountIsKept() = runTest {
+        val prefs = MapPrefs()
+        home(prefs, Cloud(this)).continueWithoutAccount()
+        val home = home(prefs, Cloud(this))
+        assertEquals(Screen.Tabs, home.screen)
+        home.signOut()
+        assertEquals(Screen.Setup, home(prefs, Cloud(this)).screen)
+    }
+
+    @Test
     fun severalAccountsAreChosenFromAndTheChoiceIsKept() = runTest {
         val prefs = MapPrefs(choosing)
         val cloud = Cloud(this, studio = true)
