@@ -4,12 +4,7 @@ realm is a personal dump for notes and files. Anything you type, paste, drop, or
 
 <p align="center"><img src="docs/screens.png" alt="Three phone screens. A realm's feed with notes, a link, a voice note, and a PDF. The tab overview with realms and share links as tiles. The Share dialog, where you choose what a link allows and how long it lasts, above the realm's active links." width="900"></p>
 
-```
-worker/       Cloudflare Worker API. R2 stores files, D1 stores items and the search index.
-app/core/     Client logic without UI, shared by the app and a future Kotlin CLI.
-app/shared/   Compose Multiplatform UI on top of core, for Android and desktop.
-cli/          Go CLI, maintained but not extended. It does a subset of what the app does.
-```
+The server is a Cloudflare Worker in `worker/`. It keeps files in R2, and items and the search index in D1. The app runs on Android and desktop. Its client logic lives in `app/core/`, which a future Kotlin CLI will share, and its Compose Multiplatform UI lives in `app/shared/`. The Go CLI in `cli/` is maintained but not extended, and does a subset of what the app does.
 
 `nix-shell` in the repo root provides JDK 21, Go, Node, and ktlint. Without Nix, install JDK 17 or later with `JAVA_HOME` set, Go 1.24 or later, and Node 22 or later.
 
@@ -30,7 +25,7 @@ npx wrangler login
 npm run deploy      # creates the R2 bucket and D1 database
 ```
 
-Then log in with Cloudflare from the app, or run `realm login` from the CLI. Logging in finds the worker and tells it which account it runs on. From then on, any Cloudflare login that can manage the worker is its owner, so there's no token to keep. The worker sets up and upgrades its own tables on the first request, so redeploying is the whole upgrade. The Go CLI logs in but doesn't deploy.
+Then log in with Cloudflare from the app, or run `realm login` from the CLI. Logging in finds the worker and tells it which account it runs on. From then on, any Cloudflare login that can manage the worker is its owner, so there's no token to keep. The worker sets up and upgrades its own tables on the first request, so to upgrade, you only redeploy. The Go CLI logs in but doesn't deploy.
 
 For scripts or agents that can't log in through a browser, you can also give the worker a fixed owner token: `openssl rand -base64 32 | tee /dev/stderr | npx wrangler secret put REALM_TOKEN`. To run the worker locally with in-memory storage and the token `dev`, run `npm run serve`.
 
@@ -76,12 +71,12 @@ Each link opens one realm at `https://…/s/<token>` and can have an expiry and 
 | `read` | Listing, searching, and downloading      |
 | `full` | Everything except managing links         |
 
-A `read` link can also share just a selection of items, and you can change the selection later. A selection of one item downloads straight from the link. `GET /s/<token>/info` describes a link without using it up.
+A `read` link can also share just a selection of items, and you can change the selection later. A selection of one item downloads straight from the link. `GET /s/<token>/info` describes a link without counting as a use.
 
-Fetched with curl, a link returns markdown instructions for exactly what it allows. In a browser, a drop link shows an upload page and a read link shows a searchable list. The owner API is the same at `/api/realms/<id>/` with `Authorization: Bearer $REALM_TOKEN`. Realms are listed and created at `/api/realms`.
+Fetched with curl, a link returns markdown instructions for exactly what it allows. In a browser, a drop link shows an upload page and a read link shows a searchable list. The owner API is the same at `/api/realms/<id>/` with `Authorization: Bearer $REALM_TOKEN`. `/api/realms` lists and creates realms.
 
 ## Limits
 
-- A Worker request carries about 100 MB, so larger files upload in parts. The CLI and the app do this for you.
+- Cloudflare caps a Worker request body at about 100 MB, so larger files upload in parts. The CLI and the app do this for you.
 - Search matches note text, captions, and file names, not file contents.
 - `wrangler d1 export` skips the search index. After a restore, run `INSERT INTO items_fts(items_fts) VALUES('rebuild')`.
