@@ -25,7 +25,7 @@ Then log in from the app or with `realm login`. Any Cloudflare login that can ma
 
 For scripts that can't log in through a browser, set an owner token: `openssl rand -base64 32 | tee /dev/stderr | npx wrangler secret put REALM_TOKEN`. `npm run serve` runs the worker locally with in-memory storage and the token `dev`.
 
-To fork realm, set `FORK` in `worker/src/common.ts` and `Api.FORK` in `app/core/src/commonMain/kotlin/realm/Api.kt`. The app then deploys your fork's releases and never replaces a worker that runs another fork. To let the app update itself from your releases, put your own key's public half in `Api.APP_KEY` and the private half in the secret `APP_SIGNING_KEY`, as [CONTRIBUTING.md](CONTRIBUTING.md#release) describes.
+To fork realm, set `FORK` in `worker/src/common.ts` and `Api.FORK` in `app/core/src/commonMain/kotlin/realm/Api.kt`. The app then deploys your fork's releases and never replaces a worker that runs another fork. To let the app update itself from your releases, make an ECDSA P-256 key and put its public half in `Api.APP_KEY` and its private half in the secret `APP_SIGNING_KEY`.
 
 ## Run the app
 

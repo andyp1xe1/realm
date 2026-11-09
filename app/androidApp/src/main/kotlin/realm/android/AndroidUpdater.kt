@@ -15,8 +15,6 @@ import kotlinx.coroutines.withContext
 import realm.ApiException
 import realm.AppUpdate
 import realm.AppVersion
-import realm.Installed
-import realm.Staged
 import realm.Updater
 import realm.download
 import realm.newerApp
@@ -28,12 +26,9 @@ internal class AndroidUpdater(private val activity: ComponentActivity, override 
 
     override suspend fun newer() = newerApp(version, { tag -> "realm-$tag.apk" })
 
-    override suspend fun download(update: AppUpdate, progress: (Float) -> Unit): Staged {
+    override suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean {
         update.download(apk, progress = progress)
-        return Staged { install() }
-    }
-
-    private suspend fun install(): Installed {
+        installing()
         val installer = activity.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(activity.packageName)
@@ -67,9 +62,9 @@ internal class AndroidUpdater(private val activity: ComponentActivity, override 
                 when (result.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
                     PackageInstaller.STATUS_PENDING_USER_ACTION -> result.confirmation()?.let(activity::startActivity)
 
-                    PackageInstaller.STATUS_SUCCESS -> return Installed.Ready
+                    PackageInstaller.STATUS_SUCCESS -> return true
 
-                    PackageInstaller.STATUS_FAILURE_ABORTED -> return Installed.Declined
+                    PackageInstaller.STATUS_FAILURE_ABORTED -> return false
 
                     else -> throw ApiException(
                         result.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "Android didn't install the update.",

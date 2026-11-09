@@ -9,7 +9,6 @@ import realm.ApiException
 import realm.AppUpdate
 import realm.AppVersion
 import realm.FakeClouds
-import realm.Installed
 import realm.Semver
 import java.io.File
 import java.nio.file.Files
@@ -49,9 +48,9 @@ class DesktopUpdaterTest {
     }
 
     @Test fun replacesTheAppInPlaceOnlyOnceInstalled() = runBlocking {
-        val staged = updater().download(update) {}
-        assertEquals("the old app", appImage.readText())
-        assertEquals(Installed.Ready, staged.install())
+        var before: String? = null
+        assertTrue(updater().install(update, {}) { before = appImage.readText() })
+        assertEquals("the old app", before)
         assertEquals("the new app", appImage.readText())
         assertTrue(appImage.canExecute())
         assertEquals(listOf(appImage.name), tmp.list()!!.toList())
@@ -61,7 +60,7 @@ class DesktopUpdaterTest {
         val dir = File(tmp, "ro").apply { mkdirs() }
         val target = File(dir, appImage.name).apply { writeText("the old app") }
         dir.setWritable(false)
-        assertFailsWith<ApiException> { updater(target).download(update) {} }
+        assertFailsWith<ApiException> { updater(target).install(update, {}) {} }
         assertEquals("the old app", target.readText())
         assertFalse(github.seen.any())
     }

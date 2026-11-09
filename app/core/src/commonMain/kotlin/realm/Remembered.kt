@@ -1,6 +1,7 @@
 package realm
 
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
@@ -25,3 +26,23 @@ class Remembered<T : Any>(private val prefs: Prefs, private val key: String, pri
         val json = Json { ignoreUnknownKeys = true }
     }
 }
+
+/** An answer kept in [prefs] at [key] with when it came, for asking at most once a day; [now] is in Unix seconds. */
+class Daily<T>(prefs: Prefs, key: String, serializer: KSerializer<T>, private val now: () -> Long = Cloudflare::now) {
+    private val kept = Remembered(prefs, key, Dated.serializer(serializer))
+
+    /** The last answer kept, however old; null when there's none. */
+    fun get(): T? = kept.get()?.value
+
+    /** Whether an answer came in the last day. */
+    val fresh: Boolean get() = kept.get()?.let { now() - it.at < DAY } == true
+
+    fun set(value: T) = kept.set(Dated(now(), value))
+
+    private companion object {
+        const val DAY = 24 * 60 * 60L
+    }
+}
+
+@Serializable
+private class Dated<T>(val at: Long, val value: T)

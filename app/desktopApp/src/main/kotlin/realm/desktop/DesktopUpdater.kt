@@ -6,9 +6,7 @@ import kotlinx.coroutines.withContext
 import realm.ApiException
 import realm.AppUpdate
 import realm.AppVersion
-import realm.Installed
 import realm.Semver
-import realm.Staged
 import realm.Updater
 import realm.download
 import realm.newerApp
@@ -32,18 +30,17 @@ internal class DesktopUpdater(
 
     override suspend fun newer() = newerApp(version, ::file, engine)
 
-    override suspend fun download(update: AppUpdate, progress: (Float) -> Unit): Staged {
+    override suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean {
         val dir = target.absoluteFile.parentFile
         if (!dir.canWrite()) throw ApiException("realm can't replace itself: you can't write to ${dir.path}.")
         val staged = File(dir, ".${target.name}.update")
         update.download(staged, engine, progress)
-        return Staged {
-            withContext(Dispatchers.IO) {
-                staged.setExecutable(true)
-                Files.move(staged.toPath(), target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
-            }
-            Installed.Ready
+        installing()
+        withContext(Dispatchers.IO) {
+            staged.setExecutable(true)
+            Files.move(staged.toPath(), target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
         }
+        return true
     }
 
     override fun restart() {

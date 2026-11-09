@@ -5,17 +5,16 @@ import kotlinx.serialization.Serializable
 /** When to look for a newer worker, at most once a day unless forced; [now] is in Unix seconds. */
 class UpdateChecks(prefs: Prefs, private val fetch: suspend () -> Release, private val now: () -> Long = Cloudflare::now) {
     private var last: Long? = null
-    private val kept = Remembered(prefs, "release", SeenRelease.serializer())
+    private val kept = Daily(prefs, "release", SeenRelease.serializer(), now)
 
     /** Whether to look now: when [force]d, else when no look in the last day got an answer. */
     fun due(force: Boolean): Boolean = force || last?.let { now() - it >= DAY } != false
 
     /** The API version of the newest release: the one seen within a day, unless [force]d, else GitHub's. */
     suspend fun latest(force: Boolean): Int {
-        val seen = kept.get()
-        if (!force && seen != null && now() - seen.at < DAY) return seen.version
+        if (!force && kept.fresh) kept.get()?.let { return it.version }
         val r = fetch()
-        kept.set(SeenRelease(now(), r.manifest.version, r.tag.toString()))
+        kept.set(SeenRelease(r.manifest.version, r.tag.toString()))
         return r.manifest.version
     }
 
@@ -40,4 +39,4 @@ class UpdateChecks(prefs: Prefs, private val fetch: suspend () -> Release, priva
 }
 
 @Serializable
-private data class SeenRelease(val at: Long, val version: Int, val tag: String)
+private data class SeenRelease(val version: Int, val tag: String)

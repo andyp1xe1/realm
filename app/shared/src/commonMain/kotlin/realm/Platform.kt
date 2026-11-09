@@ -55,25 +55,14 @@ interface Updater {
     /** The newest stable release that's newer than this copy and has a file to replace it, as [newerApp] finds it. */
     suspend fun newer(): AppUpdate?
 
-    /** Downloads [update] and checks it against the release, telling [progress] how far it has got, from 0 to 1. */
-    suspend fun download(update: AppUpdate, progress: (Float) -> Unit): Staged
+    /**
+     * Downloads [update], telling [progress] how far it has got from 0 to 1, checks it against the release, then
+     * tells [installing] and puts it in place, asking first where the system does. False when the user said no.
+     */
+    suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean
 
     /** Starts the installed update in place of the app running now. */
     fun restart()
-}
-
-/** A downloaded and checked update, waiting to replace the app. */
-fun interface Staged {
-    /** Puts it in place of the app, asking first where the system does. */
-    suspend fun install(): Installed
-}
-
-enum class Installed {
-    /** In place: [Updater.restart] runs it. */
-    Ready,
-
-    /** The user said no when the system asked. */
-    Declined,
 }
 
 sealed interface Incoming {

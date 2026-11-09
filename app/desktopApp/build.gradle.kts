@@ -21,18 +21,10 @@ kotlin {
 
 val realmVersion: String? = providers.gradleProperty("realm.version").orNull
 
-val versionResource = tasks.register("versionResource") {
-    val version = realmVersion
-    val out = layout.buildDirectory.dir("generated/version")
-    inputs.property("version", version.orEmpty())
-    outputs.dir(out)
-    doLast {
-        val dir = out.get().asFile.resolve("realm")
-        dir.deleteRecursively()
-        if (version != null) dir.apply { mkdirs() }.resolve("version").writeText(version)
-    }
+tasks.processResources {
+    inputs.property("version", realmVersion.orEmpty())
+    if (realmVersion != null) from(resources.text.fromString(realmVersion)) { into("realm").rename { "version" } }
 }
-sourceSets["main"].resources.srcDir(versionResource)
 
 dependencies {
     implementation(project(":shared"))

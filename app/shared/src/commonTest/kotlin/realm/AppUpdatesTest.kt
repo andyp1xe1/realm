@@ -22,7 +22,7 @@ class AppUpdatesTest {
     private inner class FakeUpdater(installed: String = "1.1.0") : Updater {
         override val version = AppVersion.parse(installed)!!
         val downloaded = CompletableDeferred<Unit>()
-        var answer = Installed.Ready
+        var answer = true
         var restarted = 0
         override suspend fun newer(): AppUpdate? {
             looks++
@@ -30,12 +30,13 @@ class AppUpdatesTest {
             return newest
         }
 
-        override suspend fun download(update: AppUpdate, progress: (Float) -> Unit): Staged {
+        override suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean {
             progress(0.004f)
             progress(0.5f)
             downloaded.await()
             failing?.let { throw it }
-            return Staged { answer }
+            installing()
+            return answer
         }
 
         override fun restart() {
@@ -117,7 +118,7 @@ class AppUpdatesTest {
     @Test
     fun sayingNoLeavesTheUpdateWaiting() = runTest {
         val updater = FakeUpdater().apply {
-            answer = Installed.Declined
+            answer = false
             downloaded.complete(Unit)
         }
         val u = updates(updater)

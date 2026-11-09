@@ -7,10 +7,8 @@ import kotlinx.coroutines.channels.Channel
 import realm.AppUpdate
 import realm.AppVersion
 import realm.Home
-import realm.Installed
 import realm.SelfUpdate
 import realm.Semver
-import realm.Staged
 import realm.Updater
 
 /** A copy at 0.2.0 that can replace itself with [newest]; GitHub answers once for each of [answers], and a download goes as far as [steps] say. */
@@ -24,12 +22,13 @@ private class PreviewUpdater(private val newest: AppUpdate?) : Updater {
         return newest
     }
 
-    override suspend fun download(update: AppUpdate, progress: (Float) -> Unit): Staged {
+    override suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean {
         for (p in steps) {
             progress(p)
             if (p >= 1f) break
         }
-        return Staged { Installed.Ready }
+        installing()
+        return true
     }
 
     override fun restart() {}

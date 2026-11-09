@@ -7,7 +7,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.nullable
+import kotlinx.serialization.builtins.serializer
 
 /**
  * Keeps this copy of the app on its fork's newest stable release, when it can replace itself. Looks once a day
@@ -19,7 +20,7 @@ class AppUpdates internal constructor(
     private val scope: CoroutineScope,
     private val now: () -> Long = Cloudflare::now,
 ) {
-    private val seen = Remembered(prefs, "app-release", SeenApp.serializer())
+    private val seen = Daily(prefs, "app-release", String.serializer().nullable, now)
     private var job: Job? = null
 
     /** This copy's version; null when it can't update itself. */
@@ -34,15 +35,14 @@ class AppUpdates internal constructor(
     private val busy get() = job?.isActive == true
 
     private fun kept(): SelfUpdate {
-        val tag = seen.get()?.newer?.let(Semver::parse) ?: return SelfUpdate.NotYet
+        val tag = seen.get()?.let(Semver::parse) ?: return SelfUpdate.NotYet
         return if (updater?.version?.olderThan(tag) == true) SelfUpdate.Available(tag) else SelfUpdate.NotYet
     }
 
     /** Looks for a newer release, without showing it's looking, if there was no answer in the last day. */
     fun refresh() {
         val u = updater ?: return
-        val last = seen.get()?.at
-        if (busy || state is SelfUpdate.Ready || (last != null && now() - last < DAY)) return
+        if (busy || state is SelfUpdate.Ready || seen.fresh) return
         job = scope.launch {
             try {
                 state = found(u.newer())
@@ -70,18 +70,18 @@ class AppUpdates internal constructor(
         }
         var shown = -1
         state = SelfUpdate.Downloading(update.tag, 0f)
-        val staged = u.download(update) { p ->
-            val percent = (p * 100).toInt().coerceIn(0, 100)
-            if (percent != shown) {
-                shown = percent
-                state = SelfUpdate.Downloading(update.tag, percent / 100f)
-            }
-        }
-        state = SelfUpdate.Installing(update.tag)
-        state = when (staged.install()) {
-            Installed.Ready -> SelfUpdate.Ready(update.tag)
-            Installed.Declined -> SelfUpdate.Available(update.tag)
-        }
+        val placed = u.install(
+            update,
+            progress = { p ->
+                val percent = (p * 100).toInt().coerceIn(0, 100)
+                if (percent != shown) {
+                    shown = percent
+                    state = SelfUpdate.Downloading(update.tag, percent / 100f)
+                }
+            },
+            installing = { state = SelfUpdate.Installing(update.tag) },
+        )
+        state = if (placed) SelfUpdate.Ready(update.tag) else SelfUpdate.Available(update.tag)
     }
 
     /** Runs the update put in place. */
@@ -90,7 +90,7 @@ class AppUpdates internal constructor(
     }
 
     private fun found(update: AppUpdate?): SelfUpdate {
-        seen.set(SeenApp(now(), update?.tag?.toString()))
+        seen.set(update?.tag?.toString())
         return update?.let { SelfUpdate.Available(it.tag) } ?: SelfUpdate.UpToDate
     }
 
@@ -109,10 +109,6 @@ class AppUpdates internal constructor(
                 state = SelfUpdate.Failed(explain(e), retriesInstall = installs)
             }
         }
-    }
-
-    private companion object {
-        const val DAY = 24 * 60 * 60L
     }
 }
 
@@ -139,6 +135,3 @@ sealed interface SelfUpdate {
     /** [retriesInstall]: trying again installs, rather than looks. */
     data class Failed(val message: String, val retriesInstall: Boolean) : SelfUpdate
 }
-
-@Serializable
-private data class SeenApp(val at: Long, val newer: String?)

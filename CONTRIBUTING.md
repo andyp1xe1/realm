@@ -19,9 +19,4 @@ Push a tag `vX.Y.Z`, or `vX.Y.Z-rc.N` for a release candidate. A release candida
 
 The workflow signs the APK with the key in the secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Phones refuse an update signed with another key, so never change the key.
 
-The workflow also writes `app.json`, which holds the SHA-256 of each app file, and signs it with the ECDSA P-256 key in the secret `APP_SIGNING_KEY` (PEM). The app updates itself only from a stable release whose `app.json` that key signed, so keep its public half in `Api.APP_KEY`. To change the key, release the new `Api.APP_KEY` first: copies of the app that don't have it yet can't install releases signed with the new key. To make a key:
-
-```sh
-openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out app-signing.pem
-openssl pkey -in app-signing.pem -pubout -outform DER | base64 -w0    # for Api.APP_KEY
-```
+The workflow also signs `app.json`, the SHA-256 of each app file, with the ECDSA P-256 key in the secret `APP_SIGNING_KEY`. The app installs only releases signed with the key whose public half is `Api.APP_KEY`, so release a new `Api.APP_KEY` before you sign with a new key.
