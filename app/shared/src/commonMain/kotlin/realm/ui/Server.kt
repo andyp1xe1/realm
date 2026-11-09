@@ -54,7 +54,7 @@ import realm.Zone
 
 private const val SWAP_MILLIS = 300
 
-private fun AnimatedContentTransitionScope<*>.swap(): ContentTransform =
+internal fun AnimatedContentTransitionScope<*>.swap(): ContentTransform =
     (fadeIn(tween(SWAP_MILLIS * 2 / 3, delayMillis = SWAP_MILLIS / 3)) togetherWith fadeOut(tween(SWAP_MILLIS / 3)))
         .using(SizeTransform(clip = true))
 
@@ -128,7 +128,7 @@ private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> U
 }
 
 @Composable
-private fun Turning(text: String) {
+internal fun Turning(text: String) {
     Row(Modifier.heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
         CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
         Spacer(Modifier.width(10.dp))

@@ -138,7 +138,7 @@ fun Tabs(home: Home, modifier: Modifier = Modifier) {
             onTabs = { if (open == null) home.hideTabs() else home.showTabs() },
             onSettings = { settings = true },
             modifier = Modifier.widthIn(max = PageWidth),
-            update = home.cloudflare.update != null,
+            update = home.cloudflare.update != null || home.appUpdates.waiting,
         )
         SharedTransitionLayout(Modifier.weight(1f)) {
             AnimatedContent(

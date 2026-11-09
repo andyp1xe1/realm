@@ -17,6 +17,9 @@ interface Platform : Browser {
 
     val isForeground: Boolean
 
+    /** How this copy of the app replaces itself with a newer release; null when it can't, like a build from source. */
+    val updater: Updater?
+
     val canTakePhoto: Boolean
     suspend fun pickFiles(): List<LocalFile>
     suspend fun takePhoto(): LocalFile?
@@ -43,6 +46,34 @@ interface Platform : Browser {
     fun cacheImage(key: String, bytes: ByteArray)
     fun formatTime(epochMs: Long): String
     fun formatDay(epochMs: Long): String
+}
+
+/** Replaces this copy of the app with a release of its fork. */
+interface Updater {
+    val version: AppVersion
+
+    /** The newest stable release that's newer than this copy and has a file to replace it, as [newerApp] finds it. */
+    suspend fun newer(): AppUpdate?
+
+    /** Downloads [update] and checks it against the release, telling [progress] how far it has got, from 0 to 1. */
+    suspend fun download(update: AppUpdate, progress: (Float) -> Unit): Staged
+
+    /** Starts the installed update in place of the app running now. */
+    fun restart()
+}
+
+/** A downloaded and checked update, waiting to replace the app. */
+fun interface Staged {
+    /** Puts it in place of the app, asking first where the system does. */
+    suspend fun install(): Installed
+}
+
+enum class Installed {
+    /** In place: [Updater.restart] runs it. */
+    Ready,
+
+    /** The user said no when the system asked. */
+    Declined,
 }
 
 sealed interface Incoming {

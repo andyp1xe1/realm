@@ -21,6 +21,7 @@ import realm.Model
 import realm.Platform
 import realm.Prefs
 import realm.Recording
+import realm.Updater
 import realm.jvm.Dates
 import realm.ui.Grid
 import realm.ui.Main
@@ -39,7 +40,11 @@ internal class MapPrefs(val map: MutableMap<String, String> = mutableMapOf()) : 
 }
 
 /** A platform with [prefs] to start from, and [cached], the cache a run before kept, as [kept] and [stored] give them. */
-internal class FakePlatform(vararg prefs: Pair<String, String>, cached: Map<String, String> = emptyMap()) : Platform {
+internal class FakePlatform(
+    vararg prefs: Pair<String, String>,
+    cached: Map<String, String> = emptyMap(),
+    override val updater: Updater? = null,
+) : Platform {
     override val name = "desktop"
     override val prefs = MapPrefs(mutableMapOf(*prefs))
     override val cache = MapPrefs(cached.toMutableMap())

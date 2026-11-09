@@ -1,5 +1,6 @@
 package realm
 
+import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -69,22 +70,42 @@ internal val RELEASES = Api.FORK ?: "andyp1xe1/realm"
 
 /** The newest stable release of this app's fork with an API version up to [Api.VERSION]; else [NoRelease] or [ChecksumMismatch]. */
 suspend fun latestRelease(engine: HttpClientEngine? = null): Release = client(engine).use { http ->
-    suspend fun fetch(url: String): HttpResponse {
-        val res = try {
-            http.get(url) {
-                header("User-Agent", "realm")
-                header("Accept", "application/vnd.github+json")
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            throw ApiException("Can't reach GitHub", cause = e)
+    var newer: Semver? = null
+    for ((tag, r) in http.stableReleases()) {
+        val manifestUrl = r.asset("worker.json") ?: continue
+        val text = http.fromGitHub(manifestUrl).bodyAsText()
+        val manifest = runCatching { cloudflareJson.decodeFromString<Manifest>(text) }.getOrNull() ?: continue
+        if (manifest.fork != Api.FORK) continue
+        if (manifest.version > Api.VERSION) {
+            newer = newer ?: tag
+            continue
         }
-        if (!res.status.isSuccess()) throw ApiException("GitHub said no (HTTP ${res.status.value})", res.status.value)
-        return res
+        val codeUrl = r.asset(manifest.mainModule) ?: continue
+        val code = http.fromGitHub(codeUrl).bodyAsBytes()
+        if (sha256(code).toHexString() != manifest.sha256.lowercase()) throw ChecksumMismatch(tag)
+        return@use Release(tag, manifest, code, newer)
     }
+    throw NoRelease(newer)
+}
 
-    val candidates = fetch("https://api.github.com/repos/$RELEASES/releases?per_page=100").bodyAsText()
+internal suspend fun HttpClient.fromGitHub(url: String): HttpResponse {
+    val res = try {
+        get(url) {
+            header("User-Agent", "realm")
+            header("Accept", "application/vnd.github+json")
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        throw ApiException("Can't reach GitHub", cause = e)
+    }
+    if (!res.status.isSuccess()) throw ApiException("GitHub said no (HTTP ${res.status.value})", res.status.value)
+    return res
+}
+
+/** The releases of this app's fork that aren't drafts or release candidates, newest first. */
+internal suspend fun HttpClient.stableReleases(): List<Pair<Semver, GitHubRelease>> =
+    fromGitHub("https://api.github.com/repos/$RELEASES/releases?per_page=100").bodyAsText()
         .let {
             runCatching {
                 cloudflareJson.decodeFromString<List<GitHubRelease>>(it)
@@ -93,26 +114,9 @@ suspend fun latestRelease(engine: HttpClientEngine? = null): Release = client(en
         .filter { !it.draft && !it.prerelease }
         .mapNotNull { r -> Semver.parse(r.tag)?.let { it to r } }
         .sortedByDescending { it.first }
-    var newer: Semver? = null
-    for ((tag, r) in candidates) {
-        val manifestUrl = r.asset("worker.json") ?: continue
-        val text = fetch(manifestUrl).bodyAsText()
-        val manifest = runCatching { cloudflareJson.decodeFromString<Manifest>(text) }.getOrNull() ?: continue
-        if (manifest.fork != Api.FORK) continue
-        if (manifest.version > Api.VERSION) {
-            newer = newer ?: tag
-            continue
-        }
-        val codeUrl = r.asset(manifest.mainModule) ?: continue
-        val code = fetch(codeUrl).bodyAsBytes()
-        if (sha256(code).toHexString() != manifest.sha256.lowercase()) throw ChecksumMismatch(tag)
-        return@use Release(tag, manifest, code, newer)
-    }
-    throw NoRelease(newer)
-}
 
 @Serializable
-private data class GitHubRelease(
+internal data class GitHubRelease(
     @SerialName("tag_name") val tag: String,
     val draft: Boolean = false,
     val prerelease: Boolean = false,
@@ -122,4 +126,4 @@ private data class GitHubRelease(
 }
 
 @Serializable
-private data class Asset(val name: String, @SerialName("browser_download_url") val url: String)
+internal data class Asset(val name: String, @SerialName("browser_download_url") val url: String)

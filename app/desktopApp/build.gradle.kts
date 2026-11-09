@@ -19,6 +19,21 @@ kotlin {
     sourceSets["main"].kotlin.srcDir("../jvmCommon")
 }
 
+val realmVersion: String? = providers.gradleProperty("realm.version").orNull
+
+val versionResource = tasks.register("versionResource") {
+    val version = realmVersion
+    val out = layout.buildDirectory.dir("generated/version")
+    inputs.property("version", version.orEmpty())
+    outputs.dir(out)
+    doLast {
+        val dir = out.get().asFile.resolve("realm")
+        dir.deleteRecursively()
+        if (version != null) dir.apply { mkdirs() }.resolve("version").writeText(version)
+    }
+}
+sourceSets["main"].resources.srcDir(versionResource)
+
 dependencies {
     implementation(project(":shared"))
     implementation(compose.desktop.currentOs)
@@ -37,7 +52,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.AppImage)
             packageName = "realm"
-            packageVersion = providers.gradleProperty("realm.version").getOrElse("0.1.0")
+            packageVersion = realmVersion ?: "0.1.0"
             modules("java.desktop", "jdk.unsupported")
             linux { iconFile.set(file("packaging/realm.png")) }
         }

@@ -62,6 +62,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** Logged in with Cloudflare with no realm worker yet: choosing an account, and deploying. */
     val onboarding = Onboarding(this, scope, engine)
 
+    /** Replacing this copy of the app with a newer release. */
+    val appUpdates = AppUpdates(platform.prefs, platform.updater, scope)
+
     private val prefs = platform.prefs
 
     private val knownRealms = Remembered(prefs, "realms", ListSerializer(Realm.serializer()))
@@ -103,6 +106,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         tiles.restore(spaces.map { it.key })
         openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
         fetchAhead(phase as? Phase.SignedIn, known = null, force = false)
+        appUpdates.refresh()
     }
 
     /** Re-asks the server for its realms and every link for what it is, then refreshes the tile previews, unless that's under way. */

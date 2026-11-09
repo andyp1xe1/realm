@@ -9,6 +9,7 @@ import realm.Incoming
 import realm.LocalFile
 import realm.Platform
 import realm.Recording
+import realm.Updater
 import realm.jvm.Dates
 import realm.jvm.DiskCache
 import realm.jvm.FileStore
@@ -46,6 +47,7 @@ class DesktopPlatform : Platform {
     override val name = "desktop"
     override val canTakePhoto = false
     override val isForeground = true
+    override val updater: Updater? = DesktopUpdater.find()
     var window: Frame? = null
 
     override val prefs = SettingsFile(File(configHome(), "app.json"))
