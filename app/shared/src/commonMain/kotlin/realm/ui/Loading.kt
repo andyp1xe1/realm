@@ -44,16 +44,28 @@ const val ARRIVE_MILLIS = 300
 /** The skeletons and spinners on screen, for tests to count. */
 class Indicators {
     private val faded = mutableSetOf<() -> Float>()
+    private val steps = mutableMapOf<Any, MutableSet<() -> Float>>()
 
     /** Whether one shows, however faintly. */
     val showing: Boolean get() = faded.any { it() > 0f }
 
+    /** Whether one [Steps] shows two of its steps at once, each more than a tenth opaque. */
+    val overlapping: Boolean get() = steps.values.any { shown -> shown.count { it() > 0.1f } > 1 }
+
     internal fun add(alpha: () -> Float) = faded.add(alpha)
 
     internal fun remove(alpha: () -> Float) = faded.remove(alpha)
+
+    internal fun addStep(of: Any, alpha: () -> Float) = steps.getOrPut(of) { mutableSetOf() }.add(alpha)
+
+    internal fun removeStep(of: Any, alpha: () -> Float) {
+        val shown = steps[of] ?: return
+        shown.remove(alpha)
+        if (shown.isEmpty()) steps.remove(of)
+    }
 }
 
-/** Where [Delayed] reports what's on screen; null in the app. */
+/** Where [Delayed] and [Steps] report what's on screen; null in the app. */
 val LocalIndicators = staticCompositionLocalOf<Indicators?> { null }
 
 /**

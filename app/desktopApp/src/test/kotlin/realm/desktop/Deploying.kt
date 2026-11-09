@@ -89,6 +89,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
         sheetHeights += sheetHeight
         cloudflareHeights += cloudflareHeight
         indicated += indicators.showing
+        check(!indicators.overlapping) { "frame ${drawn.size}: two steps of one part show at once" }
     }
 
     /**

@@ -100,10 +100,30 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: app/core/src/commonMain/kotlin/realm/Api.kt
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
+      # The app installs a release only if app.json, the SHA-256 of each app file, is signed with the key Api.APP_KEY names.
+      - name: Sign the app files
+        env:
+          APP_SIGNING_KEY: ${{ secrets.APP_SIGNING_KEY }}
+        run: |
+          [ -n "$APP_SIGNING_KEY" ] || { echo "Set the secret APP_SIGNING_KEY to the private key for Api.APP_KEY"; exit 1; }
+          key="$RUNNER_TEMP/app-signing.pem"
+          (umask 077; printf '%s\n' "$APP_SIGNING_KEY" >"$key")
+          public=$(openssl pkey -in "$key" -pubout -outform DER | base64 -w0)
+          grep -qF "\"$public\"" app/core/src/commonMain/kotlin/realm/Api.kt ||
+            { rm "$key"; echo "APP_SIGNING_KEY isn't the key for Api.APP_KEY, so the app would refuse this release"; exit 1; }
+          cd dist
+          sha256sum realm-* | jq -Rn --arg tag "$GITHUB_REF_NAME" \
+            '{tag: $tag, files: ([inputs | capture("^(?<sha>[0-9a-f]{64})  (?<name>.+)$") | {(.name): .sha}] | add)}' >app.json
+          openssl dgst -sha256 -sign "$key" -out app.json.sig app.json
+          rm "$key"
       # A release candidate is a pre-release, which the app never deploys.
       - run: >-
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

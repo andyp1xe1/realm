@@ -255,6 +255,10 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
         val FORK: String? = null
         const val VERSION = 4
 
+        /** The public key, X.509 in base64, that signs the app files in this fork's releases. */
+        const val APP_KEY =
+            "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsMJt/QsC0POS+zJoDX3huZFFi0UyZtHnW9DKyhoMG2KuECbciH8lYp+wHSgEDQyFi4tOMQW0G29Kl+tBM5HCYQ=="
+
         /** A warning for a server running other code than this app is written for, or null. */
         fun mismatch(info: Info): String? = when {
             info.fork != FORK -> "That server runs ${info.fork ?: "realm"}, version ${info.version}. Some things may not work."

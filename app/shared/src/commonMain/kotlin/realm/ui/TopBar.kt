@@ -74,7 +74,7 @@ fun TopBar(
             BarItem(model == null) {
                 IconButton(onClick = onSettings) {
                     BadgedBox(badge = { if (update) Badge(containerColor = MaterialTheme.colorScheme.primary) }) {
-                        Icon(Icons.Outlined.Settings, if (update) "Settings, server update" else "Settings")
+                        Icon(Icons.Outlined.Settings, if (update) "Settings, an update is waiting" else "Settings")
                     }
                 }
             }

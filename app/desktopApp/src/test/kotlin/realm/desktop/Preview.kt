@@ -448,5 +448,6 @@ fun main(args: Array<String>) {
     )
     sending()
     modes()
+    selfUpdating()
     kotlin.system.exitProcess(0)
 }

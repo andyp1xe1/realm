@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 // The client logic without UI: the server and Cloudflare APIs, shared by the app and a CLI.
 plugins {
@@ -15,6 +16,14 @@ kotlin {
         compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
     }
     jvm("desktop") { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+    applyDefaultHierarchyTemplate {
+        common {
+            group("jvm") {
+                withJvm()
+                withCompilations { it.target.platformType == KotlinPlatformType.androidJvm }
+            }
+        }
+    }
 
     sourceSets {
         commonMain.dependencies {

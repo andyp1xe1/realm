@@ -18,6 +18,7 @@ internal class TestPlatform(override val prefs: Prefs, override val cache: Prefs
     override val name = "test"
     override val incoming = emptyFlow<Incoming>()
     override val isForeground = false
+    override val updater: Updater? = null
     override val canTakePhoto = false
     override suspend fun pickFiles() = emptyList<LocalFile>()
     override suspend fun takePhoto(): LocalFile? = null

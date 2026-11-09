@@ -18,3 +18,5 @@ Agent skills live in `.agents/skills/`. `.claude/skills` links there.
 Push a tag `vX.Y.Z`, or `vX.Y.Z-rc.N` for a release candidate. A release candidate becomes a GitHub pre-release, which the app never deploys. `.github/workflows/release.yml` builds the worker bundle, the APK, a Linux AppImage, and a desktop jar, each versioned from the tag.
 
 The workflow signs the APK with the key in the secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Phones refuse an update signed with another key, so never change the key.
+
+The workflow also signs `app.json`, the SHA-256 of each app file, with the ECDSA P-256 key in the secret `APP_SIGNING_KEY`. The app installs only releases signed with the key whose public half is `Api.APP_KEY`, so release a new `Api.APP_KEY` before you sign with a new key.

@@ -30,12 +30,14 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.withContext
+import realm.AppVersion
 import realm.ByteReader
 import realm.Incoming
 import realm.LocalFile
 import realm.Platform
 import realm.Prefs
 import realm.Recording
+import realm.Updater
 import realm.jvm.Dates
 import realm.jvm.DiskCache
 import realm.jvm.FileStore
@@ -57,6 +59,8 @@ class AndroidPlatform(private val activity: ComponentActivity) : Platform {
     override val name = "android"
     override val canTakePhoto = true
     override val isForeground get() = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    override val updater: Updater? = activity.packageManager.getPackageInfo(activity.packageName, 0).versionName
+        ?.let(AppVersion::parse)?.let { AndroidUpdater(activity, it) }
 
     private val sp = activity.getSharedPreferences("realm", Context.MODE_PRIVATE)
     override val prefs = object : Prefs {
