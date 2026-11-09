@@ -52,12 +52,6 @@ import realm.ServerSettings
 import realm.UpdateCheck
 import realm.Zone
 
-private const val SWAP_MILLIS = 300
-
-internal fun AnimatedContentTransitionScope<*>.swap(): ContentTransform =
-    (fadeIn(tween(SWAP_MILLIS * 2 / 3, delayMillis = SWAP_MILLIS / 3)) togetherWith fadeOut(tween(SWAP_MILLIS / 3)))
-        .using(SizeTransform(clip = true))
-
 /** Settings' part about your own server. [onClose] puts settings away before a sheet of its own opens. */
 @Composable
 fun ServerSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifier) {
@@ -138,7 +132,7 @@ internal fun Turning(text: String) {
 
 @Composable
 private fun Updates(check: Check, home: Home, onClose: () -> Unit) {
-    AnimatedContent(check, transitionSpec = { swap() }, contentKey = { it::class }) { c ->
+    Steps(check) { c ->
         Column {
             when (c) {
                 Check.NotYet -> {
@@ -215,7 +209,7 @@ private fun ColumnScope.Addresses(inUse: String, a: Addresses, settings: ServerS
             }
         }
     }
-    AnimatedContent(task, transitionSpec = { swap() }, contentKey = { it?.let { t -> t::class } }) { t ->
+    Steps(task) { t ->
         Column {
             when (t) {
                 null -> if (a.zones.isNotEmpty()) InlineButton("Add a domain", { settings.adding(true) })

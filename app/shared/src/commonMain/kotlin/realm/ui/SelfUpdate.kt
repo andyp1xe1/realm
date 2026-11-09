@@ -1,6 +1,5 @@
 package realm.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -39,7 +38,7 @@ fun AppSection(updates: AppUpdates, modifier: Modifier = Modifier) {
             }
         }
         if (version != null) {
-            AnimatedContent(updates.state, transitionSpec = { swap() }, contentKey = { it::class }) { s ->
+            Steps(updates.state) { s ->
                 Column(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalArrangement = Arrangement.Center) { Step(s, updates) }
             }
         }
