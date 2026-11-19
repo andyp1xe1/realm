@@ -127,43 +127,53 @@ internal fun managing() {
  * blank where the facts go, then what's fetched fading in; it comes within the delay, so no skeleton shows.
  * settings-slow-N: the same over a slow network: the skeleton fades in once the delay is up, then the facts
  * fade in over it. settings-warm-N: the same with what the last run fetched kept: it shows at once, and the
- * refresh changes nothing on screen. Checks the sheet keeps one height in every frame of each.
+ * refresh changes nothing on screen. settings-first-N and settings-first-slow-N: the first run, with nothing
+ * kept about the server or the releases either. settings-token-first-N: the same signed in with a fixed token to
+ * a worker an update is out for. Checks the sheet keeps one height in every frame of each.
  */
 private fun steadySettings() {
     val cloud = FakeCloud(worker = """{"version":${Api.VERSION},"scope":"owner"}""")
+    val behind = FakeCloud(worker = """{"version":${Api.VERSION - 1},"scope":"owner"}""")
     val first = FakePlatform()
     val home = Home(first, CoroutineScope(Ui), cloud.engine)
     home.cloudflare.logIn()
     Film(home).apply { until { home.serverSettings.facts?.state is Loaded.Known && home.releases.known != null } }.close()
     val kept = first.kept()
     check(kept.any { it.first.startsWith("server-facts/") }) { "signing in kept nothing about the server" }
+    check(kept.any { it.first == "releases" }) { "signing in kept no releases" }
     val cold = kept.filter { !it.first.startsWith("server-facts/") }
-    for ((name, prefs, slowness) in listOf(
-        Triple("settings-cold", cold, 0L),
-        Triple("settings-slow", cold, 300L),
-        Triple("settings-warm", kept, 0L),
+    val none = cold.filter { it.first != "releases" }
+    val token = listOf("server" to "https://realm.jo.workers.dev", "token" to "t")
+    for ((name, prefs, slowness, at) in listOf(
+        SettingsRun("settings-cold", cold, 0L, cloud),
+        SettingsRun("settings-slow", cold, 300L, cloud),
+        SettingsRun("settings-warm", kept, 0L, cloud),
+        SettingsRun("settings-first", none, 0L, cloud),
+        SettingsRun("settings-first-slow", none, 300L, cloud),
+        SettingsRun("settings-token-first", token, 0L, behind),
     )) {
-        cloud.slowness = slowness
-        val next = Home(FakePlatform(*prefs.toTypedArray()), CoroutineScope(Ui), cloud.engine)
+        at.slowness = slowness
+        val next = Home(FakePlatform(*prefs.toTypedArray()), CoroutineScope(Ui), at.engine)
         val film = Film(next, settings = true)
-        film.roll(name, every = 2, max = 200) { next.serverSettings.facts?.state is Loaded.Known }
+        film.roll(name, every = 2, max = 200) { next.serverSettings.facts?.state is Loaded.Known && next.serverStatus != null }
         val known = film.indicated.size
         film.roll(name, every = 2, max = 40)
         film.close()
         val heights = film.sheetHeights.filter { it > 0 }
         println("$name: ${heights.size} frames, sheet heights ${heights.distinct()} px")
         check(heights.size > 30 && heights.distinct().size == 1) { "$name: the settings sheet changed height: $heights" }
-        check(next.serverSettings.facts?.state is Loaded.Known) { "$name: the server's facts never arrived" }
+        check(next.serverStatus != null) { "$name: the server's update status never arrived" }
         film.checkIndicator(name, 0, known)
-        if (name ==
-            "settings-cold"
-        ) {
-            check(known * 16 < INDICATOR_DELAY_MILLIS) { "settings-cold took ${known * 16}ms: no test of a fast one" }
+        if (slowness == 0L && name != "settings-warm") {
+            check(known * 16 < INDICATOR_DELAY_MILLIS) { "$name took ${known * 16}ms: no test of a fast one" }
         }
-        if (name == "settings-slow") check(film.indicated.any { it }) { "settings-slow: the skeleton never showed" }
+        if (slowness > 0L) check(film.indicated.any { it }) { "$name: the skeleton never showed" }
         if (name == "settings-warm") check(known == 1 && film.indicated.none { it }) { "settings-warm: wasn't known at once" }
+        if (name == "settings-token-first") check(next.serverStatus is ServerStatus.Behind) { "$name: no update was out" }
     }
     cloud.slowness = 0
-    println("${out.path}/settings-cold-*.png, settings-slow-*.png, settings-warm-*.png")
+    println("${out.path}/settings-*.png")
     keeping()
 }
+
+private data class SettingsRun(val name: String, val prefs: List<Pair<String, String>>, val slowness: Long, val cloud: FakeCloud)

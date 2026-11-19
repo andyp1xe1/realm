@@ -46,6 +46,7 @@ import realm.Addresses
 import realm.Check
 import realm.DomainChoice
 import realm.Home
+import realm.Loaded
 import realm.Phase
 import realm.ServerFacts
 import realm.ServerSettings
@@ -101,22 +102,25 @@ private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> U
     val releases = home.releases.known
     Spacer(Modifier.height(12.dp))
     Fact("Runs", facts.info.running)
-    releases?.newest?.let { Fact("Newest", "${it.tag}") }
-    Updates(
-        UpdatesView(settings.check, serverStatus(facts.info, releases), addresses != null, home.appUpdates.version != null),
-        home,
-        onClose,
-    )
+    LoadingFact("Newest", releases?.let { Loaded.Known(it.newest?.tag?.toString().orEmpty()) } ?: Loaded.Unknown)
+    Updates(settings.check, serverStatus(facts.info, releases), addresses != null, home.appUpdates.version != null, home, onClose)
     if (addresses == null) return
     Spacer(Modifier.height(12.dp))
     Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Addresses(facts.origin, addresses, settings)
 }
 
-private val StatusLine = Modifier.fillMaxWidth().heightIn(min = 24.dp)
+@Composable
+private fun LoadingFact(label: String, value: Loaded<String>) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, Modifier.width(96.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Loading(value, skeleton = { SkeletonLine(0.35f, style = MaterialTheme.typography.bodyMedium) }) { v ->
+            Changing(v) { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
+}
 
-/** What the updates part shows, as one value: [managed] with a Cloudflare login, and whether the app [updatesItself]. */
-private data class UpdatesView(val check: Check, val status: ServerStatus?, val managed: Boolean, val updatesItself: Boolean)
+private val StatusLine = Modifier.fillMaxWidth().heightIn(min = 24.dp)
 
 @Composable
 internal fun Turning(text: String) {
@@ -127,54 +131,73 @@ internal fun Turning(text: String) {
     }
 }
 
-@Composable
-private fun Updates(view: UpdatesView, home: Home, onClose: () -> Unit) {
-    Steps(view) { v ->
-        Column {
-            when (v.check) {
-                Check.Checking -> Turning("Checking for updates")
-
-                is Check.Failed -> {
-                    Text(v.check.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                    InlineButton("Check again", home.serverSettings::checkForUpdates)
-                }
-
-                Check.Idle -> Status(v, home, onClose)
-            }
-        }
-    }
+private enum class UpdateAction(val label: String) {
+    Update("Update"),
+    LogInToUpdate("Log in with Cloudflare to update"),
+    Check("Check for updates"),
+    CheckAgain("Check again"),
+    Manage("Log in with Cloudflare to manage"),
 }
 
 @Composable
-private fun ColumnScope.Status(v: UpdatesView, home: Home, onClose: () -> Unit) {
-    val app = if (v.updatesItself) "Update the app above first." else "Install a newer app first."
-    val text = when (val s = v.status) {
+private fun Updates(check: Check, status: ServerStatus?, managed: Boolean, updatesItself: Boolean, home: Home, onClose: () -> Unit) {
+    val app = if (updatesItself) "Update the app above first." else "Install a newer app first."
+    val text = when (status) {
         null -> null
         ServerStatus.Current -> "Up to date."
-        is ServerStatus.Behind -> "Update available: ${s.to}."
-        is ServerStatus.AppFirst -> "Release ${s.newest} needs a newer app. $app"
+        is ServerStatus.Behind -> "Update available: ${status.to}."
+        is ServerStatus.AppFirst -> "Release ${status.newest} needs a newer app. $app"
         ServerStatus.NewerThanApp -> "It's newer than this app. $app"
-        is ServerStatus.OtherFork -> "This app doesn't update ${s.fork ?: "realm"}."
+        is ServerStatus.OtherFork -> "This app doesn't update ${status.fork ?: "realm"}."
     }
-    Box(StatusLine, contentAlignment = Alignment.CenterStart) { if (text != null) Text(text, style = MaterialTheme.typography.bodyMedium) }
-    val manage = {
-        onClose()
-        home.cloudflare.manage()
+    Steps(check to text, step = { it }) { (c, t) ->
+        Box(StatusLine, contentAlignment = Alignment.CenterStart) {
+            when {
+                c == Check.Checking -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Checking for updates", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                c is Check.Failed -> Text(c.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+
+                t == null -> Delayed { SkeletonLine(0.3f, style = MaterialTheme.typography.bodyMedium) }
+
+                else -> Text(t, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
     }
-    when {
-        v.status is ServerStatus.Behind && v.managed -> InlineButton("Update", {
-            onClose()
-            home.cloudflare.startUpdate()
-        })
+    val again = if (status == null) UpdateAction.Check else UpdateAction.CheckAgain
+    val actions = when {
+        status is ServerStatus.Behind && managed -> listOf(UpdateAction.Update)
+        status is ServerStatus.Behind -> listOf(UpdateAction.LogInToUpdate, again)
+        managed -> listOf(again)
+        else -> listOf(again, UpdateAction.Manage)
+    }
+    Steps(actions, step = { it }) { shown ->
+        Column {
+            for (a in shown) {
+                InlineButton(a.label, {
+                    when (a) {
+                        UpdateAction.Check, UpdateAction.CheckAgain -> home.serverSettings.checkForUpdates()
 
-        v.status is ServerStatus.Behind -> InlineButton("Log in with Cloudflare to update", {
-            onClose()
-            home.cloudflare.manage(thenUpdate = true)
-        })
+                        UpdateAction.Update -> {
+                            onClose()
+                            home.cloudflare.startUpdate()
+                        }
 
-        else -> {
-            InlineButton(if (v.status == null) "Check for updates" else "Check again", home.serverSettings::checkForUpdates)
-            if (!v.managed) InlineButton("Log in with Cloudflare to manage this server", manage)
+                        UpdateAction.LogInToUpdate -> {
+                            onClose()
+                            home.cloudflare.manage(thenUpdate = true)
+                        }
+
+                        UpdateAction.Manage -> {
+                            onClose()
+                            home.cloudflare.manage()
+                        }
+                    }
+                })
+            }
         }
     }
 }
