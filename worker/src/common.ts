@@ -12,8 +12,8 @@ export interface Env {
 /** The GitHub "owner/repo" of a fork; realm itself has none. */
 export const FORK: string | undefined = undefined;
 
-/** Bump with every change to the API, so clients can tell a deployment needs updating. */
-export const VERSION = 5;
+/** The protocol this worker speaks, which apps and the CLI compare with their own. */
+export const VERSION = 4;
 
 export type Scope = "owner" | "full" | "read" | "drop";
 

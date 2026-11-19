@@ -101,9 +101,9 @@ class PlanTest {
 
         assertIs<Refusal.Newer>(refusal(Info(version = 4, scope = "owner")))
         assertIs<Refusal.OtherFork>(refusal(Info(fork = "someone/realm", version = 2, scope = "owner")))
-        assertIs<Refusal.Current>(refusal(Info(version = 3, scope = "owner")))
         assertIs<Refusal.Unknown>(assertIs<Plan.Refused>(decide(RELEASE, found(Existing.Silent(null, "no address")))).reason)
         assertIs<Plan.Update>(decide(RELEASE, found(Existing.Answered("https://x", Info(version = 0, scope = "owner")))))
+        assertIs<Plan.Update>(decide(RELEASE, found(Existing.Answered("https://x", Info(version = 3, scope = "owner")))))
     }
 
     @Test
@@ -117,6 +117,6 @@ class PlanTest {
         assertIs<Refusal.Current>(assertIs<Plan.Refused>(decided("v1.0.0")).reason)
         assertIs<Refusal.Newer>(assertIs<Plan.Refused>(decided("v1.1.0-rc.1")).reason)
         assertIs<Refusal.Newer>(assertIs<Plan.Refused>(decided("v1.0.1")).reason)
-        assertIs<Refusal.Current>(assertIs<Plan.Refused>(decided(null)).reason)
+        assertIs<Plan.Update>(decided(null))
     }
 }

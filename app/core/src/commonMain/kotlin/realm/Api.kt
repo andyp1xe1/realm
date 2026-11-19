@@ -76,8 +76,8 @@ data class Info(
     /** The release or release candidate the worker was built for; null when it doesn't say, or says something else. */
     val release: AppVersion? get() = build?.takeIf { it.startsWith("v") }?.drop(1)?.let(AppVersion::parse)
 
-    /** What the worker runs, in words: its fork and release, or its API version when it doesn't say its release. */
-    val running: String get() = "${fork ?: "realm"} " + (release?.let { "v$it" } ?: "API version $version")
+    /** What the worker runs, in words: its fork and release, which is an older one when it doesn't say. */
+    val running: String get() = "${fork ?: "realm"}" + (release?.let { " v$it" } ?: ", an older release")
 }
 
 @Serializable
@@ -259,9 +259,9 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
         /** Part size for multipart uploads; also the largest single-request upload. R2 wants equal parts. */
         const val PART = 16 * 1024 * 1024
 
-        /** The fork ("owner/repo", null for realm itself) and API version this app is written for, as in [Info]. */
+        /** The fork ("owner/repo", null for realm itself) and protocol this app speaks, as in [Info]. */
         val FORK: String? = null
-        const val VERSION = 5
+        const val VERSION = 4
 
         /** The public key, X.509 in base64, that signs the app files in this fork's releases. */
         const val APP_KEY =

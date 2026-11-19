@@ -105,7 +105,7 @@ type Client struct {
 }
 
 const workerFork = ""
-const workerVersion = 5
+const workerVersion = 4
 
 const partSize = 32 << 20
 const singleMax = 90 << 20

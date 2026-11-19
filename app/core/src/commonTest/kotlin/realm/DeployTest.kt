@@ -171,7 +171,7 @@ class DeployTest {
 
     @Test
     fun anUpdateWaitsUntilTheWorkerRunsTheNewRelease() = runTest {
-        val release = Release(Semver(1, 1, 0), MANIFEST.copy(version = Api.VERSION), "abc".encodeToByteArray(), null)
+        val release = Release(Semver(1, 1, 0), MANIFEST.copy(version = Api.VERSION, build = "v1.1.0"), "abc".encodeToByteArray(), null)
         val old = Info(version = Api.VERSION, scope = "owner", build = "v1.0.0")
         var asked = 0
         val c = clouds { route ->
@@ -191,7 +191,7 @@ class DeployTest {
 
     @Test
     fun anUpdateTheOldWorkerKeepsAnsweringIsNotRunYet() = runTest {
-        val release = Release(Semver(1, 1, 0), MANIFEST.copy(version = Api.VERSION), "abc".encodeToByteArray(), null)
+        val release = Release(Semver(1, 1, 0), MANIFEST.copy(version = Api.VERSION, build = "v1.1.0"), "abc".encodeToByteArray(), null)
         for (build in listOf("v1.0.0", "v1.1.0-rc.2")) {
             val old = Info(version = Api.VERSION, scope = "owner", build = build)
             val c = clouds { route ->

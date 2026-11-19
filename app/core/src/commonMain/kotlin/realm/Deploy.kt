@@ -169,7 +169,7 @@ suspend fun CloudflareApi.waitForRelease(origin: String, release: Release, withi
 private suspend fun poll(api: Api, release: Release, failed: (ApiException) -> Unit): Info {
     while (true) {
         try {
-            api.info().takeIf { it.scope == "owner" && it.against(release.tag, release.manifest.version) == 0 }?.let { return it }
+            api.info().takeIf { it.scope == "owner" && it.runs(release) }?.let { return it }
         } catch (e: ApiException) {
             failed(e)
         }
@@ -251,3 +251,5 @@ private suspend fun CloudflareApi.upload(account: Account, release: Release, dat
 private const val BUCKET_EXISTS = 10004
 private const val D1_EXISTS = 7502
 private const val D1_LIMIT = 7406
+
+private fun Info.runs(release: Release): Boolean = release.manifest.build == null || against(release.tag, release.manifest.version) == 0

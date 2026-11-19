@@ -37,8 +37,8 @@ class ServerStatusTest {
     }
 
     @Test
-    fun aWorkerThatDoesNotSayItsReleaseIsComparedByApi() {
-        assertEquals(ServerStatus.Current, serverStatus(runs(null), releases(v110 to v)))
+    fun aWorkerThatDoesNotSayItsReleaseIsBehind() {
+        assertEquals(ServerStatus.Behind(v110), serverStatus(runs(null), releases(v110 to v)))
         assertEquals(ServerStatus.Behind(v110), serverStatus(runs(null, version = v - 1), releases(v110 to v)))
     }
 
@@ -65,7 +65,7 @@ class ServerStatusTest {
 
     @Test
     fun aWarningSaysTheServerNeedsUpdatingOnlyWhenAnUpdateIsOut() {
-        val older = runs(null, version = v - 1)
+        val older = runs("v1.0.0", version = v - 1)
         assertEquals("That server needs updating: update it in Settings.", warning(older, serverStatus(older, releases(v110 to v))))
         assertEquals(
             "That server is older than this app. Some things may not work.",
@@ -80,7 +80,7 @@ class ServerStatusTest {
     fun theWorkerRunsItsReleaseOrItsApiVersionInWords() {
         assertEquals("realm v1.0.0", runs("v1.0.0").running)
         assertEquals("realm v1.1.0-rc.2", runs("v1.1.0-rc.2").running)
-        assertEquals("realm API version 4", runs(null, version = 4).running)
-        assertEquals("someone/realm API version 4", Info(fork = "someone/realm", version = 4, scope = "owner").running)
+        assertEquals("realm, an older release", runs(null).running)
+        assertEquals("someone/realm, an older release", Info(fork = "someone/realm", version = 4, scope = "owner").running)
     }
 }

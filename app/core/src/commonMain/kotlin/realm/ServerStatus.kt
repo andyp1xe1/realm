@@ -32,14 +32,8 @@ fun serverStatus(info: Info, releases: Releases?): ServerStatus? {
     }
 }
 
-/**
- * How what [this] worker runs compares with release [tag], whose worker speaks API version [api]: by API version,
- * then by release when the worker says its own. A worker that doesn't say counts as that release; one that says
- * something other than a release, or a candidate for [tag], counts as older.
- */
-internal fun Info.against(tag: Semver, api: Int): Int {
-    if (version != api) return version.compareTo(api)
-    if (build == null) return 0
+internal fun Info.against(tag: Semver, protocol: Int): Int {
+    if (version > protocol) return 1
     val r = release ?: return -1
     return when {
         r.olderThan(tag) -> -1
