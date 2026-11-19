@@ -7,7 +7,7 @@ while read -r local_ref local_sha _ _; do
   case "$local_ref" in refs/tags/*) ;; *) continue ;; esac
   [[ $local_sha =~ ^0+$ ]] && continue
   tag=${local_ref#refs/tags/}
-  if ! [[ $tag =~ ^((app|worker)/)?v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
+  if ! [[ $tag =~ ^(app|worker)/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
     echo "pre-push: tag $tag isn't a release like app/v1.2.0, worker/v1.2.0 or app/v1.2.0-rc.1"
     fail=1
   fi
