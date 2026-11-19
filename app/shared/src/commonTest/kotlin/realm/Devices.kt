@@ -15,11 +15,11 @@ internal class MapPrefs(vararg entries: Pair<String, String>) : Prefs {
 }
 
 /** A device with nothing to pick, record or show, whose browser consents to every login: [prefs] and [cache] are all it keeps. */
-internal class TestPlatform(override val prefs: Prefs, override val cache: Prefs = MapPrefs()) : Platform {
+internal class TestPlatform(override val prefs: Prefs, override val cache: Prefs = MapPrefs(), override val updater: Updater? = null) :
+    Platform {
     override val name = "test"
     override val incoming = emptyFlow<Incoming>()
     override val isForeground = false
-    override val updater: Updater? = null
     override val canTakePhoto = false
     override suspend fun pickFiles() = emptyList<LocalFile>()
     override suspend fun takePhoto(): LocalFile? = null

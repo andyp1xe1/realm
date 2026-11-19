@@ -43,16 +43,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import realm.AddressTask
 import realm.Addresses
-import realm.Check
 import realm.DomainChoice
 import realm.Home
 import realm.Loaded
 import realm.Phase
 import realm.ServerFacts
 import realm.ServerSettings
-import realm.ServerStatus
 import realm.Zone
-import realm.serverStatus
 
 /** Settings' part about your own server. [onClose] puts settings away before a sheet of its own opens. */
 @Composable
@@ -74,8 +71,6 @@ private fun DetailsSkeleton(managed: Boolean) = Column {
     Spacer(Modifier.height(12.dp))
     FactSkeleton("Runs")
     FactSkeleton("Newest")
-    Box(StatusLine, contentAlignment = Alignment.CenterStart) { SkeletonLine(0.3f, style = MaterialTheme.typography.bodyMedium) }
-    InlineButtonSkeleton(0.4f)
     if (!managed) InlineButtonSkeleton(0.7f)
     if (managed) {
         Spacer(Modifier.height(12.dp))
@@ -103,8 +98,13 @@ private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> U
     Spacer(Modifier.height(12.dp))
     Fact("Runs", facts.info.running)
     LoadingFact("Newest", releases?.let { Loaded.Known(it.workers.firstOrNull()?.tag?.toString().orEmpty()) } ?: Loaded.Unknown)
-    Updates(settings.check, serverStatus(facts.info, releases), addresses != null, home.appUpdates.availableProtocol, home, onClose)
-    if (addresses == null) return
+    if (addresses == null) {
+        InlineButton("Log in with Cloudflare to manage", {
+            onClose()
+            home.cloudflare.manage()
+        })
+        return
+    }
     Spacer(Modifier.height(12.dp))
     Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Addresses(facts.origin, addresses, settings)
@@ -120,85 +120,12 @@ private fun LoadingFact(label: String, value: Loaded<String>) {
     }
 }
 
-private val StatusLine = Modifier.fillMaxWidth().heightIn(min = 24.dp)
-
 @Composable
 internal fun Turning(text: String) {
     Row(Modifier.heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
         CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
         Spacer(Modifier.width(10.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-private enum class UpdateAction(val label: String) {
-    Update("Update"),
-    LogInToUpdate("Log in with Cloudflare to update"),
-    Check("Check for updates"),
-    CheckAgain("Check again"),
-    Manage("Log in with Cloudflare to manage"),
-}
-
-@Composable
-private fun Updates(check: Check, status: ServerStatus?, managed: Boolean, appSpeaks: Int?, home: Home, onClose: () -> Unit) {
-    fun app(protocol: Int) = if (appSpeaks != null && appSpeaks >= protocol) "Update the app above first." else "Install a newer app first."
-    val text = when (status) {
-        null -> null
-        ServerStatus.Current -> "Up to date."
-        is ServerStatus.Behind -> "Update available: ${status.to}."
-        is ServerStatus.AppFirst -> "Release ${status.newest} needs a newer app. ${app(status.protocol)}"
-        is ServerStatus.NewerThanApp -> "It's newer than this app. ${app(status.protocol)}"
-        is ServerStatus.OtherFork -> "This app doesn't update ${status.fork ?: "realm"}."
-    }
-    Steps(check to text, step = { it }) { (c, t) ->
-        Box(StatusLine, contentAlignment = Alignment.CenterStart) {
-            when {
-                c == Check.Checking -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Checking for updates", style = MaterialTheme.typography.bodyMedium)
-                }
-
-                c is Check.Failed -> Text(c.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-
-                t == null -> Delayed { SkeletonLine(0.3f, style = MaterialTheme.typography.bodyMedium) }
-
-                else -> Text(t, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-    }
-    val again = if (status == null) UpdateAction.Check else UpdateAction.CheckAgain
-    val actions = when {
-        status is ServerStatus.Behind && managed -> listOf(UpdateAction.Update)
-        status is ServerStatus.Behind -> listOf(UpdateAction.LogInToUpdate, again)
-        managed -> listOf(again)
-        else -> listOf(again, UpdateAction.Manage)
-    }
-    Steps(actions, step = { it }) { shown ->
-        Column {
-            for (a in shown) {
-                InlineButton(a.label, {
-                    when (a) {
-                        UpdateAction.Check, UpdateAction.CheckAgain -> home.serverSettings.checkForUpdates()
-
-                        UpdateAction.Update -> {
-                            onClose()
-                            home.cloudflare.startUpdate()
-                        }
-
-                        UpdateAction.LogInToUpdate -> {
-                            onClose()
-                            home.cloudflare.manage(thenUpdate = true)
-                        }
-
-                        UpdateAction.Manage -> {
-                            onClose()
-                            home.cloudflare.manage()
-                        }
-                    }
-                })
-            }
-        }
     }
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.ImageBitmap
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CancellationException
@@ -13,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -68,13 +70,8 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** Replacing this copy of the app with a newer release. */
     val appUpdates = AppUpdates(platform.prefs, platform.updater, releases, scope)
 
-    /** Whether the app update out speaks a newer protocol than the server signed in to: the server needs updating after it. */
-    val appOutpacesServer: Boolean
-        get() {
-            val api = appUpdates.availableProtocol ?: return false
-            val info = (phase as? Phase.SignedIn)?.facts?.state?.value?.info ?: return false
-            return info.fork == Api.FORK && info.version < api
-        }
+    /** Updating the app and the server at one ask. */
+    val updating = Updating(this, platform.prefs)
 
     /** Where the server signed in to stands against the releases, from what it last said it runs; null while either isn't known. */
     val serverStatus: ServerStatus? get() = (phase as? Phase.SignedIn)?.facts?.state?.value?.info?.let { serverStatus(it, releases.known) }
@@ -121,6 +118,12 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         openKey = prefs.get("open")?.takeIf { k -> spaces.any { it.key == k } } ?: spaces.firstOrNull()?.key
         fetchAhead(phase as? Phase.SignedIn, known = null, force = false)
         appUpdates.refresh()
+        if (updating.asked) {
+            scope.launch {
+                snapshotFlow { updating.readyToGoOn }.first { it }
+                updating.next()
+            }
+        }
     }
 
     /** Re-asks the server for its realms and every link for what it is, then refreshes the tile previews, unless that's under way. */

@@ -56,7 +56,7 @@ fun Confirm(title: String, body: String, action: String, onDismiss: () -> Unit, 
 fun SettingsDialog(home: Home, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     val server = home.server
     Sheet(onDismiss, modifier) {
-        AppSection(home.appUpdates, home.appOutpacesServer)
+        UpdatesSection(home, onClose = onDismiss)
         Spacer(Modifier.height(12.dp))
         if (server != null) {
             ServerSection(home, onClose = onDismiss)

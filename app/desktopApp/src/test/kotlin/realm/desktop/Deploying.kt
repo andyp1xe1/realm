@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.skia.EncodedImageFormat
 import realm.Api
-import realm.Choices
 import realm.Home
 import realm.Login
 import realm.ServerStatus
@@ -257,7 +256,7 @@ internal fun deploying() {
 
 /**
  * update-N: signed in with Cloudflare to a version 2 worker, the overview's settings has a dot (update-grid),
- * settings offers the update, and Update runs it. refused-N: the worker turned out to be newer meanwhile, so
+ * settings offers the update, and Update runs it straight through, as there's nothing to decide. refused-N: the worker turned out to be newer meanwhile, so
  * the plan says why it stays.
  */
 internal fun updating() {
@@ -272,13 +271,12 @@ internal fun updating() {
     }.close()
     val film = Film(home, settings = true)
     film.roll("update", max = 20)
-    film.tap(80, 380) // Update, in settings
-    film.roll("update", max = 200) { home.cloudflare.login is Login.Confirm }
-    check(home.cloudflare.login is Login.Confirm) { "update: tapping Update opened no plan: ${home.cloudflare.login}" }
-    film.roll("update", max = 30)
-    home.cloudflare.deploy(Choices())
-    film.roll("update", every = 6, max = 600) { home.serverStatus == ServerStatus.Current }
-    check(home.serverStatus == ServerStatus.Current) { "update: the server isn't current after updating: ${home.serverStatus}" }
+    film.tap(80, 274) // Update, at the top of settings
+    film.roll("update", every = 6, max = 800) { home.serverStatus == ServerStatus.Current }
+    check(home.serverStatus == ServerStatus.Current) { "update: the server isn't current after Update: ${home.serverStatus}" }
+    check(film.drawn.any { it.first == "Deploying" } && film.drawn.none { it.first == "Confirm" }) {
+        "update: Update didn't run straight through: ${film.drawn.map { it.first }.distinct()}"
+    }
     film.roll("update", max = 20)
     film.close()
 

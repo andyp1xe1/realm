@@ -17,6 +17,9 @@ sealed interface Login {
     class Confirm(val session: CloudflareSession, val plan: Plan, val choices: Choices, val problem: ApiException?) : Login {
         /** R2 is on, which only the account's owner can do; nothing else stops a [Plan.Ready]. */
         val canDeploy: Boolean get() = plan is Plan.Ready && plan.found.r2Enabled
+
+        /** An update that only replaces the worker, with nothing in the way and nothing new to set up: nothing to decide. */
+        val decided: Boolean get() = canDeploy && problem == null && plan is Plan.Update && plan.create.isEmpty()
     }
 
     class Failed(val message: String) : Login

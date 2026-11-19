@@ -49,28 +49,33 @@ class CloudflareSetup internal constructor(
     }
 
     /**
-     * Logs in with Cloudflare in the browser to manage the server you're signed in to. The sign-in you have stays
-     * until the login is shown to run that server. [thenUpdate] goes on to the plan [startUpdate] opens.
+     * Logs in with Cloudflare in the browser to manage the server you're signed in to, then goes on to [then]. The
+     * sign-in you have stays until the login is shown to run that server.
      */
-    fun manage(thenUpdate: Boolean = false) {
+    fun manage(then: (() -> Unit)? = null) {
         val origin = home.server?.base?.removeSuffix("/api") ?: return
         start {
             login = Login.LoggingIn
             val s = manageWithCloudflare(platform, origin, platform.name, home::sessionFor, engine)
             Snapshot.withMutableSnapshot {
-                login = if (thenUpdate) Login.Planning else null
+                login = null
                 home.managedWith(s)
             }
-            if (thenUpdate) login = planned()
+            then?.invoke()
         }
     }
 
-    /** Opens the plan for updating the server to the newest release this app can deploy, with the Cloudflare login it's signed in with. */
-    fun startUpdate() {
+    /**
+     * Opens the plan for updating the server to the newest release this app can deploy, with the Cloudflare login it's
+     * signed in with. When [asked] already, a plan with nothing to decide runs at once.
+     */
+    fun startUpdate(asked: Boolean = false) {
         if (home.session?.login?.account == null) return
         start {
             login = Login.Planning
-            login = planned()
+            val planned = planned()
+            login = planned
+            if (asked && planned is Login.Confirm && planned.decided) deploy(planned.choices)
         }
     }
 

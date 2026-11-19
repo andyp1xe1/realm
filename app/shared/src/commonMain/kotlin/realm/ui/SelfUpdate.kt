@@ -1,6 +1,7 @@
 package realm.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -14,14 +15,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import realm.AppUpdates
+import realm.Home
 import realm.SelfUpdate
+import realm.UpdatesView
+import realm.Updating
 
-/** The wordmark with the app's version, and replacing the app with a newer release when this copy can. */
+/**
+ * The wordmark with the app's version, and what's out for this device's app and the server signed in to, updated
+ * at one ask. It keeps one height whatever it shows.
+ */
 @Composable
-fun AppSection(updates: AppUpdates, outpacesServer: Boolean, modifier: Modifier = Modifier) {
+fun UpdatesSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifier) {
+    val updates = home.appUpdates
+    val updating = home.updating
     LaunchedEffect(updates) { updates.refresh() }
     val version = updates.version
     Column(modifier) {
@@ -37,52 +47,87 @@ fun AppSection(updates: AppUpdates, outpacesServer: Boolean, modifier: Modifier 
                 )
             }
         }
-        if (version != null) {
-            Steps(updates.state) { s ->
-                Column(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalArrangement = Arrangement.Center) {
-                    Step(s, updates, outpacesServer)
+        Spacer(Modifier.height(4.dp))
+        Steps(updating.view) { v ->
+            Column {
+                Column(Modifier.fillMaxWidth().heightIn(min = Lines), verticalArrangement = Arrangement.Center) { Said(v) }
+                Box(Modifier.fillMaxWidth().heightIn(min = ButtonRow), contentAlignment = Alignment.CenterStart) {
+                    Action(v, updating, updates, onClose)
                 }
             }
         }
     }
 }
 
+private val Lines = 52.dp
+private val ButtonRow = 48.dp
+
 @Composable
-private fun ColumnScope.Step(s: SelfUpdate, updates: AppUpdates, outpacesServer: Boolean) {
-    when (s) {
-        SelfUpdate.NotYet -> InlineButton("Check for app updates", updates::check)
+private fun ColumnScope.Said(v: UpdatesView) {
+    when (v) {
+        UpdatesView.NotYet -> {}
 
-        SelfUpdate.Checking -> Turning("Checking for app updates")
-
-        SelfUpdate.UpToDate -> {
-            Said("The app is up to date.")
-            InlineButton("Check again", updates::check)
+        UpdatesView.Loading -> Delayed {
+            Column {
+                SkeletonLine(0.6f, style = MaterialTheme.typography.bodyMedium)
+                SkeletonLine(0.5f, style = MaterialTheme.typography.bodyMedium)
+            }
         }
 
-        is SelfUpdate.Available -> {
-            Said("App update: ${s.tag} is out." + if (outpacesServer) " Update your server after it." else "")
-            InlineButton("Update the app", updates::install)
+        UpdatesView.Checking -> Turning("Checking for updates")
+
+        is UpdatesView.Out -> {
+            if (v.app != null) Fact("App", (v.appFrom?.let { "v$it → " }.orEmpty()) + "${v.app}")
+            if (v.server != null) Fact("Server", (v.serverFrom?.let { "$it → " }.orEmpty()) + "${v.server}")
         }
 
-        is SelfUpdate.Downloading -> {
-            Said("Downloading ${s.tag}")
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator({ s.progress }, Modifier.fillMaxWidth())
+        is UpdatesView.App -> when (val w = v.work) {
+            SelfUpdate.Checking -> Turning("Checking for updates")
+
+            is SelfUpdate.Downloading -> {
+                Line("Downloading ${w.tag}")
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator({ w.progress }, Modifier.fillMaxWidth())
+            }
+
+            is SelfUpdate.Installing -> Turning("Installing ${w.tag}")
+
+            is SelfUpdate.Ready -> Line("${w.tag} is installed. Restart to use it.")
+
+            is SelfUpdate.Failed -> Text(w.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
 
-        is SelfUpdate.Installing -> Turning("Installing ${s.tag}")
+        is UpdatesView.Held -> Line(v.reason)
 
-        is SelfUpdate.Ready -> {
-            Said("${s.tag} is installed. Restart to use it.")
-            InlineButton("Restart", updates::restart)
-        }
+        is UpdatesView.Failed -> Text(v.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
 
-        is SelfUpdate.Failed -> {
-            Text(s.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-            InlineButton("Try again", if (s.retriesInstall) updates::install else updates::check)
-        }
+        UpdatesView.Current -> Line("Up to date.")
     }
 }
 
 @Composable
-private fun Said(text: String) = Text(text, style = MaterialTheme.typography.bodyMedium)
+private fun Action(v: UpdatesView, updating: Updating, updates: AppUpdates, onClose: () -> Unit) {
+    when (v) {
+        UpdatesView.NotYet -> InlineButton("Check for updates", updating::check)
+
+        UpdatesView.Loading -> Delayed { SkeletonLine(0.25f, style = MaterialTheme.typography.labelLarge) }
+
+        UpdatesView.Checking -> {}
+
+        is UpdatesView.Out -> InlineButton("Update", {
+            if (v.app == null) onClose()
+            updating.start()
+        })
+
+        is UpdatesView.App -> when (val w = v.work) {
+            is SelfUpdate.Ready -> InlineButton("Restart", updates::restart)
+            is SelfUpdate.Failed -> InlineButton("Try again", if (w.retriesInstall) updating::start else updating::check)
+            else -> {}
+        }
+
+        is UpdatesView.Held, is UpdatesView.Failed, UpdatesView.Current -> InlineButton("Check again", updating::check)
+    }
+}
+
+@Composable
+private fun Line(text: String) = Text(text, style = MaterialTheme.typography.bodyMedium)

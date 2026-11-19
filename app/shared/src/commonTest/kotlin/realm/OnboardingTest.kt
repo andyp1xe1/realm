@@ -22,6 +22,7 @@ import kotlinx.io.IOException
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -36,8 +37,8 @@ class OnboardingTest {
     private val choosing = "cloudflare" to """{"access":"cf","expires":${login.expires}}"""
 
     /**
-     * Jo's account with R2, a workers.dev subdomain and room for a database, but no realm worker until it's
-     * uploaded; the upload fails while [uploads] says so. With [studio], the login has Studio's account too,
+     * Jo's account with R2, a workers.dev subdomain and room for a database, but no realm worker, nor its bucket
+     * and database, until it's uploaded; the upload fails while [uploads] says so. With [studio], the login has Studio's account too,
      * where realm runs at realm.studio.workers.dev. GitHub has release v1.2.0.
      */
     private class Cloud(private val scope: TestScope, var uploads: Boolean = true, val studio: Boolean = false) {
@@ -106,9 +107,11 @@ class OnboardingTest {
 
                 "GET cf/accounts/a1/workers/subdomain" -> cf("""{"subdomain":"jo"}""")
 
-                "GET cf/accounts/a1/r2/buckets" -> cf("""{"buckets":[]}""")
+                "GET cf/accounts/a1/r2/buckets" -> cf(if (worker) """{"buckets":[{"name":"realm"}]}""" else """{"buckets":[]}""")
 
-                "GET cf/accounts/a1/d1/database", "GET cf/zones", "GET cf/accounts/a1/workers/domains" -> cf("[]")
+                "GET cf/accounts/a1/d1/database" -> cf(if (worker) """[{"uuid":"db1","name":"realm"}]""" else "[]")
+
+                "GET cf/zones", "GET cf/accounts/a1/workers/domains" -> cf("[]")
 
                 "POST cf/accounts/a1/d1/database" -> cf("""{"uuid":"db1","name":"realm"}""")
 
@@ -205,8 +208,40 @@ class OnboardingTest {
         assertNotNull(home.serverSettings.facts?.state?.value?.addresses)
     }
 
+    /** Runs the deploys and logins under way until [done], each login's nonces coming from a dispatcher of their own. */
+    private suspend fun TestScope.until(home: Home, done: () -> Boolean) {
+        repeat(400) {
+            advanceUntilIdle()
+            if (done()) return
+            withContext(Dispatchers.Default) { delay(5) }
+        }
+        val login = home.cloudflare.login
+        error(
+            "never got there: login $login ${(login as? Login.Confirm)?.let {
+                "${it.plan} decided=${it.decided} problem=${it.problem}"
+            }}, " +
+                "app ${home.appUpdates.state}, status ${home.serverStatus}, due ${home.updating.due}, asked ${home.updating.asked}, message ${home.message}",
+        )
+    }
+
+    private class Installs(installed: String, private val out: Semver) : Updater {
+        override val version = AppVersion.parse(installed)!!
+        var installed = 0
+
+        override suspend fun newer(releases: Releases) = AppUpdate(out, "https://x/realm-$out.apk", "ab", Api.VERSION).takeIf {
+            version.olderThan(out)
+        }
+
+        override suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean {
+            installed++
+            return true
+        }
+
+        override fun restart() {}
+    }
+
     @Test
-    fun loggingInToUpdateGoesOnToThePlan() = runTest {
+    fun anUpdateAskedForWithATokenLogsInThenUpdatesTheServerWithoutAskingAgain() = runTest {
         val prefs = MapPrefs().apply { saveOwn(Connection.ByToken("https://realm.jo.workers.dev", Secret("token"))) }
         val cloud = Cloud(this).apply {
             worker = true
@@ -214,14 +249,56 @@ class OnboardingTest {
         }
         val home = home(prefs, cloud)
         advanceUntilIdle()
+        assertEquals(Due(null, Semver(1, 2, 0), null), home.updating.due)
 
-        home.cloudflare.manage(thenUpdate = true)
-        while (home.cloudflare.login !is Login.Confirm) {
-            advanceUntilIdle()
-            withContext(Dispatchers.Default) { delay(5) }
-        }
+        home.updating.start()
+        until(home) { cloud.build == "v1.2.0" && home.cloudflare.login == null }
         assertIs<Connection.ByCloudflare>(prefs.own())
-        assertIs<Plan.Update>(assertIs<Login.Confirm>(home.cloudflare.login).plan)
+        assertEquals(ServerStatus.Current, home.serverStatus)
+        assertFalse(home.updating.asked)
+    }
+
+    @Test
+    fun anUpdateAskedForUpdatesTheAppThenTheServerOnceTheAppRestarts() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"))) }
+        val cloud = Cloud(this).apply {
+            worker = true
+            build = "v1.1.0"
+        }
+        val before = Installs("1.2.0", Semver(1, 3, 0))
+        val home = Home(TestPlatform(prefs, updater = before), this, cloud.engine)
+        advanceUntilIdle()
+        assertEquals(Due(Semver(1, 3, 0), Semver(1, 2, 0), null), home.updating.due)
+
+        home.updating.start()
+        until(home) { home.appUpdates.state is SelfUpdate.Ready }
+        assertEquals(1, before.installed)
+        assertEquals("v1.1.0", cloud.build)
+
+        val after = Installs("1.3.0", Semver(1, 3, 0))
+        val restarted = Home(TestPlatform(prefs, updater = after), this, cloud.engine)
+        until(restarted) { cloud.build == "v1.2.0" && restarted.cloudflare.login == null }
+        assertEquals(0, after.installed)
+        assertFalse(restarted.updating.asked)
+    }
+
+    @Test
+    fun anAppUpdateThatDidNotTakeIsNotTriedAgainOnTheNextStart() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"))) }
+        val cloud = Cloud(this).apply {
+            worker = true
+            build = "v1.1.0"
+        }
+        val home = Home(TestPlatform(prefs, updater = Installs("1.2.0", Semver(1, 3, 0))), this, cloud.engine)
+        advanceUntilIdle()
+        home.updating.start()
+        until(home) { home.appUpdates.state is SelfUpdate.Ready }
+
+        val declined = Installs("1.2.0", Semver(1, 3, 0))
+        val restarted = Home(TestPlatform(prefs, updater = declined), this, cloud.engine)
+        until(restarted) { !restarted.updating.asked }
+        assertEquals(0, declined.installed)
+        assertEquals("v1.1.0", cloud.build)
     }
 
     @Test
