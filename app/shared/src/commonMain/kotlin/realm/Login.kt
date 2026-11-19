@@ -48,6 +48,3 @@ sealed interface Login {
         }
     }
 }
-
-/** A newer worker of the same fork than the server runs; [canDeploy] with a Cloudflare login. */
-data class ServerUpdate(val from: Int, val to: Int, val canDeploy: Boolean)

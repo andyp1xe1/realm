@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import realm.ApiException
 import realm.AppUpdate
 import realm.AppVersion
+import realm.Releases
 import realm.Updater
 import realm.download
 import realm.newerApp
@@ -24,7 +25,7 @@ import java.io.File
 internal class AndroidUpdater(private val activity: ComponentActivity, override val version: AppVersion) : Updater {
     private val apk get() = File(File(activity.cacheDir, "update"), "realm.apk")
 
-    override suspend fun newer() = newerApp(version, { tag -> "realm-$tag.apk" })
+    override suspend fun newer(releases: Releases) = newerApp(version, { tag -> "realm-$tag.apk" }, releases)
 
     override suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean {
         update.download(apk, progress = progress)

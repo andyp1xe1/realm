@@ -105,4 +105,15 @@ class PlanTest {
         assertIs<Refusal.Unknown>(assertIs<Plan.Refused>(decide(RELEASE, found(Existing.Silent(null, "no address")))).reason)
         assertIs<Plan.Update>(decide(RELEASE, found(Existing.Answered("https://x", Info(version = 0, scope = "owner")))))
     }
+
+    @Test
+    fun aWorkerThatSaysItsReleaseIsComparedByRelease() {
+        fun decided(build: String?) =
+            decide(RELEASE, found(Existing.Answered("https://x", Info(version = 3, scope = "owner", build = build))))
+
+        assertIs<Plan.Update>(decided("v0.9.0"))
+        assertIs<Refusal.Current>(assertIs<Plan.Refused>(decided("v1.0.0")).reason)
+        assertIs<Refusal.Newer>(assertIs<Plan.Refused>(decided("v1.0.1")).reason)
+        assertIs<Refusal.Current>(assertIs<Plan.Refused>(decided(null)).reason)
+    }
 }

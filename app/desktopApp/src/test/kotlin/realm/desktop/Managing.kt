@@ -4,10 +4,12 @@ package realm.desktop
 
 import kotlinx.coroutines.CoroutineScope
 import realm.AddressTask
+import realm.Api
 import realm.Check
 import realm.DomainChoice
 import realm.Home
 import realm.Loaded
+import realm.ServerStatus
 import realm.Zone
 import realm.ui.INDICATOR_DELAY_MILLIS
 import realm.value
@@ -28,18 +30,21 @@ private fun settingsOver(cloud: FakeCloud): Pair<Home, Film> {
  * manage-move-N: the address in use is removed, the app moving to workers.dev first. manage-token: the same section signed in with a fixed token.
  */
 internal fun managing() {
-    for ((name, worker) in listOf("manage-uptodate" to 3, "manage-update" to 2)) {
-        val (home, film) = settingsOver(FakeCloud(worker = """{"version":$worker,"scope":"owner"}"""))
+    for ((name, worker) in listOf(
+        "manage-uptodate" to """{"version":${Api.VERSION},"scope":"owner","build":"v0.1.0"}""",
+        "manage-update" to """{"version":${Api.VERSION - 1},"scope":"owner"}""",
+    )) {
+        val (home, film) = settingsOver(FakeCloud(worker = worker))
         val settings = home.serverSettings
         film.roll(name, max = 200) { settings.facts?.state is Loaded.Known }
         film.roll(name, max = 24)
         settings.checkForUpdates()
-        film.roll(name, max = 300) { settings.check is Check.Done }
+        film.roll(name, max = 300) { settings.check == Check.Idle }
         film.roll(name, max = 30)
         film.close()
     }
 
-    val (home, film) = settingsOver(FakeCloud(worker = """{"version":4,"scope":"owner"}"""))
+    val (home, film) = settingsOver(FakeCloud(worker = """{"version":${Api.VERSION},"scope":"owner"}"""))
     val settings = home.serverSettings
     fun task() = settings.task
     film.until { settings.facts?.state is Loaded.Known }
@@ -110,7 +115,7 @@ internal fun managing() {
     val token =
         Home(FakePlatform("server" to "https://realm.jo.workers.dev", "token" to "t"), CoroutineScope(Ui), cloud.engine)
     Film(token, settings = true).apply {
-        until { token.serverSettings.facts?.state is Loaded.Known && token.cloudflare.update != null }
+        until { token.serverSettings.facts?.state is Loaded.Known && token.serverStatus is ServerStatus.Behind }
         still("manage-token")
     }.close()
     println("${out.path}/manage-*.png")
@@ -125,11 +130,11 @@ internal fun managing() {
  * refresh changes nothing on screen. Checks the sheet keeps one height in every frame of each.
  */
 private fun steadySettings() {
-    val cloud = FakeCloud(worker = """{"version":4,"scope":"owner"}""")
+    val cloud = FakeCloud(worker = """{"version":${Api.VERSION},"scope":"owner"}""")
     val first = FakePlatform()
     val home = Home(first, CoroutineScope(Ui), cloud.engine)
     home.cloudflare.logIn()
-    Film(home).apply { until { home.serverSettings.facts?.state is Loaded.Known && home.cloudflare.knownRelease != null } }.close()
+    Film(home).apply { until { home.serverSettings.facts?.state is Loaded.Known && home.releases.known != null } }.close()
     val kept = first.kept()
     check(kept.any { it.first.startsWith("server-facts/") }) { "signing in kept nothing about the server" }
     val cold = kept.filter { !it.first.startsWith("server-facts/") }

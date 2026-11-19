@@ -13,7 +13,8 @@ class ServerSettings internal constructor(private val home: Home, private val en
     /** What the section shows about the server signed in to, kept between runs; null when signed in to none. */
     val facts: Fetched<ServerFacts>? get() = (home.phase as? Phase.SignedIn)?.facts
 
-    var check by mutableStateOf<Check>(Check.NotYet)
+    /** Looking for updates from the button; what it finds is in [Home.serverStatus]. */
+    var check by mutableStateOf<Check>(Check.Idle)
         private set
 
     /** What's being done to the worker's addresses; null when nothing is. */
@@ -33,29 +34,41 @@ class ServerSettings internal constructor(private val home: Home, private val en
         (home.phase as? Phase.SignedIn)?.let { lookAt(it, known = null, force = false) }
     }
 
-    internal fun lookAt(signedIn: Phase.SignedIn, known: Info?, force: Boolean) = signedIn.facts.refresh {
-        serverFacts(signedIn.server, signedIn.session, engine, known).also { home.cloudflare.checkForUpdate(signedIn, it.info, force) }
+    internal fun lookAt(signedIn: Phase.SignedIn, known: Info?, force: Boolean) {
+        signedIn.facts.refresh { serverFacts(signedIn.server, signedIn.session, engine, known) }
+        signedIn.scope.launch {
+            try {
+                home.releases.get(force)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logFailure("Looking for newer releases", e)
+            }
+        }
     }
 
     internal fun signedOut() {
-        check = Check.NotYet
+        check = Check.Idle
         task = null
     }
 
-    /** Asks for the newest release and what deploying it would do. */
+    /** Asks GitHub for the newest releases, and the server what it runs, now. */
     fun checkForUpdates() {
         val p = home.phase as? Phase.SignedIn ?: return
-        val session = p.session ?: return
-        val account = addresses?.account ?: return
         check = Check.Checking
         p.scope.launch {
-            check = try {
-                Check.Done(CloudflareApi(session, engine).use { it.checkUpdate(account) })
+            try {
+                val info = p.server.info()
+                home.releases.get(force = true)
+                Snapshot.withMutableSnapshot {
+                    p.facts.update { it.copy(info = info) }
+                    check = Check.Idle
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 logFailure("Checking for updates", e)
-                Check.Failed(explain(e))
+                check = Check.Failed(explain(e))
             }
         }
     }
@@ -135,7 +148,6 @@ class ServerSettings internal constructor(private val home: Home, private val en
                 }
                 Snapshot.withMutableSnapshot {
                     home.movedTo(next)
-                    check = Check.NotYet
                     this@ServerSettings.task = null
                 }
             } catch (e: CancellationException) {
@@ -173,13 +185,11 @@ class ServerSettings internal constructor(private val home: Home, private val en
     }
 }
 
-/** Checking for a newer worker, from the button. */
+/** Looking for updates from the button. */
 sealed interface Check {
-    data object NotYet : Check
+    data object Idle : Check
 
     data object Checking : Check
-
-    data class Done(val result: UpdateCheck) : Check
 
     data class Failed(val message: String) : Check
 }

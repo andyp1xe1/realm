@@ -21,7 +21,7 @@ import realm.SelfUpdate
 
 /** The wordmark with the app's version, and replacing the app with a newer release when this copy can. */
 @Composable
-fun AppSection(updates: AppUpdates, modifier: Modifier = Modifier) {
+fun AppSection(updates: AppUpdates, outpacesServer: Boolean, modifier: Modifier = Modifier) {
     LaunchedEffect(updates) { updates.refresh() }
     val version = updates.version
     Column(modifier) {
@@ -39,14 +39,16 @@ fun AppSection(updates: AppUpdates, modifier: Modifier = Modifier) {
         }
         if (version != null) {
             Steps(updates.state) { s ->
-                Column(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalArrangement = Arrangement.Center) { Step(s, updates) }
+                Column(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalArrangement = Arrangement.Center) {
+                    Step(s, updates, outpacesServer)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ColumnScope.Step(s: SelfUpdate, updates: AppUpdates) {
+private fun ColumnScope.Step(s: SelfUpdate, updates: AppUpdates, outpacesServer: Boolean) {
     when (s) {
         SelfUpdate.NotYet -> InlineButton("Check for app updates", updates::check)
 
@@ -58,7 +60,7 @@ private fun ColumnScope.Step(s: SelfUpdate, updates: AppUpdates) {
         }
 
         is SelfUpdate.Available -> {
-            Said("App update: ${s.tag} is out.")
+            Said("App update: ${s.tag} is out." + if (outpacesServer) " Update your server after it." else "")
             InlineButton("Update the app", updates::install)
         }
 

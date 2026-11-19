@@ -52,7 +52,7 @@ sealed interface Refusal {
     val message: String
 
     data class Newer(val info: Info) : Refusal {
-        override val message get() = "That worker runs version ${info.version}, newer than this release. Update the app."
+        override val message get() = "That worker runs ${info.running}, newer than this release. Update the app."
     }
 
     data class OtherFork(val info: Info) : Refusal {
@@ -77,7 +77,7 @@ sealed interface Plan {
     /** No realm worker yet: everything is set up from nothing. */
     data class Fresh(override val release: Release, override val found: Found) : Ready
 
-    /** The worker runs [from], an older version of the same fork: it's updated in place, keeping its data and secrets. */
+    /** The worker runs [from], an older release of the same fork: it's updated in place, keeping its data and secrets. */
     data class Update(override val release: Release, override val found: Found, val from: Info) : Ready
 
     data class Refused(override val release: Release, override val found: Found, val reason: Refusal) : Plan
@@ -107,8 +107,8 @@ fun decide(release: Release, found: Found): Plan = when (val script = found.scri
         val info = script.info
         when {
             info.fork != release.manifest.fork -> Plan.Refused(release, found, Refusal.OtherFork(info))
-            info.version > release.manifest.version -> Plan.Refused(release, found, Refusal.Newer(info))
-            info.version == release.manifest.version -> Plan.Refused(release, found, Refusal.Current(info))
+            info.against(release.tag, release.manifest.version) > 0 -> Plan.Refused(release, found, Refusal.Newer(info))
+            info.against(release.tag, release.manifest.version) == 0 -> Plan.Refused(release, found, Refusal.Current(info))
             else -> Plan.Update(release, found, info)
         }
     }

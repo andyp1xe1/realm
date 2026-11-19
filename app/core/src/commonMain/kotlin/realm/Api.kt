@@ -70,7 +70,15 @@ data class Info(
     val items: Int? = null,
     /** The item, when exactly one is picked. */
     val item: Item? = null,
-)
+    /** The release tag the worker was deployed from, like v1.2.0; null when it doesn't say, as before API version 5. */
+    val build: String? = null,
+) {
+    /** The release the worker was deployed from, when it says. */
+    val release: Semver? get() = build?.let(Semver::parse)
+
+    /** What the worker runs, in words: its fork and release, or its API version when it doesn't say its release. */
+    val running: String get() = "${fork ?: "realm"} " + (release?.toString() ?: "API version $version")
+}
 
 @Serializable
 data class Link(
@@ -253,19 +261,11 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
 
         /** The fork ("owner/repo", null for realm itself) and API version this app is written for, as in [Info]. */
         val FORK: String? = null
-        const val VERSION = 4
+        const val VERSION = 5
 
         /** The public key, X.509 in base64, that signs the app files in this fork's releases. */
         const val APP_KEY =
             "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsMJt/QsC0POS+zJoDX3huZFFi0UyZtHnW9DKyhoMG2KuECbciH8lYp+wHSgEDQyFi4tOMQW0G29Kl+tBM5HCYQ=="
-
-        /** A warning for a server running other code than this app is written for, or null. */
-        fun mismatch(info: Info): String? = when {
-            info.fork != FORK -> "That server runs ${info.fork ?: "realm"}, version ${info.version}. Some things may not work."
-            info.version < VERSION -> "That server needs updating: redeploy the worker."
-            info.version > VERSION -> "That server is newer than this app. Update the app."
-            else -> null
-        }
     }
 }
 

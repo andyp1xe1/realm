@@ -83,6 +83,39 @@ suspend fun logInWithCloudflare(
     signInTo(worker, CloudflareSession(login, auth) {}, source, session ?: { CloudflareSession(it.login, auth) {} }, engine)
 }
 
+class NotThisServer(val hostname: String) :
+    ApiException("None of the Cloudflare accounts you picked runs $hostname. Pick the one it runs on.")
+
+/**
+ * Logs in with Cloudflare in the browser to manage the server at [origin]: signs in to it again with the account
+ * whose realm worker answers there, else ends the login and throws [NotThisServer]. [session] is as for
+ * [logInWithCloudflare].
+ */
+suspend fun manageWithCloudflare(
+    browser: Browser,
+    origin: String,
+    source: String,
+    session: ((Connection.ByCloudflare) -> CloudflareSession)? = null,
+    engine: HttpClientEngine? = null,
+): SignedIn = inWords {
+    val auth = CloudflareAuth.on(engine)
+    val login = auth.logIn(browser)
+    val account = CloudflareApi(Bearer { login.access.value }, engine).use { cf ->
+        cf.accounts().firstOrNull { cf.hasScript(it) && origin in cf.addresses(it).origins }
+    }
+    if (account == null) {
+        auth.revoke(login)
+        throw NotThisServer(origin.removePrefix("https://"))
+    }
+    signInTo(
+        Worker(account.id, account.name, origin),
+        CloudflareSession(login, auth) {},
+        source,
+        session ?: { CloudflareSession(it.login, auth) {} },
+        engine,
+    )
+}
+
 /** Signs in to the realm worker on [account], such as one picked from [SeveralAccounts]; [session] is as for [logInWithCloudflare]. */
 suspend fun signInOn(
     account: Account,

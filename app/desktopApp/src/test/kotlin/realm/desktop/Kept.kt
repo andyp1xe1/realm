@@ -9,6 +9,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import realm.Api
 import realm.Home
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
@@ -30,7 +31,7 @@ private class Realms(val latency: Long, val milk: String = "buy oat milk, coffee
     private fun page(vararg items: String) = """{"items":[${items.joinToString(",")}],"next":null}"""
 
     private fun answer(path: String): String? = when (path) {
-        "/api/info" -> """{"version":4,"scope":"owner"}"""
+        "/api/info" -> """{"version":${Api.VERSION},"scope":"owner"}"""
 
         "/api/realms" -> """{"realms":[$REALMS]}"""
 
@@ -53,7 +54,7 @@ private class Realms(val latency: Long, val milk: String = "buy oat milk, coffee
 
         "/api/realms/main/links", "/api/links" -> """{"links":[]}"""
 
-        "/s/k2/info" -> """{"version":4,"scope":"read","realm":{"id":"r","name":"Sam's recipes"}}"""
+        "/s/k2/info" -> """{"version":${Api.VERSION},"scope":"read","realm":{"id":"r","name":"Sam's recipes"}}"""
 
         "/s/k2/items" -> page(item("s1", 100, "note", "shakshuka: 6 eggs, 2 tins tomatoes, cumin, feta"))
 

@@ -75,6 +75,27 @@ class ReleaseTest {
     }
 
     @Test
+    fun listsReleasesDownToTheNewestThisAppCanDeploy() = runTest {
+        val gh = github(
+            listOf(release("v2.0.0"), release("v1.3.0"), release("v1.2.0"), release("v1.1.0")),
+            mapOf(
+                "v2.0.0" to manifest(Api.VERSION + 1),
+                "v1.3.0" to manifest(3, fork = "someone/realm"),
+                "v1.2.0" to manifest(3),
+                "v1.1.0" to manifest(2),
+            ),
+        )
+        val r = fetchReleases(gh.engine)
+
+        assertEquals(listOf("v2.0.0", "v1.3.0", "v1.2.0"), r.list.map { "${it.tag}" })
+        assertNull(r.list[1].worker)
+        assertEquals(Semver(1, 2, 0), r.deployable?.tag)
+        assertEquals(Semver(2, 0, 0), r.needsNewerApp)
+        assertTrue(gh.routes.none { "v1.1.0" in it || it.endsWith("/worker.js") }, gh.routes.toString())
+        assertEquals(r, cloudflareJson.decodeFromString(Releases.serializer(), cloudflareJson.encodeToString(Releases.serializer(), r)))
+    }
+
+    @Test
     fun readsGitHubsOwnReleaseList() = runTest {
         val github = FakeClouds { route, _ ->
             when {

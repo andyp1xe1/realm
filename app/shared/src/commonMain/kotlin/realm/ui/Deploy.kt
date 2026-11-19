@@ -128,17 +128,11 @@ private fun ColumnScope.Confirm(l: Login.Confirm, cloudflare: CloudflareSetup) {
     val plan = l.plan
     val found = plan.found
     val account = found.account.name.ifBlank { found.account.id }
-    val release = "${plan.release.tag}, realm ${plan.release.manifest.version}"
     val at = (found.script as? Existing.Answered)?.origin?.removePrefix("https://")
-    val from = (plan as? Plan.Update)?.from?.version
-    Title(
-        "Update realm",
-        "realm $from → ${plan.release.manifest.version}${at?.let {
-            " on $it"
-        }.orEmpty()}. Its realms, items and links stay.",
-    )
+    val from = (plan as? Plan.Update)?.from?.running
+    Title("Update realm", "$from → ${plan.release.tag}${at?.let { " on $it" }.orEmpty()}. Its realms, items and links stay.")
     Spacer(Modifier.height(12.dp))
-    Fact("Release", release)
+    Fact("Release", "${plan.release.tag}")
     if (plan.create.isNotEmpty()) Fact("New", plan.create.words())
     if (plan.reuse.isNotEmpty()) Fact("Kept", plan.reuse.words())
 
@@ -171,7 +165,7 @@ private fun ColumnScope.Failed(l: Login.Failed, cloudflare: CloudflareSetup) {
     Buttons { TextButton(onClick = cloudflare::dismiss) { Text("Close") } }
 }
 
-private fun Step.words(): String = when (this) {
+private fun Step.words(plan: Plan.Ready): String = when (this) {
     is Step.Subdomain -> "Giving your account $name.workers.dev"
     is Step.Bucket -> "Setting up the R2 bucket $name"
     is Step.Database -> "Setting up the D1 database $name"
@@ -179,7 +173,7 @@ private fun Step.words(): String = when (this) {
     Step.Schedule -> "Scheduling its daily cleanup"
     is Step.WorkersDev -> "Turning on ${origin.removePrefix("https://")}"
     is Step.Domain -> "Putting it on $hostname"
-    is Step.Waiting -> "Waiting for ${origin.removePrefix("https://")}"
+    is Step.Waiting -> "Waiting for ${origin.removePrefix("https://")}" + if (plan is Plan.Update) " to run ${plan.release.tag}" else ""
 }
 
 @Composable
@@ -211,7 +205,7 @@ private fun ColumnScope.Deploying(l: Login.Deploying) {
                 }
             }
             Spacer(Modifier.width(10.dp))
-            Changing(step.words()) {
+            Changing(step.words(l.plan)) {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }

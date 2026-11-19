@@ -371,6 +371,7 @@ async function info(ctx: Ctx): Promise<Response> {
   const out: Record<string, unknown> = {
     fork: FORK,
     version: VERSION,
+    build: ctx.env.REALM_BUILD ?? null,
     scope: ctx.scope,
     realm: "realm" in ctx ? ctx.realm : null,
   };

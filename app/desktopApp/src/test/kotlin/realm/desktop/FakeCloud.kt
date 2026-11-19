@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import realm.Api
 import realm.CF
 import realm.FakeClouds
 import realm.Recorded
@@ -23,7 +24,7 @@ import realm.reshaped
 /**
  * Jo's Cloudflare account as [Recorded], and everything deploying talks to. [worker] is what the realm worker
  * answers its owner, null while there's none, and with none the account has no realm worker, bucket or
- * database; deploying makes it version 3. [r2] off answers buckets as R2 does when it's not turned on.
+ * database; deploying makes it release v0.1.0. [r2] off answers buckets as R2 does when it's not turned on.
  * notes.jo.dev has an A record in the way until it's deleted. With [accounts] 3, the login also has Studio's
  * two accounts, a2 and a3, neither with realm. [databases] other D1 databases are on each account; [subdomain]
  * is Jo's workers.dev subdomain, null for none; the upload fails while [uploadFails].
@@ -32,7 +33,7 @@ internal class FakeCloud(
     var worker: String? = null,
     val r2: Boolean = true,
     val accounts: Int = 1,
-    var release: Int = 4,
+    var release: Int = Api.VERSION,
     val databases: Int = 0,
     var subdomain: String? = "jo",
     var uploadFails: Boolean = false,
@@ -137,7 +138,7 @@ internal class FakeCloud(
                 if (uploadFails) {
                     cfError(HttpStatusCode.InternalServerError, 10021, "Uploading the script failed. Try again in a minute.")
                 } else {
-                    worker = """{"version":4,"scope":"owner"}"""
+                    worker = """{"version":$release,"scope":"owner","build":"v0.1.0"}"""
                     cf("""{"id":"realm"}""")
                 }
 

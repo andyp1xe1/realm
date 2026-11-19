@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker, { MIGRATIONS, realmWorker } from "../src/index.ts";
-import { Lru } from "../src/common.ts";
+import { Lru, VERSION } from "../src/common.ts";
 import { mockD1, mockR2 } from "./mock.ts";
 import { TOKEN, O, setup, mkLink, put, post, tick } from "./setup.ts";
 
@@ -122,8 +122,15 @@ test("info tells a client what a link is without spending a use", async () => {
   ).json();
   assert.deepEqual([d.scope, d.items, d.bytes_left], ["drop", undefined, 5]);
   const o = await (await call("/api/info")).json();
-  assert.deepEqual([o.scope, o.realm, o.fork, typeof o.version], ["owner", null, undefined, "number"]);
+  assert.deepEqual([o.scope, o.realm, o.fork, typeof o.version, o.build], ["owner", null, undefined, "number", null]);
   assert.match(await (await call("/api")).text(), /## Realms/);
+});
+
+test("the owner's info says the release the worker was deployed from", async () => {
+  const { call, env } = setup();
+  (env as { REALM_BUILD?: string }).REALM_BUILD = "v1.2.0";
+  const o = await (await call("/api/info")).json();
+  assert.deepEqual([o.version, o.build], [VERSION, "v1.2.0"]);
 });
 
 test("an existing database migrates: items land in Main, item links become selections", async () => {

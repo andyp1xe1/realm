@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.Channel
 import realm.AppUpdate
 import realm.AppVersion
 import realm.Home
+import realm.Releases
 import realm.SelfUpdate
 import realm.Semver
 import realm.Updater
@@ -17,7 +18,7 @@ private class PreviewUpdater(private val newest: AppUpdate?) : Updater {
     val answers = Channel<Unit>(Channel.UNLIMITED)
     val steps = Channel<Float>(Channel.UNLIMITED)
 
-    override suspend fun newer(): AppUpdate? {
+    override suspend fun newer(releases: Releases): AppUpdate? {
         answers.receive()
         return newest
     }
@@ -40,7 +41,7 @@ private class PreviewUpdater(private val newest: AppUpdate?) : Updater {
  */
 internal fun selfUpdating() {
     val upToDate = PreviewUpdater(newest = null)
-    val current = Home(FakePlatform(updater = upToDate), CoroutineScope(Ui))
+    val current = Home(FakePlatform(updater = upToDate), CoroutineScope(Ui), FakeCloud().engine)
     Film(current, settings = true).apply {
         upToDate.answers.trySend(Unit)
         until { current.appUpdates.state == SelfUpdate.UpToDate }
@@ -54,7 +55,7 @@ internal fun selfUpdating() {
     }
 
     val updater = PreviewUpdater(AppUpdate(Semver(0, 3, 0), "https://github.com/andyp1xe1/realm/releases/download/v0.3.0/realm.apk", ""))
-    val older = Home(FakePlatform(updater = updater), CoroutineScope(Ui))
+    val older = Home(FakePlatform(updater = updater), CoroutineScope(Ui), FakeCloud().engine)
     Film(older, settings = true).apply {
         roll("app-update", max = 24)
         updater.answers.trySend(Unit)

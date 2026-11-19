@@ -66,7 +66,8 @@ class AppReleaseTest {
         headersOf(HttpHeaders.ContentType to listOf("application/octet-stream"), HttpHeaders.ContentLength to listOf("${body.size}")),
     )
 
-    private suspend fun FakeClouds.newer(installed: String) = newerApp(AppVersion.parse(installed)!!, ::apkName, engine, key)
+    private suspend fun FakeClouds.newer(installed: String) =
+        newerApp(AppVersion.parse(installed)!!, ::apkName, fetchReleases(engine), engine, key)
 
     @Test
     fun offersTheNewestSignedStableRelease() = runTest {

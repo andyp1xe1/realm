@@ -79,6 +79,7 @@ import realm.Home
 import realm.Login
 import realm.Model
 import realm.Platform
+import realm.ServerStatus
 
 @Composable
 fun App(platform: Platform, modifier: Modifier = Modifier) {
@@ -138,7 +139,7 @@ fun Tabs(home: Home, modifier: Modifier = Modifier) {
             onTabs = { if (open == null) home.hideTabs() else home.showTabs() },
             onSettings = { settings = true },
             modifier = Modifier.widthIn(max = PageWidth),
-            update = home.cloudflare.update != null || home.appUpdates.waiting,
+            update = home.serverStatus is ServerStatus.Behind || home.appUpdates.waiting,
         )
         SharedTransitionLayout(Modifier.weight(1f)) {
             AnimatedContent(

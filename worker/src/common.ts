@@ -7,13 +7,15 @@ export interface Env {
   REALM_ACCOUNT?: string;
   /** This worker's script name on Cloudflare, if not "realm". */
   REALM_WORKER?: string;
+  /** The release tag this worker was deployed from, like v1.2.0. Set by the app when it deploys a release. */
+  REALM_BUILD?: string;
 }
 
 /** The GitHub "owner/repo" of a fork; realm itself has none. */
 export const FORK: string | undefined = undefined;
 
 /** Bump with every change to the API, so clients can tell a deployment needs updating. */
-export const VERSION = 4;
+export const VERSION = 5;
 
 export type Scope = "owner" | "full" | "read" | "drop";
 

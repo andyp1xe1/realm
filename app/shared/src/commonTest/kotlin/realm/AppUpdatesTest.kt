@@ -24,7 +24,7 @@ class AppUpdatesTest {
         val downloaded = CompletableDeferred<Unit>()
         var answer = true
         var restarted = 0
-        override suspend fun newer(): AppUpdate? {
+        override suspend fun newer(releases: Releases): AppUpdate? {
             looks++
             failing?.let { throw it }
             return newest
@@ -44,7 +44,9 @@ class AppUpdatesTest {
         }
     }
 
-    private fun TestScope.updates(updater: Updater? = FakeUpdater()) = AppUpdates(prefs, updater, backgroundScope) { now }
+    private fun TestScope.updates(updater: Updater? = FakeUpdater()) = AppUpdates(prefs, updater, {
+        Releases(emptyList())
+    }, backgroundScope) { now }
 
     @Test
     fun looksQuietlyAtMostOnceADay() = runTest {
@@ -83,7 +85,7 @@ class AppUpdatesTest {
         }
         assertTrue(updates().waiting)
         assertEquals(1, looks)
-        assertEquals(SelfUpdate.NotYet, updates(FakeUpdater(installed = "1.2.0")).state)
+        assertEquals(SelfUpdate.UpToDate, updates(FakeUpdater(installed = "1.2.0")).state)
     }
 
     @Test
@@ -140,6 +142,34 @@ class AppUpdatesTest {
         val failed = assertIs<SelfUpdate.Failed>(u.state)
         assertTrue(failed.retriesInstall)
         assertEquals(DamagedDownload(v120).message, failed.message)
+    }
+
+    @Test
+    fun aLookThatFoundNothingNewerIsStillKnownOnTheNextRun() = runTest {
+        newest = null
+        updates().check()
+        runCurrent()
+        val next = updates()
+        next.refresh()
+        runCurrent()
+        assertEquals(1, looks)
+        assertEquals(SelfUpdate.UpToDate, next.state)
+    }
+
+    @Test
+    fun aFailedDownloadKeepsTheUpdateWaiting() = runTest {
+        val updater = FakeUpdater()
+        val u = updates(updater)
+        u.refresh()
+        runCurrent()
+        u.install()
+        runCurrent()
+        failing = DamagedDownload(v120)
+        updater.downloaded.complete(Unit)
+        runCurrent()
+        assertIs<SelfUpdate.Failed>(u.state)
+        assertEquals(v120, u.available)
+        assertTrue(u.waiting)
     }
 
     @Test

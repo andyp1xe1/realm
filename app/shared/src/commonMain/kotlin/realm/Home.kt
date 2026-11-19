@@ -54,6 +54,9 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     var loading by mutableStateOf(false)
         private set
 
+    /** This fork's releases, which both the app and the server are updated to. */
+    val releases = ReleaseFeed(platform.prefs, { fetchReleases(engine) })
+
     /** Logging in with Cloudflare, and deploying or updating the worker with it. */
     val cloudflare = CloudflareSetup(this, scope, engine)
 
@@ -63,7 +66,19 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     val onboarding = Onboarding(this, scope, engine)
 
     /** Replacing this copy of the app with a newer release. */
-    val appUpdates = AppUpdates(platform.prefs, platform.updater, scope)
+    val appUpdates = AppUpdates(platform.prefs, platform.updater, releases::get, scope)
+
+    /** Whether the app update out speaks a newer API than the server signed in to: the server needs updating after it. */
+    val appOutpacesServer: Boolean
+        get() {
+            val api =
+                appUpdates.available?.let { tag -> releases.known?.list?.firstOrNull { it.tag == tag }?.worker?.version } ?: return false
+            val info = (phase as? Phase.SignedIn)?.facts?.state?.value?.info ?: return false
+            return info.fork == Api.FORK && info.version < api
+        }
+
+    /** Where the server signed in to stands against the releases, from what it last said it runs; null while either isn't known. */
+    val serverStatus: ServerStatus? get() = (phase as? Phase.SignedIn)?.facts?.state?.value?.info?.let { serverStatus(it, releases.known) }
 
     private val prefs = platform.prefs
 
@@ -260,8 +275,24 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         realms.addAll(s.realms)
         knownRealms.set(s.realms)
         if (open == null) reopen()
-        message = Api.mismatch(s.info)
+        message = warning(s.info, serverStatus(s.info, releases.known))
         fetchAhead(p, s.info, force = true)
+    }
+
+    /** Signs in to the same server again with [s], made with a Cloudflare login that manages it; its realms and feeds stay. */
+    internal fun managedWith(s: SignedIn) {
+        val was = phase as? Phase.SignedIn ?: return signedIn(s)
+        realms.forEach { forget(ownKey(it.id), drop = false) }
+        was.scope.cancel()
+        was.server.close()
+        was.session?.close()
+        val p = signedIn(s.api, s.session)
+        phase = p
+        prefs.saveOwn(s.connection)
+        realms.clear()
+        realms.addAll(s.realms)
+        knownRealms.set(s.realms)
+        fetchAhead(p, s.info, force = false)
     }
 
     private fun fetchAhead(p: Phase.SignedIn?, known: Info?, force: Boolean) {
@@ -323,7 +354,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
             Phase.Setup, Phase.NoAccount -> null
         }
         login?.close()
-        cloudflare.signedOut()
         serverSettings.signedOut()
         prefs.saveOwn(null)
         prefs.set(NO_ACCOUNT, null)
@@ -345,7 +375,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         }
         apis[sharedKey(c.url)] = c.api
         val space = Space.Shared(c.url, c.info, null, c.api)
-        message = Api.mismatch(c.info)
+        message = warning(c.info, null)
         shared += space
         saveLinks()
         linkInfo(c.url).set(c.info)

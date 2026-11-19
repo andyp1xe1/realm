@@ -10,8 +10,14 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
 import io.ktor.util.sha256
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 
 /** worker.json as worker/scripts/build.ts writes it: how to upload the worker.js beside it. */
 @Serializable
@@ -35,6 +41,7 @@ data class BucketBinding(val binding: String, @SerialName("bucket_name") val buc
 data class DatabaseBinding(val binding: String, @SerialName("database_name") val databaseName: String)
 
 /** A release tag's version, vMAJOR.MINOR.PATCH. */
+@Serializable(with = SemverAsTag::class)
 data class Semver(val major: Int, val minor: Int, val patch: Int) : Comparable<Semver> {
     override fun compareTo(other: Semver) = compareValuesBy(this, other, { it.major }, { it.minor }, { it.patch })
 
@@ -47,6 +54,15 @@ data class Semver(val major: Int, val minor: Int, val patch: Int) : Comparable<S
         fun parse(tag: String): Semver? =
             this.tag.matchEntire(tag)?.groupValues?.let { Semver(it[1].toInt(), it[2].toInt(), it[3].toInt()) }
     }
+}
+
+private object SemverAsTag : KSerializer<Semver> {
+    override val descriptor = PrimitiveSerialDescriptor("realm.Semver", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: Semver) = encoder.encodeString("$value")
+
+    override fun deserialize(decoder: Decoder): Semver =
+        decoder.decodeString().let { Semver.parse(it) ?: throw SerializationException("$it isn't a release tag") }
 }
 
 /** The worker to deploy: [code] is worker.js, checked against [manifest]; [newer] is a later release that needs a newer app. */
@@ -68,25 +84,54 @@ class ChecksumMismatch(val tag: Semver) : ApiException("The worker in release $t
 
 internal val RELEASES = Api.FORK ?: "andyp1xe1/realm"
 
-/** The newest stable release of this app's fork with an API version up to [Api.VERSION]; else [NoRelease] or [ChecksumMismatch]. */
-suspend fun latestRelease(engine: HttpClientEngine? = null): Release = client(engine).use { http ->
-    var newer: Semver? = null
-    for ((tag, r) in http.stableReleases()) {
-        val manifestUrl = r.asset("worker.json") ?: continue
-        val text = http.fromGitHub(manifestUrl).bodyAsText()
-        val manifest = runCatching { cloudflareJson.decodeFromString<Manifest>(text) }.getOrNull() ?: continue
-        if (manifest.fork != Api.FORK) continue
-        if (manifest.version > Api.VERSION) {
-            newer = newer ?: tag
-            continue
+/** A stable release of this app's fork: its files by name, and the worker it ships, as its worker.json says, if it's this fork's. */
+@Serializable
+data class Listed(val tag: Semver, val files: Map<String, String>, val worker: Manifest? = null)
+
+/** The release whose worker this app can deploy: [code] is where its worker.js is. */
+data class Deployable(val tag: Semver, val manifest: Manifest, val code: String)
+
+/** This app's fork's stable releases, newest first, down to the newest whose worker this app can deploy. */
+@Serializable
+data class Releases(val list: List<Listed>) {
+    val newest: Listed? get() = list.firstOrNull()
+
+    /** The newest release whose worker speaks an API version up to [Api.VERSION]. */
+    val deployable: Deployable?
+        get() = list.firstNotNullOfOrNull { l ->
+            l.worker?.takeIf { it.version <= Api.VERSION }?.let { m -> l.files[m.mainModule]?.let { Deployable(l.tag, m, it) } }
         }
-        val codeUrl = r.asset(manifest.mainModule) ?: continue
-        val code = http.fromGitHub(codeUrl).bodyAsBytes()
-        if (sha256(code).toHexString() != manifest.sha256.lowercase()) throw ChecksumMismatch(tag)
-        return@use Release(tag, manifest, code, newer)
+
+    /** The newest release, when its worker needs a newer app than this one: newer than [deployable]. */
+    val needsNewerApp: Semver?
+        get() = deployable?.tag.let { d -> list.takeWhile { it.tag != d }.firstOrNull { it.worker != null }?.tag }
+
+    /** The worker of [deployable], fetched and checked; else [NoRelease] or [ChecksumMismatch]. */
+    suspend fun worker(engine: HttpClientEngine? = null): Release {
+        val d = deployable ?: throw NoRelease(needsNewerApp)
+        val code = client(engine).use { it.fromGitHub(d.code).bodyAsBytes() }
+        if (sha256(code).toHexString() != d.manifest.sha256.lowercase()) throw ChecksumMismatch(d.tag)
+        return Release(d.tag, d.manifest, code, needsNewerApp)
     }
-    throw NoRelease(newer)
 }
+
+/** What GitHub lists of this app's fork's stable releases, each with its worker.json, down to the newest this app can deploy. */
+suspend fun fetchReleases(engine: HttpClientEngine? = null): Releases = client(engine).use { http ->
+    val list = mutableListOf<Listed>()
+    for ((tag, r) in http.stableReleases()) {
+        val files = r.assets.associate { it.name to it.url }
+        val manifest = files["worker.json"]?.let { url ->
+            val text = http.fromGitHub(url).bodyAsText()
+            runCatching { cloudflareJson.decodeFromString<Manifest>(text) }.getOrNull()
+        }?.takeIf { it.fork == Api.FORK }
+        list += Listed(tag, files, manifest)
+        if (manifest != null && manifest.version <= Api.VERSION && manifest.mainModule in files) break
+    }
+    Releases(list)
+}
+
+/** The newest stable release of this app's fork that this app can deploy; else [NoRelease] or [ChecksumMismatch]. */
+suspend fun latestRelease(engine: HttpClientEngine? = null): Release = fetchReleases(engine).worker(engine)
 
 internal suspend fun HttpClient.fromGitHub(url: String): HttpResponse {
     val res = try {
@@ -121,9 +166,7 @@ internal data class GitHubRelease(
     val draft: Boolean = false,
     val prerelease: Boolean = false,
     val assets: List<Asset> = emptyList(),
-) {
-    fun asset(name: String) = assets.firstOrNull { it.name == name }?.url
-}
+)
 
 @Serializable
 internal data class Asset(val name: String, @SerialName("browser_download_url") val url: String)

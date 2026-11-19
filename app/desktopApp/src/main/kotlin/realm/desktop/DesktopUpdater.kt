@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import realm.ApiException
 import realm.AppUpdate
 import realm.AppVersion
+import realm.Releases
 import realm.Semver
 import realm.Updater
 import realm.download
@@ -28,7 +29,7 @@ internal class DesktopUpdater(
     /** This copy's file in the release tagged [tag]. */
     fun file(tag: Semver) = "realm-$tag${kind.suffix}"
 
-    override suspend fun newer() = newerApp(version, ::file, engine)
+    override suspend fun newer(releases: Releases) = newerApp(version, ::file, releases, engine)
 
     override suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean {
         val dir = target.absoluteFile.parentFile
