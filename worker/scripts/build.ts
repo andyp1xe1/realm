@@ -10,11 +10,20 @@ import { FORK, VERSION } from "../src/common.ts";
 const root = join(import.meta.dirname, "..");
 const dist = join(root, "dist");
 const { rawConfig: config } = experimental_readRawConfig({ config: join(root, "wrangler.jsonc") });
+const build = process.env.REALM_BUILD_TAG;
+if (build !== undefined && !/^v\d+\.\d+\.\d+(-rc\.\d+)?$/.test(build)) throw new Error(`${build} isn't a release tag`);
 
 const out = mkdtempSync(join(tmpdir(), "realm-worker-"));
 execFileSync(
   join(root, "node_modules/.bin/wrangler"),
-  ["deploy", "--dry-run", "--upload-source-maps=false", "--outdir", out],
+  [
+    "deploy",
+    "--dry-run",
+    "--upload-source-maps=false",
+    "--outdir",
+    out,
+    ...(build === undefined ? [] : ["--define", `REALM_BUILD_TAG:${JSON.stringify(build)}`]),
+  ],
   {
     cwd: root,
     stdio: ["ignore", "ignore", "inherit"],
@@ -27,6 +36,7 @@ rmSync(out, { recursive: true });
 
 const manifest = {
   ...(FORK === undefined ? {} : { fork: FORK }),
+  ...(build === undefined ? {} : { build }),
   version: VERSION,
   name: config.name,
   main_module: "worker.js",

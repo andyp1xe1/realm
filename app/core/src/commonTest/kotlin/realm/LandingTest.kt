@@ -107,8 +107,17 @@ class LandingTest {
         val update = Plan.Update(RELEASE, found(), Info(version = 2, scope = "owner"))
         val run = c.land(update, Deployed(ACCOUNT, "https://realm.jo.workers.dev", Answer.Owner(Info(version = 3, scope = "owner")), null))
 
-        assertIs<Landed.Updated>(run.landed)
+        assertEquals(Info(version = 3, scope = "owner"), assertIs<Landed.Updated>(run.landed).info)
         assertEquals(emptyList(), c.routes)
+    }
+
+    @Test
+    fun anUpdateTheWorkerDoesNotRunYetIsOnlyUploaded() = runTest {
+        val c = cloud()
+        val update = Plan.Update(RELEASE, found(), Info(version = 2, scope = "owner"))
+        val run = c.land(update, Deployed(ACCOUNT, "https://realm.jo.workers.dev", Answer.NotYet(null), null))
+
+        assertEquals(Landed.Uploaded(update), run.landed)
     }
 
     @Test

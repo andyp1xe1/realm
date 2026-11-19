@@ -70,7 +70,15 @@ data class Info(
     val items: Int? = null,
     /** The item, when exactly one is picked. */
     val item: Item? = null,
-)
+    /** The release tag the worker was built for, like v1.2.0; null when it doesn't say, as one built from source. */
+    val build: String? = null,
+) {
+    /** The release or release candidate the worker was built for; null when it doesn't say, or says something else. */
+    val release: AppVersion? get() = build?.takeIf { it.startsWith("v") }?.drop(1)?.let(AppVersion::parse)
+
+    /** What the worker runs, in words: its fork and release, which is an older one when it doesn't say. */
+    val running: String get() = "${fork ?: "realm"}" + (release?.let { " v$it" } ?: ", an older release")
+}
 
 @Serializable
 data class Link(
@@ -251,21 +259,13 @@ class Api(base: String, private val bearer: Bearer?, private val source: String,
         /** Part size for multipart uploads; also the largest single-request upload. R2 wants equal parts. */
         const val PART = 16 * 1024 * 1024
 
-        /** The fork ("owner/repo", null for realm itself) and API version this app is written for, as in [Info]. */
+        /** The fork ("owner/repo", null for realm itself) and protocol this app speaks, as in [Info]. */
         val FORK: String? = null
         const val VERSION = 4
 
         /** The public key, X.509 in base64, that signs the app files in this fork's releases. */
         const val APP_KEY =
             "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsMJt/QsC0POS+zJoDX3huZFFi0UyZtHnW9DKyhoMG2KuECbciH8lYp+wHSgEDQyFi4tOMQW0G29Kl+tBM5HCYQ=="
-
-        /** A warning for a server running other code than this app is written for, or null. */
-        fun mismatch(info: Info): String? = when {
-            info.fork != FORK -> "That server runs ${info.fork ?: "realm"}, version ${info.version}. Some things may not work."
-            info.version < VERSION -> "That server needs updating: redeploy the worker."
-            info.version > VERSION -> "That server is newer than this app. Update the app."
-            else -> null
-        }
     }
 }
 

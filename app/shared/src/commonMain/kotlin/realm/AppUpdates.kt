@@ -7,45 +7,50 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.serialization.builtins.nullable
-import kotlinx.serialization.builtins.serializer
 
 /**
- * Keeps this copy of the app on its fork's newest stable release, when it can replace itself. Looks once a day
- * without a word; installs only when asked. [now] is in Unix seconds.
+ * Keeps this copy of the app on its fork's newest stable release, when it can replace itself, from the releases
+ * [feed] lists. Looks without a word whenever the listing is new; installs only when asked.
  */
 class AppUpdates internal constructor(
     prefs: Prefs,
     private val updater: Updater?,
+    private val feed: ReleaseFeed,
     private val scope: CoroutineScope,
-    private val now: () -> Long = Cloudflare::now,
 ) {
-    private val seen = Daily(prefs, "app-release", String.serializer().nullable, now)
+    private val kept = Remembered(prefs, "app-look", AppLook.serializer())
     private var job: Job? = null
 
     /** This copy's version; null when it can't update itself. */
     val version: AppVersion? get() = updater?.version
 
-    var state by mutableStateOf(kept())
-        private set
+    private var looked by mutableStateOf(kept.get())
+    private var work by mutableStateOf<SelfUpdate.Work?>(null)
 
-    /** Whether there's an update to install or restart into. */
-    val waiting: Boolean get() = state is SelfUpdate.Available || state is SelfUpdate.Ready
+    /** The release newer than this copy that the last look found, here or in an earlier run. */
+    val available: Semver? get() = looked?.newer?.takeIf { version?.olderThan(it) == true }
+
+    /** The protocol [available] speaks, when its release says. */
+    val availableProtocol: Int? get() = looked?.protocol?.takeIf { available != null }
+
+    /** What's being done, else what the last look found. */
+    val state: SelfUpdate
+        get() = work ?: available?.let(SelfUpdate::Available) ?: if (looked == null) SelfUpdate.NotYet else SelfUpdate.UpToDate
+
+    /** Whether there's an update to install or restart into, whatever came of the last try. */
+    val waiting: Boolean get() = available != null || work is SelfUpdate.Ready
 
     private val busy get() = job?.isActive == true
 
-    private fun kept(): SelfUpdate {
-        val tag = seen.get()?.let(Semver::parse) ?: return SelfUpdate.NotYet
-        return if (updater?.version?.olderThan(tag) == true) SelfUpdate.Available(tag) else SelfUpdate.NotYet
-    }
+    private val settled get() = feed.fresh && looked?.let { it.newest == feed.known?.apps?.firstOrNull()?.tag } == true
 
-    /** Looks for a newer release, without showing it's looking, if there was no answer in the last day. */
+    /** Looks for a newer release, without showing it's looking, unless the last look was at the releases listed in the last day. */
     fun refresh() {
         val u = updater ?: return
-        if (busy || state is SelfUpdate.Ready || seen.fresh) return
+        if (busy || work is SelfUpdate.Ready || settled) return
         job = scope.launch {
             try {
-                state = found(u.newer())
+                look(u, force = false)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -55,49 +60,52 @@ class AppUpdates internal constructor(
     }
 
     /** Looks for a newer release now. */
-    fun check() = work(installs = false, SelfUpdate.Checking) { u -> state = found(u.newer()) }
+    fun check() = work(installs = false, SelfUpdate.Checking) { u ->
+        look(u, force = true)
+        work = null
+    }
 
     /** Downloads the newest release and puts it in place of the app, asking first where the system does. */
-    fun install() = work(
-        installs = true,
-        (state as? SelfUpdate.Available)?.let { SelfUpdate.Downloading(it.tag, 0f) } ?: SelfUpdate.Checking,
-    ) { u ->
-        val update = u.newer()
-        val looked = found(update)
+    fun install() = work(installs = true, SelfUpdate.Checking) { u ->
+        val update = look(u, force = false)
         if (update == null) {
-            state = looked
+            work = null
             return@work
         }
         var shown = -1
-        state = SelfUpdate.Downloading(update.tag, 0f)
+        work = SelfUpdate.Downloading(update.tag, 0f)
         val placed = u.install(
             update,
             progress = { p ->
                 val percent = (p * 100).toInt().coerceIn(0, 100)
                 if (percent != shown) {
                     shown = percent
-                    state = SelfUpdate.Downloading(update.tag, percent / 100f)
+                    work = SelfUpdate.Downloading(update.tag, percent / 100f)
                 }
             },
-            installing = { state = SelfUpdate.Installing(update.tag) },
+            installing = { work = SelfUpdate.Installing(update.tag) },
         )
-        state = if (placed) SelfUpdate.Ready(update.tag) else SelfUpdate.Available(update.tag)
+        work = if (placed) SelfUpdate.Ready(update.tag) else null
     }
 
     /** Runs the update put in place. */
     fun restart() {
-        if (state is SelfUpdate.Ready) updater?.restart()
+        if (work is SelfUpdate.Ready) updater?.restart()
     }
 
-    private fun found(update: AppUpdate?): SelfUpdate {
-        seen.set(update?.tag?.toString())
-        return update?.let { SelfUpdate.Available(it.tag) } ?: SelfUpdate.UpToDate
+    private suspend fun look(u: Updater, force: Boolean): AppUpdate? {
+        val releases = feed.get(force)
+        val update = u.newer(releases)
+        val l = AppLook(update?.tag, releases.apps.firstOrNull()?.tag, update?.protocol)
+        kept.set(l)
+        looked = l
+        return update
     }
 
-    private fun work(installs: Boolean, first: SelfUpdate, block: suspend (Updater) -> Unit) {
+    private fun work(installs: Boolean, first: SelfUpdate.Work, block: suspend (Updater) -> Unit) {
         val u = updater ?: return
-        if (state is SelfUpdate.Downloading || state is SelfUpdate.Installing || state is SelfUpdate.Ready) return
-        state = first
+        if (work is SelfUpdate.Downloading || work is SelfUpdate.Installing || work is SelfUpdate.Ready) return
+        work = first
         job?.cancel()
         job = scope.launch {
             try {
@@ -106,32 +114,35 @@ class AppUpdates internal constructor(
                 throw e
             } catch (e: Exception) {
                 logFailure("Updating the app", e)
-                state = SelfUpdate.Failed(explain(e), retriesInstall = installs)
+                work = SelfUpdate.Failed(explain(e), retriesInstall = installs)
             }
         }
     }
 }
 
-/** Where updating the app has got to. */
+/** Where updating the app stands. */
 sealed interface SelfUpdate {
-    /** Not asked this run, and nothing newer known. */
+    /** Never looked, in this run or an earlier one. */
     data object NotYet : SelfUpdate
-
-    data object Checking : SelfUpdate
 
     data object UpToDate : SelfUpdate
 
     data class Available(val tag: Semver) : SelfUpdate
 
+    /** Something being done about it, or what came of that. */
+    sealed interface Work : SelfUpdate
+
+    data object Checking : Work
+
     /** [progress] goes from 0 to 1. */
-    data class Downloading(val tag: Semver, val progress: Float) : SelfUpdate
+    data class Downloading(val tag: Semver, val progress: Float) : Work
 
     /** Downloaded and checked; being put in place, or waiting on the system to ask. */
-    data class Installing(val tag: Semver) : SelfUpdate
+    data class Installing(val tag: Semver) : Work
 
     /** In place; a restart runs it. */
-    data class Ready(val tag: Semver) : SelfUpdate
+    data class Ready(val tag: Semver) : Work
 
     /** [retriesInstall]: trying again installs, rather than looks. */
-    data class Failed(val message: String, val retriesInstall: Boolean) : SelfUpdate
+    data class Failed(val message: String, val retriesInstall: Boolean) : Work
 }

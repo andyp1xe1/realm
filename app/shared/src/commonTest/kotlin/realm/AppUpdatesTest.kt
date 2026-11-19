@@ -24,7 +24,7 @@ class AppUpdatesTest {
         val downloaded = CompletableDeferred<Unit>()
         var answer = true
         var restarted = 0
-        override suspend fun newer(): AppUpdate? {
+        override suspend fun newer(releases: Releases): AppUpdate? {
             looks++
             failing?.let { throw it }
             return newest
@@ -44,7 +44,12 @@ class AppUpdatesTest {
         }
     }
 
-    private fun TestScope.updates(updater: Updater? = FakeUpdater()) = AppUpdates(prefs, updater, backgroundScope) { now }
+    private var listed = Releases(emptyList(), emptyList())
+
+    private fun feed() = ReleaseFeed(prefs, { listed }) { now }
+
+    private fun TestScope.updates(updater: Updater? = FakeUpdater(), feed: ReleaseFeed = feed()) =
+        AppUpdates(prefs, updater, feed, backgroundScope)
 
     @Test
     fun looksQuietlyAtMostOnceADay() = runTest {
@@ -59,6 +64,24 @@ class AppUpdatesTest {
         now += 1
         u.refresh()
         runCurrent()
+        assertEquals(2, looks)
+    }
+
+    @Test
+    fun aNewListingIsLookedAtWithinTheDay() = runTest {
+        newest = null
+        val feed = feed()
+        val u = updates(feed = feed)
+        u.refresh()
+        runCurrent()
+        assertEquals(SelfUpdate.UpToDate, u.state)
+
+        listed = Releases(listOf(Listed("$v120", v120, emptyMap())), emptyList())
+        newest = update
+        feed.get(force = true)
+        u.refresh()
+        runCurrent()
+        assertEquals(SelfUpdate.Available(v120), u.state)
         assertEquals(2, looks)
     }
 
@@ -83,7 +106,7 @@ class AppUpdatesTest {
         }
         assertTrue(updates().waiting)
         assertEquals(1, looks)
-        assertEquals(SelfUpdate.NotYet, updates(FakeUpdater(installed = "1.2.0")).state)
+        assertEquals(SelfUpdate.UpToDate, updates(FakeUpdater(installed = "1.2.0")).state)
     }
 
     @Test
@@ -100,7 +123,10 @@ class AppUpdatesTest {
     fun installsWithProgressThenWaitsToRestart() = runTest {
         val updater = FakeUpdater()
         val u = updates(updater)
+        u.refresh()
+        runCurrent()
         u.install()
+        assertEquals(SelfUpdate.Checking, u.state)
         runCurrent()
         assertEquals(SelfUpdate.Downloading(v120, 0.5f), u.state)
         updater.downloaded.complete(Unit)
@@ -140,6 +166,34 @@ class AppUpdatesTest {
         val failed = assertIs<SelfUpdate.Failed>(u.state)
         assertTrue(failed.retriesInstall)
         assertEquals(DamagedDownload(v120).message, failed.message)
+    }
+
+    @Test
+    fun aLookThatFoundNothingNewerIsStillKnownOnTheNextRun() = runTest {
+        newest = null
+        updates().check()
+        runCurrent()
+        val next = updates()
+        next.refresh()
+        runCurrent()
+        assertEquals(1, looks)
+        assertEquals(SelfUpdate.UpToDate, next.state)
+    }
+
+    @Test
+    fun aFailedDownloadKeepsTheUpdateWaiting() = runTest {
+        val updater = FakeUpdater()
+        val u = updates(updater)
+        u.refresh()
+        runCurrent()
+        u.install()
+        runCurrent()
+        failing = DamagedDownload(v120)
+        updater.downloaded.complete(Unit)
+        runCurrent()
+        assertIs<SelfUpdate.Failed>(u.state)
+        assertEquals(v120, u.available)
+        assertTrue(u.waiting)
     }
 
     @Test

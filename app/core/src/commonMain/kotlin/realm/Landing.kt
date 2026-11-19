@@ -1,8 +1,11 @@
 package realm
 
 sealed interface Landed {
-    /** [plan] updated the worker in place: the sign-in to it still holds. */
-    data class Updated(val plan: Plan.Update) : Landed
+    /** [plan] updated the worker in place, and it answers running the release, as [info] says: the sign-in to it still holds. */
+    data class Updated(val plan: Plan.Update, val info: Info) : Landed
+
+    /** [plan]'s release is uploaded, but the worker doesn't answer running it yet. */
+    data class Uploaded(val plan: Plan.Update) : Landed
 
     /** Deployed, but not answering yet: sign in to [connection] once it does. */
     data class NotAnswering(val connection: Connection.ByCloudflare) : Landed
@@ -41,7 +44,7 @@ suspend fun CloudflareApi.land(
                 is DomainOutcome.Attached -> {
                     val origin = "https://${out.domain.hostname}"
                     progress(Step.Waiting(origin))
-                    done = done.copy(origin = origin, answer = waitForOwner(origin), domain = out)
+                    done = done.copy(origin = origin, answer = waitForRelease(origin, plan.release), domain = out)
                     conflict = null
                 }
             }
@@ -51,9 +54,10 @@ suspend fun CloudflareApi.land(
         }
     }
     val owner = login.copy(account = done.account.id)
+    val answer = done.answer
     return when {
-        plan is Plan.Update -> Landed.Updated(plan)
-        done.answer is Answer.NotYet -> Landed.NotAnswering(Connection.ByCloudflare(done.origin, owner))
+        plan is Plan.Update -> if (answer is Answer.Owner) Landed.Updated(plan, answer.info) else Landed.Uploaded(plan)
+        answer is Answer.NotYet -> Landed.NotAnswering(Connection.ByCloudflare(done.origin, owner))
         else -> Landed.SignedInTo(signInWithCloudflare(done.origin, owner, source, fresh = true, session, engine))
     }
 }

@@ -9,15 +9,20 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -32,8 +37,8 @@ class OnboardingTest {
     private val choosing = "cloudflare" to """{"access":"cf","expires":${login.expires}}"""
 
     /**
-     * Jo's account with R2, a workers.dev subdomain and room for a database, but no realm worker until it's
-     * uploaded; the upload fails while [uploads] says so. With [studio], the login has Studio's account too,
+     * Jo's account with R2, a workers.dev subdomain and room for a database, but no realm worker, nor its bucket
+     * and database, until it's uploaded; the upload fails while [uploads] says so. With [studio], the login has Studio's account too,
      * where realm runs at realm.studio.workers.dev. GitHub has release v1.2.0.
      */
     private class Cloud(private val scope: TestScope, var uploads: Boolean = true, val studio: Boolean = false) {
@@ -41,6 +46,9 @@ class OnboardingTest {
         var answersAt = 0L
 
         var worker = false
+
+        /** The release the worker says it runs; an upload makes it v1.2.0. */
+        var build: String? = null
 
         /** Whether the worker turns this login down as its owner's, as one bound to another account would. */
         var refuses = false
@@ -63,12 +71,14 @@ class OnboardingTest {
                 )
 
                 "GET $gh/worker.json" -> json(
-                    """{"version":4,"name":"realm","main_module":"worker.js","compatibility_date":"2026-10-01",
+                    """{"version":${Api.VERSION},"name":"realm","main_module":"worker.js","compatibility_date":"2026-10-01",
                         "sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
                         "r2_buckets":[{"binding":"BUCKET","bucket_name":"realm"}],"d1_databases":[{"binding":"DB","database_name":"realm"}]}""",
                 )
 
                 "GET $gh/worker.js" -> respond("abc")
+
+                "POST dash.cloudflare.com/oauth2/token" -> json("""{"access_token":"cf","expires_in":3600}""")
 
                 "GET cf/accounts" ->
                     cf(
@@ -89,7 +99,7 @@ class OnboardingTest {
 
                 "GET cf/accounts/a2/workers/scripts/realm/secrets" -> cf("""[{"name":"REALM_ACCOUNT"}]""")
 
-                "GET realm.studio.workers.dev/api/info" -> json("""{"version":4,"scope":"owner"}""")
+                "GET realm.studio.workers.dev/api/info" -> json("""{"version":${Api.VERSION},"scope":"owner"}""")
 
                 "GET realm.studio.workers.dev/api/realms" -> json("""{"realms":[{"id":"main","name":"Studio's","created":1,"count":0}]}""")
 
@@ -97,15 +107,18 @@ class OnboardingTest {
 
                 "GET cf/accounts/a1/workers/subdomain" -> cf("""{"subdomain":"jo"}""")
 
-                "GET cf/accounts/a1/r2/buckets" -> cf("""{"buckets":[]}""")
+                "GET cf/accounts/a1/r2/buckets" -> cf(if (worker) """{"buckets":[{"name":"realm"}]}""" else """{"buckets":[]}""")
 
-                "GET cf/accounts/a1/d1/database", "GET cf/zones", "GET cf/accounts/a1/workers/domains" -> cf("[]")
+                "GET cf/accounts/a1/d1/database" -> cf(if (worker) """[{"uuid":"db1","name":"realm"}]""" else "[]")
+
+                "GET cf/zones", "GET cf/accounts/a1/workers/domains" -> cf("[]")
 
                 "POST cf/accounts/a1/d1/database" -> cf("""{"uuid":"db1","name":"realm"}""")
 
                 "PUT cf/accounts/a1/workers/scripts/realm" ->
                     if (uploads) {
                         worker = true
+                        build = "v1.2.0"
                         cf("""{"id":"realm"}""")
                     } else {
                         json(
@@ -122,7 +135,7 @@ class OnboardingTest {
                     } else if (refuses) {
                         json("""{"error":"bad token"}""", HttpStatusCode.Unauthorized)
                     } else if (worker) {
-                        json("""{"version":4,"scope":"owner"}""")
+                        json(Json.encodeToString(Info.serializer(), Info(version = Api.VERSION, scope = "owner", build = build)))
                     } else {
                         json("""{"error":"not found"}""", HttpStatusCode.NotFound)
                     }
@@ -140,6 +153,169 @@ class OnboardingTest {
     }
 
     private fun TestScope.home(prefs: MapPrefs, cloud: Cloud) = Home(TestPlatform(prefs), this, cloud.engine)
+
+    /** Runs a Cloudflare login to its end: its nonces come from a dispatcher of their own. */
+    private suspend fun TestScope.loggedIn(home: Home) {
+        advanceUntilIdle()
+        while (home.cloudflare.login != null) {
+            advanceUntilIdle()
+            withContext(Dispatchers.Default) { delay(5) }
+        }
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun anUpdateShowsTheReleaseTheServerRunsOnceItRunsIt() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"))) }
+        val cloud = Cloud(this).apply {
+            worker = true
+            build = "v1.1.0"
+        }
+        val home = home(prefs, cloud)
+        advanceUntilIdle()
+        assertEquals(ServerStatus.Behind(Semver(1, 2, 0)), home.serverStatus)
+
+        home.cloudflare.startUpdate()
+        advanceUntilIdle()
+        home.cloudflare.deploy(Choices())
+        advanceUntilIdle()
+        assertEquals("v1.2.0", cloud.build)
+        assertEquals("realm v1.2.0", home.serverSettings.facts?.state?.value?.info?.running)
+        assertEquals(ServerStatus.Current, home.serverStatus)
+        assertEquals("Your server runs v1.2.0 now.", home.message)
+    }
+
+    @Test
+    fun managingAServerSignedInToWithATokenKeepsTheTokenUntilTheLoginRunsIt() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByToken("https://realm.jo.workers.dev", Secret("token"))) }
+        val cloud = Cloud(this)
+        val home = home(prefs, cloud)
+        advanceUntilIdle()
+
+        home.cloudflare.manage()
+        loggedIn(home)
+        assertIs<Connection.ByToken>(prefs.own())
+        assertEquals("https://realm.jo.workers.dev/api", home.server?.base)
+        assertEquals(NotThisServer("realm.jo.workers.dev").message, home.message)
+
+        cloud.worker = true
+        home.cloudflare.manage()
+        loggedIn(home)
+        val owner = assertIs<Connection.ByCloudflare>(prefs.own())
+        assertEquals("https://realm.jo.workers.dev", owner.server)
+        assertEquals("a1", owner.login.account)
+        assertEquals(listOf("Main"), home.realms.map { it.name })
+        assertNotNull(home.serverSettings.facts?.state?.value?.addresses)
+    }
+
+    /** Runs the deploys and logins under way until [done], each login's nonces coming from a dispatcher of their own. */
+    private suspend fun TestScope.until(home: Home, done: () -> Boolean) {
+        repeat(400) {
+            advanceUntilIdle()
+            if (done()) return
+            withContext(Dispatchers.Default) { delay(5) }
+        }
+        val login = home.cloudflare.login
+        error(
+            "never got there: login $login ${(login as? Login.Confirm)?.let {
+                "${it.plan} decided=${it.decided} problem=${it.problem}"
+            }}, " +
+                "app ${home.appUpdates.state}, status ${home.serverStatus}, due ${home.updating.due}, asked ${home.updating.asked}, message ${home.message}",
+        )
+    }
+
+    private class Installs(installed: String, private val out: Semver) : Updater {
+        override val version = AppVersion.parse(installed)!!
+        var installed = 0
+
+        override suspend fun newer(releases: Releases) = AppUpdate(out, "https://x/realm-$out.apk", "ab", Api.VERSION).takeIf {
+            version.olderThan(out)
+        }
+
+        override suspend fun install(update: AppUpdate, progress: (Float) -> Unit, installing: () -> Unit): Boolean {
+            installed++
+            return true
+        }
+
+        override fun restart() {}
+    }
+
+    @Test
+    fun anUpdateAskedForWithATokenLogsInThenUpdatesTheServerWithoutAskingAgain() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByToken("https://realm.jo.workers.dev", Secret("token"))) }
+        val cloud = Cloud(this).apply {
+            worker = true
+            build = "v1.1.0"
+        }
+        val home = home(prefs, cloud)
+        advanceUntilIdle()
+        assertEquals(Due(null, Semver(1, 2, 0), null), home.updating.due)
+
+        home.updating.start()
+        until(home) { cloud.build == "v1.2.0" && home.cloudflare.login == null }
+        assertIs<Connection.ByCloudflare>(prefs.own())
+        assertEquals(ServerStatus.Current, home.serverStatus)
+        assertFalse(home.updating.asked)
+    }
+
+    @Test
+    fun anUpdateAskedForUpdatesTheAppThenTheServerOnceTheAppRestarts() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"))) }
+        val cloud = Cloud(this).apply {
+            worker = true
+            build = "v1.1.0"
+        }
+        val before = Installs("1.2.0", Semver(1, 3, 0))
+        val home = Home(TestPlatform(prefs, updater = before), this, cloud.engine)
+        advanceUntilIdle()
+        assertEquals(Due(Semver(1, 3, 0), Semver(1, 2, 0), null), home.updating.due)
+
+        home.updating.start()
+        until(home) { home.appUpdates.state is SelfUpdate.Ready }
+        assertEquals(1, before.installed)
+        assertEquals("v1.1.0", cloud.build)
+
+        val after = Installs("1.3.0", Semver(1, 3, 0))
+        val restarted = Home(TestPlatform(prefs, updater = after), this, cloud.engine)
+        until(restarted) { cloud.build == "v1.2.0" && restarted.cloudflare.login == null }
+        assertEquals(0, after.installed)
+        assertFalse(restarted.updating.asked)
+    }
+
+    @Test
+    fun anAppUpdateThatDidNotTakeIsNotTriedAgainOnTheNextStart() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"))) }
+        val cloud = Cloud(this).apply {
+            worker = true
+            build = "v1.1.0"
+        }
+        val home = Home(TestPlatform(prefs, updater = Installs("1.2.0", Semver(1, 3, 0))), this, cloud.engine)
+        advanceUntilIdle()
+        home.updating.start()
+        until(home) { home.appUpdates.state is SelfUpdate.Ready }
+
+        val declined = Installs("1.2.0", Semver(1, 3, 0))
+        val restarted = Home(TestPlatform(prefs, updater = declined), this, cloud.engine)
+        until(restarted) { !restarted.updating.asked }
+        assertEquals(0, declined.installed)
+        assertEquals("v1.1.0", cloud.build)
+    }
+
+    @Test
+    fun loggingInToSeveralAccountsSignsOutOfTheServerSignedInToWithAToken() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByToken("https://realm.jo.workers.dev", Secret("token"))) }
+        val cloud = Cloud(this, studio = true).apply { worker = true }
+        val home = home(prefs, cloud)
+        advanceUntilIdle()
+        assertEquals(listOf("Main"), home.realms.map { it.name })
+
+        home.cloudflare.logIn()
+        loggedIn(home)
+        assertEquals(Screen.Onboarding, home.screen)
+        assertNull(home.server)
+        assertEquals(emptyList(), home.realms.toList())
+        assertIs<Connection.LoginOnly>(prefs.own())
+    }
 
     @Test
     fun aRestartWithOnlyACloudflareLoginOpensOnboardingWithItsChecks() = runTest {

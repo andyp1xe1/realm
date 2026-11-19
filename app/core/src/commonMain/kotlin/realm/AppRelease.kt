@@ -21,38 +21,53 @@ data class AppVersion(val release: Semver, val candidate: Int? = null) {
     }
 }
 
-/** The app file at [url] in release [tag], whose SHA-256 is [sha256] as the release's signed app.json says. */
-data class AppUpdate(val tag: Semver, val url: String, val sha256: String)
+/**
+ * The app file at [url] in release [tag], whose SHA-256 is [sha256] as the release's signed app.json says, with the
+ * [protocol] it speaks when the release says.
+ */
+data class AppUpdate(val tag: Semver, val url: String, val sha256: String, val protocol: Int? = null)
 
-/** app.json as the release workflow writes and signs it: each file in release [tag] by name, with its SHA-256. */
+/**
+ * What a look for a newer app found: the release newer than the copy that looked, or null when there was none, and
+ * the [protocol] it speaks when it says, with the [newest] app release listed then.
+ */
 @Serializable
-private data class AppFiles(val tag: String, val files: Map<String, String>)
+data class AppLook(val newer: Semver?, val newest: Semver?, val protocol: Int? = null)
+
+/** An update of the app and the server asked for, with the [app] release installed for it so far. */
+@Serializable
+data class UpdateAsked(val app: Semver?)
+
+/** app.json as the release workflow writes and signs it: each file in release [tag] by name, with its SHA-256, and the [protocol] it speaks. */
+@Serializable
+private data class AppFiles(val tag: String, val files: Map<String, String>, val protocol: Int? = null)
 
 class BadSignature(val tag: Semver) : ApiException("Release $tag isn't signed with this app's key, so it isn't installed.")
 
 class DamagedDownload(val tag: Semver) : ApiException("The download of release $tag doesn't match what the release says. Try again.")
 
 /**
- * The newest stable release of this app's fork that's newer than [installed] and has a file named [file] for its tag,
- * as its app.json says, signed with [key]; null when there's none. A release that isn't signed so is [BadSignature].
+ * The newest of [releases] that's newer than [installed] and has a file named [file] for its tag, as its app.json
+ * says, signed with [key]; null when there's none. A release that isn't signed so is [BadSignature].
  */
 suspend fun newerApp(
     installed: AppVersion,
     file: (Semver) -> String,
+    releases: Releases,
     engine: HttpClientEngine? = null,
     key: String = Api.APP_KEY,
 ): AppUpdate? = client(engine).use { http ->
-    for ((tag, r) in http.stableReleases()) {
-        if (!installed.olderThan(tag)) break
-        val filesUrl = r.asset("app.json") ?: continue
-        val signatureUrl = r.asset("app.json.sig") ?: throw BadSignature(tag)
+    for (r in releases.apps) {
+        if (!installed.olderThan(r.tag)) break
+        val filesUrl = r.files["app.json"] ?: continue
+        val signatureUrl = r.files["app.json.sig"] ?: throw BadSignature(r.tag)
         val text = http.fromGitHub(filesUrl).bodyAsBytes()
-        if (!verifies(key, text, http.fromGitHub(signatureUrl).bodyAsBytes())) throw BadSignature(tag)
+        if (!verifies(key, text, http.fromGitHub(signatureUrl).bodyAsBytes())) throw BadSignature(r.tag)
         val files = runCatching { cloudflareJson.decodeFromString<AppFiles>(text.decodeToString()) }.getOrNull()
-        if (files?.tag != "$tag") throw BadSignature(tag)
-        val name = file(tag)
+        if (files?.tag != r.name) throw BadSignature(r.tag)
+        val name = file(r.tag)
         val sha256 = files.files[name] ?: continue
-        return@use AppUpdate(tag, r.asset(name) ?: continue, sha256.lowercase())
+        return@use AppUpdate(r.tag, r.files[name] ?: continue, sha256.lowercase(), files.protocol)
     }
     null
 }

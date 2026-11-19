@@ -42,7 +42,7 @@ sealed interface Step {
 
     data class Domain(val hostname: String) : Step
 
-    /** Waiting for the worker to answer at [origin] and take this login as its owner. */
+    /** Waiting for the worker to answer at [origin], take this login as its owner, and run the release. */
     data class Waiting(val origin: String) : Step
 }
 
@@ -50,7 +50,7 @@ sealed interface Step {
 sealed interface Answer {
     data class Owner(val info: Info) : Answer
 
-    /** It didn't take the login as its owner's in time; [last] is the last error it gave, null when it gave none. */
+    /** It didn't take the login as its owner's, running the release, in time; [last] is the last error it gave, null when it gave none. */
     data class NotYet(val last: ApiException?) : Answer
 }
 
@@ -145,28 +145,31 @@ suspend fun CloudflareApi.deploy(plan: Plan.Ready, choices: Choices = Choices(),
                 val hostname = (domain as? DomainOutcome.Attached)?.domain?.hostname ?: found.domains.firstOrNull()?.hostname
                 val origin = hostname?.let { "https://$it" } ?: subdomain?.let { CloudflareApi.workersDev(it) } ?: throw NeedsSubdomain()
                 progress(Step.Waiting(origin))
-                return Deployed(account, origin, waitForOwner(origin), domain)
+                return Deployed(account, origin, waitForRelease(origin, plan.release), domain)
             }
         }
     }
     throw NeedsSubdomain()
 }
 
-/** Polls the worker at [origin] until it takes this login as its owner, for at most [within]. */
-suspend fun CloudflareApi.waitForOwner(origin: String, within: Duration = 60.seconds): Answer {
+/**
+ * Polls the worker at [origin] until it takes this login as its owner and runs [release], for at most [within]: until
+ * then, the worker that answers may still be the one it replaces.
+ */
+suspend fun CloudflareApi.waitForRelease(origin: String, release: Release, within: Duration = 60.seconds): Answer {
     val api = Api.server(origin, bearer, "deploy", engine)
     var last: ApiException? = null
     return try {
-        withTimeoutOrNull(within) { pollOwner(api) { last = it } }?.let(Answer::Owner) ?: Answer.NotYet(last)
+        withTimeoutOrNull(within) { poll(api, release) { last = it } }?.let(Answer::Owner) ?: Answer.NotYet(last)
     } finally {
         api.close()
     }
 }
 
-private suspend fun pollOwner(api: Api, failed: (ApiException) -> Unit): Info {
+private suspend fun poll(api: Api, release: Release, failed: (ApiException) -> Unit): Info {
     while (true) {
         try {
-            api.info().takeIf { it.scope == "owner" }?.let { return it }
+            api.info().takeIf { it.scope == "owner" && it.runs(release) }?.let { return it }
         } catch (e: ApiException) {
             failed(e)
         }
@@ -248,3 +251,5 @@ private suspend fun CloudflareApi.upload(account: Account, release: Release, dat
 private const val BUCKET_EXISTS = 10004
 private const val D1_EXISTS = 7502
 private const val D1_LIMIT = 7406
+
+private fun Info.runs(release: Release): Boolean = release.manifest.build == null || against(release.tag, release.manifest.version) == 0

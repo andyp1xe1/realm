@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Refuses to push a tag that isn't a release version: vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-rc.N.
+# Refuses to push a tag that isn't a release: app/vMAJOR.MINOR.PATCH or worker/vMAJOR.MINOR.PATCH, either with -rc.N.
 set -uo pipefail
 
 fail=0
@@ -7,8 +7,8 @@ while read -r local_ref local_sha _ _; do
   case "$local_ref" in refs/tags/*) ;; *) continue ;; esac
   [[ $local_sha =~ ^0+$ ]] && continue
   tag=${local_ref#refs/tags/}
-  if ! [[ $tag =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
-    echo "pre-push: tag $tag isn't a release version like v1.2.0 or v1.2.0-rc.1"
+  if ! [[ $tag =~ ^((app|worker)/)?v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?$ ]]; then
+    echo "pre-push: tag $tag isn't a release like app/v1.2.0, worker/v1.2.0 or app/v1.2.0-rc.1"
     fail=1
   fi
 done

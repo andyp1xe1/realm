@@ -79,6 +79,26 @@ class CloudflareLoginTest {
     }
 
     @Test
+    fun managingSignsInWithTheAccountWhoseWorkerAnswersAtTheServer() = runTest {
+        val c = cloudflare(worker = true, studio = true)
+        val s = manageWithCloudflare(browser, "https://realm.jo.workers.dev", "test", engine = c.engine)
+
+        val connection = assertIs<Connection.ByCloudflare>(s.connection)
+        assertEquals("https://realm.jo.workers.dev", connection.server)
+        assertEquals("a1", connection.login.account)
+    }
+
+    @Test
+    fun managingAnotherServerEndsTheLoginAndSignsInToNothing() = runTest {
+        val c = cloudflare(worker = true, studio = true)
+        val e = assertFailsWith<NotThisServer> { manageWithCloudflare(browser, "https://notes.jo.dev", "test", engine = c.engine) }
+
+        assertEquals("notes.jo.dev", e.hostname)
+        assertTrue(c.routes.any { "revoke" in it }, c.routes.toString())
+        assertTrue(c.routes.none { "/api/" in it }, c.routes.toString())
+    }
+
+    @Test
     fun oneWorkerSignsInToIt() = runTest {
         val cloud = cloudflare(worker = true)
         val out = logInWithCloudflare(browser, "test", engine = cloud.engine)

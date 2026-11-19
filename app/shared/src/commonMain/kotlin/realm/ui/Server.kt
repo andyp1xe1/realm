@@ -43,13 +43,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import realm.AddressTask
 import realm.Addresses
-import realm.Check
 import realm.DomainChoice
 import realm.Home
+import realm.Loaded
 import realm.Phase
 import realm.ServerFacts
 import realm.ServerSettings
-import realm.UpdateCheck
 import realm.Zone
 
 /** Settings' part about your own server. [onClose] puts settings away before a sheet of its own opens. */
@@ -72,7 +71,7 @@ private fun DetailsSkeleton(managed: Boolean) = Column {
     Spacer(Modifier.height(12.dp))
     FactSkeleton("Runs")
     FactSkeleton("Newest")
-    InlineButtonSkeleton(0.4f)
+    if (!managed) InlineButtonSkeleton(0.7f)
     if (managed) {
         Spacer(Modifier.height(12.dp))
         Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -95,30 +94,30 @@ private fun FactSkeleton(label: String) {
 private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> Unit) {
     val settings = home.serverSettings
     val addresses = facts.addresses
-    val checked = (settings.check as? Check.Done)?.result
-    val release = when (checked) {
-        is UpdateCheck.UpToDate -> checked.release.tag.toString()
-        is UpdateCheck.Available -> checked.plan.release.tag.toString()
-        is UpdateCheck.Refused -> checked.plan.release.tag.toString()
-        is UpdateCheck.NeedsNewerApp -> checked.newer.toString()
-        null -> home.cloudflare.knownRelease
-    }
+    val releases = home.releases.known
     Spacer(Modifier.height(12.dp))
-    Fact("Runs", "${facts.info.fork ?: "realm"} ${facts.info.version}")
-    if (release != null) Fact("Newest", release)
-    val notice = home.cloudflare.update
+    Fact("Runs", facts.info.running)
+    LoadingFact("Newest", releases?.let { Loaded.Known(it.workers.firstOrNull()?.tag?.toString().orEmpty()) } ?: Loaded.Unknown)
     if (addresses == null) {
-        if (notice != null) Text("Server update: realm ${notice.from} → ${notice.to}", style = MaterialTheme.typography.bodyMedium)
-        InlineButton(if (notice != null) "Log in with Cloudflare to update" else "Log in with Cloudflare to manage this server", {
+        InlineButton("Log in with Cloudflare to manage", {
             onClose()
-            home.cloudflare.logIn()
+            home.cloudflare.manage()
         })
         return
     }
-    Updates(settings.check, home, onClose)
     Spacer(Modifier.height(12.dp))
     Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Addresses(facts.origin, addresses, settings)
+}
+
+@Composable
+private fun LoadingFact(label: String, value: Loaded<String>) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, Modifier.width(96.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Loading(value, skeleton = { SkeletonLine(0.35f, style = MaterialTheme.typography.bodyMedium) }) { v ->
+            Changing(v) { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
 }
 
 @Composable
@@ -127,50 +126,6 @@ internal fun Turning(text: String) {
         CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
         Spacer(Modifier.width(10.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun Updates(check: Check, home: Home, onClose: () -> Unit) {
-    Steps(check) { c ->
-        Column {
-            when (c) {
-                Check.NotYet -> {
-                    home.cloudflare.update?.let { u ->
-                        Text("Server update: realm ${u.from} → ${u.to}", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    InlineButton("Check for updates", home.serverSettings::checkForUpdates)
-                }
-
-                Check.Checking -> Turning("Checking for updates")
-
-                is Check.Failed -> {
-                    Text(c.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                    InlineButton("Check again", home.serverSettings::checkForUpdates)
-                }
-
-                is Check.Done -> Found(c.result, home, onClose)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ColumnScope.Found(result: UpdateCheck, home: Home, onClose: () -> Unit) {
-    val text = when (result) {
-        is UpdateCheck.UpToDate -> "Up to date."
-        is UpdateCheck.Available -> "Update available: realm ${result.plan.from.version} → ${result.plan.release.manifest.version}."
-        is UpdateCheck.Refused -> result.plan.reason.message
-        is UpdateCheck.NeedsNewerApp -> "Release ${result.newer} needs a newer app. Update the app to deploy it."
-    }
-    Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.heightIn(min = 24.dp))
-    if (result is UpdateCheck.Available) {
-        InlineButton("Update", {
-            onClose()
-            home.cloudflare.startUpdate()
-        })
-    } else {
-        InlineButton("Check again", home.serverSettings::checkForUpdates)
     }
 }
 

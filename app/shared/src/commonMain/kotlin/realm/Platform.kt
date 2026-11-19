@@ -52,8 +52,8 @@ interface Platform : Browser {
 interface Updater {
     val version: AppVersion
 
-    /** The newest stable release that's newer than this copy and has a file to replace it, as [newerApp] finds it. */
-    suspend fun newer(): AppUpdate?
+    /** The newest of [releases] that's newer than this copy and has a file to replace it, as [newerApp] finds it. */
+    suspend fun newer(releases: Releases): AppUpdate?
 
     /**
      * Downloads [update], telling [progress] how far it has got from 0 to 1, checks it against the release, then

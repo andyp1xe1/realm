@@ -1,0 +1,588 @@
+{
+  "version": 4,
+  "calls": [
+    {
+      "name": "info",
+      "request": {
+        "method": "GET",
+        "path": "/api/info"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "version": 4,
+          "build": null,
+          "scope": "owner",
+          "realm": null
+        }
+      }
+    },
+    {
+      "name": "realms",
+      "request": {
+        "method": "GET",
+        "path": "/api/realms"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "realms": [
+            {
+              "id": "main",
+              "name": "Main",
+              "created": 1795094371000,
+              "count": 0,
+              "updated": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "createRealm",
+      "request": {
+        "method": "POST",
+        "path": "/api/realms",
+        "type": "application/json",
+        "body": {
+          "name": "Trips"
+        }
+      },
+      "response": {
+        "status": 201,
+        "type": "application/json",
+        "body": {
+          "id": "0mwnku9it6vua",
+          "name": "Trips",
+          "created": 1795094371254,
+          "count": 0,
+          "updated": null
+        }
+      }
+    },
+    {
+      "name": "renameRealm",
+      "request": {
+        "method": "PATCH",
+        "path": "/api/realms/0mwnku9it6vua",
+        "type": "application/json",
+        "body": {
+          "name": "Travel"
+        }
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "id": "0mwnku9it6vua",
+          "name": "Travel",
+          "created": 1795094371254,
+          "count": 0,
+          "updated": null
+        }
+      }
+    },
+    {
+      "name": "note",
+      "request": {
+        "method": "POST",
+        "path": "/api/realms/0mwnku9it6vua/items",
+        "type": "application/json",
+        "body": {
+          "text": "pack the tent"
+        }
+      },
+      "response": {
+        "status": 201,
+        "type": "application/json",
+        "body": {
+          "id": "0mwnku9ivn861",
+          "kind": "note",
+          "text": "pack the tent",
+          "name": null,
+          "mime": null,
+          "size": null,
+          "realm": "0mwnku9it6vua",
+          "src": "api",
+          "created": 1795094371255
+        }
+      }
+    },
+    {
+      "name": "file",
+      "request": {
+        "method": "PUT",
+        "path": "/api/realms/0mwnku9it6vua/files/list.txt?text=packing",
+        "type": "text/plain",
+        "body": "tent, stove"
+      },
+      "response": {
+        "status": 201,
+        "type": "application/json",
+        "body": {
+          "id": "0mwnku9iwiee8",
+          "kind": "file",
+          "text": "packing",
+          "name": "list.txt",
+          "mime": "text/plain",
+          "size": 11,
+          "realm": "0mwnku9it6vua",
+          "src": "api",
+          "created": 1795094371256
+        }
+      }
+    },
+    {
+      "name": "startUpload",
+      "request": {
+        "method": "POST",
+        "path": "/api/realms/0mwnku9it6vua/uploads",
+        "type": "application/json",
+        "body": {
+          "name": "map.txt",
+          "type": "text/plain"
+        }
+      },
+      "response": {
+        "status": 201,
+        "type": "application/json",
+        "body": {
+          "upload": "0mwnku9ixxffn"
+        }
+      }
+    },
+    {
+      "name": "uploadPart",
+      "request": {
+        "method": "PUT",
+        "path": "/api/realms/0mwnku9it6vua/uploads/0mwnku9ixxffn/1",
+        "type": "application/octet-stream",
+        "body": "north"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "part": 1,
+          "etag": "etag-1"
+        }
+      }
+    },
+    {
+      "name": "completeUpload",
+      "request": {
+        "method": "POST",
+        "path": "/api/realms/0mwnku9it6vua/uploads/0mwnku9ixxffn/complete",
+        "type": "application/json",
+        "body": {
+          "parts": [
+            {
+              "part": 1,
+              "etag": "etag-1"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "type": "application/json",
+        "body": {
+          "id": "0mwnku9iy7eza",
+          "kind": "file",
+          "text": null,
+          "name": "map.txt",
+          "mime": "text/plain",
+          "size": 5,
+          "realm": "0mwnku9it6vua",
+          "src": "api",
+          "created": 1795094371258
+        }
+      }
+    },
+    {
+      "name": "startUploadAgain",
+      "request": {
+        "method": "POST",
+        "path": "/api/realms/0mwnku9it6vua/uploads",
+        "type": "application/json",
+        "body": {
+          "name": "late.txt",
+          "type": "text/plain"
+        }
+      },
+      "response": {
+        "status": 201,
+        "type": "application/json",
+        "body": {
+          "upload": "0mwnku9iyq9jj"
+        }
+      }
+    },
+    {
+      "name": "abortUpload",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/realms/0mwnku9it6vua/uploads/0mwnku9iyq9jj"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "name": "page",
+      "request": {
+        "method": "GET",
+        "path": "/api/realms/0mwnku9it6vua/items?limit=60"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "items": [
+            {
+              "id": "0mwnku9iy7eza",
+              "kind": "file",
+              "text": null,
+              "name": "map.txt",
+              "mime": "text/plain",
+              "size": 5,
+              "src": "api",
+              "created": 1795094371258,
+              "realm": "0mwnku9it6vua"
+            },
+            {
+              "id": "0mwnku9iwiee8",
+              "kind": "file",
+              "text": "packing",
+              "name": "list.txt",
+              "mime": "text/plain",
+              "size": 11,
+              "src": "api",
+              "created": 1795094371256,
+              "realm": "0mwnku9it6vua"
+            },
+            {
+              "id": "0mwnku9ivn861",
+              "kind": "note",
+              "text": "pack the tent",
+              "name": null,
+              "mime": null,
+              "size": null,
+              "src": "api",
+              "created": 1795094371255,
+              "realm": "0mwnku9it6vua"
+            }
+          ],
+          "next": null,
+          "since": 3
+        }
+      }
+    },
+    {
+      "name": "search",
+      "request": {
+        "method": "GET",
+        "path": "/api/realms/0mwnku9it6vua/items?q=tent&limit=60"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "items": [
+            {
+              "id": "0mwnku9ivn861",
+              "kind": "note",
+              "text": "pack the tent",
+              "name": null,
+              "mime": null,
+              "size": null,
+              "src": "api",
+              "created": 1795094371255,
+              "realm": "0mwnku9it6vua"
+            }
+          ],
+          "next": null,
+          "since": 3
+        }
+      }
+    },
+    {
+      "name": "item",
+      "request": {
+        "method": "GET",
+        "path": "/api/realms/0mwnku9it6vua/items/0mwnku9ivn861"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "id": "0mwnku9ivn861",
+          "kind": "note",
+          "text": "pack the tent",
+          "name": null,
+          "mime": null,
+          "size": null,
+          "src": "api",
+          "created": 1795094371255,
+          "realm": "0mwnku9it6vua"
+        }
+      }
+    },
+    {
+      "name": "edit",
+      "request": {
+        "method": "PATCH",
+        "path": "/api/realms/0mwnku9it6vua/items/0mwnku9ivn861",
+        "type": "application/json",
+        "body": {
+          "text": "pack the big tent"
+        }
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "id": "0mwnku9ivn861",
+          "kind": "note",
+          "text": "pack the big tent",
+          "name": null,
+          "mime": null,
+          "size": null,
+          "src": "api",
+          "created": 1795094371255,
+          "realm": "0mwnku9it6vua"
+        }
+      }
+    },
+    {
+      "name": "raw",
+      "request": {
+        "method": "GET",
+        "path": "/api/realms/0mwnku9it6vua/items/0mwnku9iwiee8/raw"
+      },
+      "response": {
+        "status": 200,
+        "type": "text/plain",
+        "body": "tent, stove"
+      }
+    },
+    {
+      "name": "createLink",
+      "request": {
+        "method": "POST",
+        "path": "/api/realms/0mwnku9it6vua/links",
+        "type": "application/json",
+        "body": {
+          "scope": "full",
+          "label": "Ana"
+        }
+      },
+      "response": {
+        "status": 201,
+        "type": "application/json",
+        "body": {
+          "token": "pyy9NNkfyq4Uom0-3o3Euzby",
+          "scope": "full",
+          "realm": "0mwnku9it6vua",
+          "label": "Ana",
+          "expires": null,
+          "max_uses": null,
+          "uses": 0,
+          "max_bytes": null,
+          "bytes": 0,
+          "created": 1795094371262,
+          "url": "https://realm.test/s/pyy9NNkfyq4Uom0-3o3Euzby"
+        }
+      }
+    },
+    {
+      "name": "links",
+      "request": {
+        "method": "GET",
+        "path": "/api/realms/0mwnku9it6vua/links"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "links": [
+            {
+              "token": "pyy9NNkfyq4Uom0-3o3Euzby",
+              "scope": "full",
+              "label": "Ana",
+              "expires": null,
+              "max_uses": null,
+              "uses": 0,
+              "max_bytes": null,
+              "bytes": 0,
+              "created": 1795094371262,
+              "realm": "0mwnku9it6vua",
+              "url": "https://realm.test/s/pyy9NNkfyq4Uom0-3o3Euzby"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "linkInfo",
+      "request": {
+        "method": "GET",
+        "path": "/s/pyy9NNkfyq4Uom0-3o3Euzby/info"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "version": 4,
+          "build": null,
+          "scope": "full",
+          "realm": {
+            "id": "0mwnku9it6vua",
+            "name": "Travel",
+            "created": 1795094371254
+          },
+          "label": "Ana",
+          "expires": null,
+          "uses_left": null,
+          "bytes_left": null
+        }
+      }
+    },
+    {
+      "name": "linkPage",
+      "request": {
+        "method": "GET",
+        "path": "/s/pyy9NNkfyq4Uom0-3o3Euzby/items?limit=60"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "items": [
+            {
+              "id": "0mwnku9iy7eza",
+              "kind": "file",
+              "text": null,
+              "name": "map.txt",
+              "mime": "text/plain",
+              "size": 5,
+              "src": "api",
+              "created": 1795094371258,
+              "realm": "0mwnku9it6vua"
+            },
+            {
+              "id": "0mwnku9iwiee8",
+              "kind": "file",
+              "text": "packing",
+              "name": "list.txt",
+              "mime": "text/plain",
+              "size": 11,
+              "src": "api",
+              "created": 1795094371256,
+              "realm": "0mwnku9it6vua"
+            },
+            {
+              "id": "0mwnku9ivn861",
+              "kind": "note",
+              "text": "pack the big tent",
+              "name": null,
+              "mime": null,
+              "size": null,
+              "src": "api",
+              "created": 1795094371255,
+              "realm": "0mwnku9it6vua"
+            }
+          ],
+          "next": null,
+          "since": 3
+        }
+      }
+    },
+    {
+      "name": "linkNote",
+      "request": {
+        "method": "POST",
+        "path": "/s/pyy9NNkfyq4Uom0-3o3Euzby/items",
+        "type": "application/json",
+        "body": {
+          "text": "bring snacks"
+        }
+      },
+      "response": {
+        "status": 201,
+        "type": "application/json",
+        "body": {
+          "id": "0mwnku9j3lrfi",
+          "kind": "note",
+          "text": "bring snacks",
+          "name": null,
+          "mime": null,
+          "size": null,
+          "realm": "0mwnku9it6vua",
+          "src": "link:Ana",
+          "created": 1795094371263
+        }
+      }
+    },
+    {
+      "name": "revoke",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/realms/0mwnku9it6vua/links/pyy9NNkfyq4Uom0-3o3Euzby"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "name": "delete",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/realms/0mwnku9it6vua/items/0mwnku9ivn861"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "name": "help",
+      "request": {
+        "method": "GET",
+        "path": "/api/"
+      },
+      "response": {
+        "status": 200,
+        "type": "text/markdown",
+        "body": "# realm — owner access\n\nrealm is a personal dump of notes and files, kept in realms. \nBase URL: https://realm.test/api/realms/<realm>\nNo login needed beyond this URL plus the bearer token. All responses are JSON unless noted.\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/info\"   # what this access allows, without spending a use\n\n## Realms\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms\"   → {\"realms\": [{id, name, created, count, updated}]}\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X POST \"https://realm.test/api/realms\" -H 'content-type: application/json' -d '{\"name\":\"Trip\"}'\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X PATCH \"https://realm.test/api/realms/<realm>\" -H 'content-type: application/json' -d '{\"name\":\"Holiday\"}'\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X DELETE \"https://realm.test/api/realms/<realm>\"   # deletes everything in it\nThe routes below work per realm.\n\n## Find things\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/items?limit=20\"                   # newest first\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/items?q=invoice+march\"            # full-text search over text and file names\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/items?kind=image,file&limit=50\"   # filter by kind\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/items?before=<id>\"                # next page (response has \"next\")\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/items?since=<n>\"                  # what was added after a list's \"since\"\n→ {\"items\": [Item...], \"next\": \"<id>\"|null}\nItem: {id, kind: note|link|image|audio|video|file, text, name, mime, size, realm, src, created(epoch ms)}\n\n## Fetch an item\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/items/<id>\"                       # metadata\ncurl -sLo out.bin -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/items/<id>/raw\"         # file bytes (or note text). Supports Range.\n\n## Add things\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X POST \"https://realm.test/api/realms/<realm>/items\" --data-binary \"some text\"          # a note\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -T ./report.pdf \"https://realm.test/api/realms/<realm>/files/report.pdf\"                 # a file (≤ 95 MB), ?text=caption optional\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -F file=@a.png -F file=@b.png -F text=caption \"https://realm.test/api/realms/<realm>/items\"  # form upload\n\nBigger files: multipart, parts of equal size (e.g. 32 MiB, last may be smaller):\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X POST \"https://realm.test/api/realms/<realm>/uploads\" -H 'content-type: application/json' -d '{\"name\":\"big.mkv\"}'   → {\"upload\": U}\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -T part1 \"https://realm.test/api/realms/<realm>/uploads/U/1\"     → {\"part\":1,\"etag\":E1}   (repeat for 2..N)\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X POST \"https://realm.test/api/realms/<realm>/uploads/U/complete\" -H 'content-type: application/json' -d '{\"parts\":[{\"part\":1,\"etag\":\"E1\"}]}'\n\n## Edit / remove\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X PATCH \"https://realm.test/api/realms/<realm>/items/<id>\" -H 'content-type: application/json' -d '{\"text\":\"new text\"}'\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X DELETE \"https://realm.test/api/realms/<realm>/items/<id>\"\n\n## Share links\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X POST \"https://realm.test/api/realms/<realm>/links\" -H 'content-type: application/json' -d '{\"scope\":\"drop\",\"ttl\":86400,\"label\":\"bob\"}'\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X POST \"https://realm.test/api/realms/<realm>/links\" -H 'content-type: application/json' -d '{\"items\":[\"<id>\",\"<id>\"],\"uses\":3}'   # just these items\nscope: drop | read | full · items: ids to share only those (read only; one item downloads at the link itself)\nttl seconds (omit = forever) · uses (omit = unlimited) · max_bytes upload budget\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" \"https://realm.test/api/realms/<realm>/links\"  ·  curl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X DELETE \"https://realm.test/api/realms/<realm>/links/<token>\"\ncurl -s -H \"Authorization: Bearer $REALM_TOKEN\" -X PATCH \"https://realm.test/api/realms/<realm>/links/<token>\" -H 'content-type: application/json' -d '{\"items\":[\"<id>\"]}'   # change what it shares\n"
+      }
+    },
+    {
+      "name": "deleteRealm",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/realms/0mwnku9it6vua"
+      },
+      "response": {
+        "status": 200,
+        "type": "application/json",
+        "body": {
+          "ok": true
+        }
+      }
+    }
+  ]
+}

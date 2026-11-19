@@ -1,0 +1,61 @@
+name: release-worker
+
+on:
+  push:
+    # worker releases and their release candidates only, as .githooks/pre-push enforces
+    tags: ["worker/v[0-9]+.[0-9]+.[0-9]+", "worker/v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: REALM_BUILD_TAG="${GITHUB_REF_NAME#worker/}" npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker
+          path: worker/dist/worker.*
+          if-no-files-found: error
+
+  release:
+    needs: [worker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: worker
+          path: dist
+      # Apps install only a worker whose protocol they speak, so an app release must speak it first.
+      - name: Check an app release speaks the worker's protocol
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ contains(github.ref_name, '-rc.') }}
+        run: |
+          protocol=$(jq -e .version dist/worker.json)
+          spoken=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq \
+            ".[] | select((.draft | not) and ($CANDIDATE or (.prerelease | not)) and (.tag_name | test(\"^(app/)?v[0-9]\")))
+               | .assets[] | select(.name == \"app.json\") | .browser_download_url" |
+            while read -r url; do curl -fsSL "$url" | jq '.protocol // 0'; done | sort -n | tail -1)
+          [ "${spoken:-0}" -ge "$protocol" ] ||
+            { echo "No app release speaks protocol $protocol yet: push an app/vX.Y.Z tag first, then this one again"; exit 1; }
+      # A release candidate is a pre-release, which the app never deploys.
+      - run: >-
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          ${{ contains(github.ref_name, '-rc.') && '--prerelease' || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}

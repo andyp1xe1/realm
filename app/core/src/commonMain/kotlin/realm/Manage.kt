@@ -56,44 +56,5 @@ suspend fun CloudflareApi.takeOff(addresses: Addresses, origin: String) {
 
 class LastAddress(val hostname: String) : ApiException("realm answers only on $hostname, so it stays. Add another address first.")
 
-sealed interface UpdateCheck {
-    data class UpToDate(val release: Release, val info: Info) : UpdateCheck
-
-    /** A newer release of the same fork: [plan] deploys it. */
-    data class Available(val plan: Plan.Update) : UpdateCheck
-
-    /** There's a release, but it isn't deployed over this worker: [plan] says why. */
-    data class Refused(val plan: Plan.Refused) : UpdateCheck
-
-    data class NeedsNewerApp(val newer: Semver) : UpdateCheck
-}
-
-/** Looks for a newer release for the realm worker on [account], and what deploying it would do. Changes nothing. */
-suspend fun CloudflareApi.checkUpdate(account: Account): UpdateCheck {
-    val release = try {
-        latestRelease(engine)
-    } catch (e: NoRelease) {
-        val newer = e.newer ?: throw e
-        return UpdateCheck.NeedsNewerApp(newer)
-    }
-    return when (val plan = plan(account, release)) {
-        is Plan.Update -> UpdateCheck.Available(plan)
-
-        is Plan.Refused -> {
-            val reason = plan.reason
-            when {
-                reason !is Refusal.Current -> UpdateCheck.Refused(plan)
-                release.newer != null -> UpdateCheck.NeedsNewerApp(release.newer)
-                else -> UpdateCheck.UpToDate(release, reason.info)
-            }
-        }
-
-        is Plan.Fresh -> throw ApiException("There's no realm worker on that account any more.")
-    }
-}
-
-/** Whether a worker that says [info] should be offered release [version]: only an older one of this app's fork. */
-fun offersUpdate(info: Info, version: Int): Boolean = info.fork == Api.FORK && info.version < version
-
 /** The account [id] as the login sees it, with its name if the login was given it. */
 suspend fun CloudflareApi.account(id: String): Account = accounts().firstOrNull { it.id == id } ?: Account(id)

@@ -21,17 +21,8 @@ class CloudflareSetup internal constructor(
     var login by mutableStateOf<Login?>(null)
         private set
 
-    /** A newer worker this app can deploy over the server you're signed in to, once one is known. */
-    var update by mutableStateOf<ServerUpdate?>(null)
-        private set
-
     private val platform get() = home.platform
     private var job: Job? = null
-    private val updateChecks = UpdateChecks(home.platform.prefs, { latestRelease(engine) })
-
-    /** The tag of the newest release seen, like v1.2.0, kept between runs. */
-    var knownRelease by mutableStateOf(updateChecks.knownTag)
-        private set
 
     /**
      * Logs in with Cloudflare in the browser. One account signs in to its worker, or opens onboarding to deploy
@@ -46,34 +37,68 @@ class CloudflareSetup internal constructor(
 
             is NoWorker -> Snapshot.withMutableSnapshot {
                 login = null
-                home.onboarding.start(r.login, listOf(r.account))
+                home.chooseAccount(r.login, listOf(r.account))
             }
 
             is SeveralAccounts -> Snapshot.withMutableSnapshot {
                 login = null
-                home.onboarding.start(r.login, r.accounts)
+                home.chooseAccount(r.login, r.accounts)
             }
         }
         before?.let { scope.launch { it.revoke() } }
     }
 
-    /** Opens the plan for [update], with the Cloudflare login the server is signed in with. */
-    fun startUpdate() {
-        val session = home.session ?: return
-        val id = session.login.account ?: return
+    /**
+     * Logs in with Cloudflare in the browser to manage the server you're signed in to, then goes on to [then]. The
+     * sign-in you have stays until the login is shown to run that server.
+     */
+    fun manage(then: (() -> Unit)? = null) {
+        val origin = home.server?.base?.removeSuffix("/api") ?: return
+        start {
+            login = Login.LoggingIn
+            val s = manageWithCloudflare(platform, origin, platform.name, home::sessionFor, engine)
+            Snapshot.withMutableSnapshot {
+                login = null
+                home.managedWith(s)
+            }
+            then?.invoke()
+        }
+    }
+
+    /**
+     * Opens the plan for updating the server to the newest release this app can deploy, with the Cloudflare login it's
+     * signed in with. When [asked] already, a plan with nothing to decide runs at once.
+     */
+    fun startUpdate(asked: Boolean = false) {
+        if (home.session?.login?.account == null) return
         start {
             login = Login.Planning
-            login = try {
-                val release = latestRelease(engine)
-                val plan = CloudflareApi(session, engine).use { it.planUpdate(it.account(id), release) }
-                if (plan is Plan.Fresh) throw ApiException("There's no realm worker on that account any more.")
-                Login.Confirm(session, plan, Choices(), null)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                logFailure("Working out an update on $id", e)
-                Login.Failed(explain(e))
+            val planned = planned()
+            login = planned
+            if (asked && planned is Login.Confirm && planned.decided) deploy(planned.choices)
+        }
+    }
+
+    private suspend fun planned(): Login? {
+        val p = home.phase as? Phase.SignedIn ?: return null
+        val session = p.session ?: return null
+        val id = session.login.account ?: return null
+        val origin = p.server.base.removeSuffix("/api")
+        return try {
+            val release = home.releases.get(force = false).worker(engine)
+            val plan = CloudflareApi(session, engine).use { cf ->
+                val account = cf.account(id)
+                if (origin !in cf.addresses(account).origins) throw NotOnThisAccount(origin.removePrefix("https://"))
+                cf.planUpdate(account, release)
             }
+            if (plan is Plan.Fresh) throw ApiException("There's no realm worker on that account any more.")
+            (plan.found.script as? Existing.Answered)?.let { a -> p.facts.update { it.copy(info = a.info) } }
+            Login.Confirm(session, plan, Choices(), null)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logFailure("Working out an update on $id", e)
+            Login.Failed(explain(e))
         }
     }
 
@@ -130,10 +155,15 @@ class CloudflareSetup internal constructor(
 
     private fun finish(landed: Landed) {
         when (landed) {
-            is Landed.Updated -> {
+            is Landed.Updated -> Snapshot.withMutableSnapshot {
                 login = null
-                update = null
-                home.message = "Your server runs realm ${landed.plan.release.manifest.version} now."
+                (home.phase as? Phase.SignedIn)?.facts?.update { it.copy(info = landed.info) }
+                home.message = "Your server runs ${landed.plan.release.tag} now."
+            }
+
+            is Landed.Uploaded -> Snapshot.withMutableSnapshot {
+                login = null
+                home.message = "${landed.plan.release.tag} is uploaded, but your server doesn't run it yet. Check again in a minute."
             }
 
             is Landed.NotAnswering -> Snapshot.withMutableSnapshot {
@@ -160,28 +190,6 @@ class CloudflareSetup internal constructor(
                 login = null
             }
         }
-    }
-
-    internal fun checkForUpdate(signedIn: Phase.SignedIn, info: Info, force: Boolean) {
-        if (!updateChecks.due(force)) return
-        signedIn.scope.launch {
-            try {
-                val newer = updateChecks.newerFor(info, force)
-                Snapshot.withMutableSnapshot {
-                    update = newer?.let { ServerUpdate(info.version, it, canDeploy = signedIn.session?.login?.account != null) }
-                    knownRelease = updateChecks.knownTag
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                logFailure("Checking for a newer worker", e)
-            }
-        }
-    }
-
-    internal fun signedOut() {
-        update = null
-        updateChecks.reset()
     }
 
     private fun start(failed: ((ApiException) -> Unit)? = null, block: suspend () -> Unit) {

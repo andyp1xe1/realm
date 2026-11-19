@@ -170,6 +170,46 @@ class DeployTest {
     }
 
     @Test
+    fun anUpdateWaitsUntilTheWorkerRunsTheNewRelease() = runTest {
+        val release = Release(Semver(1, 1, 0), MANIFEST.copy(version = Api.VERSION, build = "v1.1.0"), "abc".encodeToByteArray(), null)
+        val old = Info(version = Api.VERSION, scope = "owner", build = "v1.0.0")
+        var asked = 0
+        val c = clouds { route ->
+            if (route == "GET realm.jo.workers.dev/api/info") {
+                json("""{"version":${Api.VERSION},"scope":"owner","build":"${if (++asked < 3) "v1.0.0" else "v1.1.0"}"}""")
+            } else {
+                null
+            }
+        }
+        val done = c.api().deploy(
+            Plan.Update(release, found(Existing.Answered("https://realm.jo.workers.dev", old), workersDevOn = true), old),
+        )
+
+        assertEquals("v1.1.0", assertIs<Answer.Owner>(done.answer).info.build)
+        assertEquals(3, asked)
+    }
+
+    @Test
+    fun anUpdateTheOldWorkerKeepsAnsweringIsNotRunYet() = runTest {
+        val release = Release(Semver(1, 1, 0), MANIFEST.copy(version = Api.VERSION, build = "v1.1.0"), "abc".encodeToByteArray(), null)
+        for (build in listOf("v1.0.0", "v1.1.0-rc.2")) {
+            val old = Info(version = Api.VERSION, scope = "owner", build = build)
+            val c = clouds { route ->
+                if (route == "GET realm.jo.workers.dev/api/info") {
+                    json("""{"version":${Api.VERSION},"scope":"owner","build":"$build"}""")
+                } else {
+                    null
+                }
+            }
+            val done = c.api().deploy(
+                Plan.Update(release, found(Existing.Answered("https://realm.jo.workers.dev", old), workersDevOn = true), old),
+            )
+
+            assertNull(assertIs<Answer.NotYet>(done.answer).last, build)
+        }
+    }
+
+    @Test
     fun aNewAddressThatIsSlowToResolveIsStillADeploy() = runTest {
         val c = clouds { route -> if (route == "GET realm.jo.workers.dev/api/info") throw IOException("NXDOMAIN") else null }
         val done = c.api().deploy(Plan.Fresh(RELEASE, found()))
