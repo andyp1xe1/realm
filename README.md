@@ -10,7 +10,7 @@ The server is a Cloudflare Worker in `worker/`. It keeps files in R2 and items i
 
 ## Deploy the worker
 
-Run the app and log in with Cloudflare. The app lists what the account still needs, then deploys the worker from the newest GitHub release, never a release candidate. Settings offers updates and manages the worker's addresses.
+Run the app and log in with Cloudflare. The app lists what the account still needs, then deploys the worker from its newest GitHub release, never a release candidate. Settings offers updates to the app and the worker, which are released apart, and manages the worker's addresses.
 
 To deploy by hand:
 

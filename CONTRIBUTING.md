@@ -15,8 +15,15 @@ Agent skills live in `.agents/skills/`. `.claude/skills` links there.
 
 ## Release
 
-Push a tag `vX.Y.Z`, or `vX.Y.Z-rc.N` for a release candidate. A release candidate becomes a GitHub pre-release, which the app never deploys. `.github/workflows/release.yml` builds the worker bundle, the APK, a Linux AppImage, and a desktop jar, each versioned from the tag.
+The app and the worker have their own versions, and each is released only when it changes:
 
-The workflow signs the APK with the key in the secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Phones refuse an update signed with another key, so never change the key.
+- Push `app/vX.Y.Z` to release the app. `.github/workflows/release-app.yml` builds the APK, a Linux AppImage, and a desktop jar.
+- Push `worker/vX.Y.Z` to release the worker. `.github/workflows/release-worker.yml` builds the worker bundle.
 
-The workflow also signs `app.json`, the SHA-256 of each app file, with the ECDSA P-256 key in the secret `APP_SIGNING_KEY`. The app installs only releases signed with the key whose public half is `Api.APP_KEY`, so release a new `Api.APP_KEY` before you sign with a new key.
+Add `-rc.N` for a release candidate. It becomes a GitHub pre-release, which the app never installs or deploys.
+
+The two talk through a protocol, `VERSION` in `worker/src/common.ts` and `Api.VERSION`. When a worker change needs a new protocol, release an app that speaks it first: the worker workflow refuses a worker no released app speaks the protocol of.
+
+The app workflow signs the APK with the key in the secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Phones refuse an update signed with another key, so never change the key.
+
+It also signs `app.json`, the SHA-256 of each app file and the protocol the app speaks, with the ECDSA P-256 key in the secret `APP_SIGNING_KEY`. The app installs only releases signed with the key whose public half is `Api.APP_KEY`, so release a new `Api.APP_KEY` before you sign with a new key.
