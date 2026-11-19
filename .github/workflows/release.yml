@@ -121,9 +121,11 @@ jobs:
           public=$(openssl pkey -in "$key" -pubout -outform DER | base64 -w0)
           grep -qF "\"$public\"" app/core/src/commonMain/kotlin/realm/Api.kt ||
             { rm "$key"; echo "APP_SIGNING_KEY isn't the key for Api.APP_KEY, so the app would refuse this release"; exit 1; }
+          protocol=$(sed -n 's/^ *const val VERSION = \([0-9]*\)$/\1/p' app/core/src/commonMain/kotlin/realm/Api.kt)
+          [ -n "$protocol" ] || { rm "$key"; echo "Api.kt names no protocol (const val VERSION)"; exit 1; }
           cd dist
-          sha256sum realm-* | jq -Rn --arg tag "$GITHUB_REF_NAME" \
-            '{tag: $tag, files: ([inputs | capture("^(?<sha>[0-9a-f]{64})  (?<name>.+)$") | {(.name): .sha}] | add)}' >app.json
+          sha256sum realm-* | jq -Rn --arg tag "$GITHUB_REF_NAME" --argjson protocol "$protocol" \
+            '{tag: $tag, protocol: $protocol, files: ([inputs | capture("^(?<sha>[0-9a-f]{64})  (?<name>.+)$") | {(.name): .sha}] | add)}' >app.json
           openssl dgst -sha256 -sign "$key" -out app.json.sig app.json
           rm "$key"
       # A release candidate is a pre-release, which the app never deploys.
