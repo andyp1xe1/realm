@@ -9,17 +9,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
- * Keeps this copy of the app on its fork's newest stable release, when it can replace itself, from the [releases]
- * listed. Looks once a day without a word; installs only when asked. [now] is in Unix seconds.
+ * Keeps this copy of the app on its fork's newest stable release, when it can replace itself, from the releases
+ * [feed] lists. Looks without a word whenever the listing is new; installs only when asked.
  */
 class AppUpdates internal constructor(
     prefs: Prefs,
     private val updater: Updater?,
-    private val releases: suspend (force: Boolean) -> Releases,
+    private val feed: ReleaseFeed,
     private val scope: CoroutineScope,
-    private val now: () -> Long = Cloudflare::now,
 ) {
-    private val kept = Daily(prefs, "app-update", AppLook.serializer(), now)
+    private val kept = Remembered(prefs, "app-look", AppLook.serializer())
     private var job: Job? = null
 
     /** This copy's version; null when it can't update itself. */
@@ -40,10 +39,12 @@ class AppUpdates internal constructor(
 
     private val busy get() = job?.isActive == true
 
-    /** Looks for a newer release, without showing it's looking, if there was no answer in the last day. */
+    private val settled get() = feed.fresh && looked?.let { it.newest == feed.known?.newest?.tag } == true
+
+    /** Looks for a newer release, without showing it's looking, unless the last look was at the releases listed in the last day. */
     fun refresh() {
         val u = updater ?: return
-        if (busy || work is SelfUpdate.Ready || kept.fresh) return
+        if (busy || work is SelfUpdate.Ready || settled) return
         job = scope.launch {
             try {
                 look(u, force = false)
@@ -62,7 +63,7 @@ class AppUpdates internal constructor(
     }
 
     /** Downloads the newest release and puts it in place of the app, asking first where the system does. */
-    fun install() = work(installs = true, available?.let { SelfUpdate.Downloading(it, 0f) } ?: SelfUpdate.Checking) { u ->
+    fun install() = work(installs = true, SelfUpdate.Checking) { u ->
         val update = look(u, force = false)
         if (update == null) {
             work = null
@@ -90,8 +91,9 @@ class AppUpdates internal constructor(
     }
 
     private suspend fun look(u: Updater, force: Boolean): AppUpdate? {
-        val update = u.newer(releases(force))
-        val l = AppLook(update?.tag)
+        val releases = feed.get(force)
+        val update = u.newer(releases)
+        val l = AppLook(update?.tag, releases.newest?.tag)
         kept.set(l)
         looked = l
         return update

@@ -70,10 +70,10 @@ data class Info(
     val items: Int? = null,
     /** The item, when exactly one is picked. */
     val item: Item? = null,
-    /** The release tag the worker was deployed from, like v1.2.0; null when it doesn't say, as before API version 5. */
+    /** The release tag the worker was built for, like v1.2.0; null when it doesn't say, as one built from source. */
     val build: String? = null,
 ) {
-    /** The release the worker was deployed from, when it says. */
+    /** The release the worker was built for, when it says. */
     val release: Semver? get() = build?.let(Semver::parse)
 
     /** What the worker runs, in words: its fork and release, or its API version when it doesn't say its release. */

@@ -366,12 +366,14 @@ function help(ctx: Ctx): Promise<Response> | Response {
   return wantsHtml(ctx.req) ? htmlPage(ctx) : text(agentHelp(ctx), 200, "text/markdown; charset=utf-8");
 }
 
+declare const REALM_BUILD_TAG: string | undefined;
+
 async function info(ctx: Ctx): Promise<Response> {
   const l = ctx.link;
   const out: Record<string, unknown> = {
     fork: FORK,
     version: VERSION,
-    build: ctx.env.REALM_BUILD ?? null,
+    build: typeof REALM_BUILD_TAG === "undefined" ? null : REALM_BUILD_TAG,
     scope: ctx.scope,
     realm: "realm" in ctx ? ctx.realm : null,
   };

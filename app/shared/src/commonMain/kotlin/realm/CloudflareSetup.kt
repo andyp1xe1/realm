@@ -37,12 +37,12 @@ class CloudflareSetup internal constructor(
 
             is NoWorker -> Snapshot.withMutableSnapshot {
                 login = null
-                home.onboarding.start(r.login, listOf(r.account))
+                home.chooseAccount(r.login, listOf(r.account))
             }
 
             is SeveralAccounts -> Snapshot.withMutableSnapshot {
                 login = null
-                home.onboarding.start(r.login, r.accounts)
+                home.chooseAccount(r.login, r.accounts)
             }
         }
         before?.let { scope.launch { it.revoke() } }
@@ -50,39 +50,50 @@ class CloudflareSetup internal constructor(
 
     /**
      * Logs in with Cloudflare in the browser to manage the server you're signed in to. The sign-in you have stays
-     * until the login is shown to run that server.
+     * until the login is shown to run that server. [thenUpdate] goes on to the plan [startUpdate] opens.
      */
-    fun manage() {
+    fun manage(thenUpdate: Boolean = false) {
         val origin = home.server?.base?.removeSuffix("/api") ?: return
         start {
             login = Login.LoggingIn
             val s = manageWithCloudflare(platform, origin, platform.name, home::sessionFor, engine)
             Snapshot.withMutableSnapshot {
-                login = null
+                login = if (thenUpdate) Login.Planning else null
                 home.managedWith(s)
             }
+            if (thenUpdate) login = planned()
         }
     }
 
     /** Opens the plan for updating the server to the newest release this app can deploy, with the Cloudflare login it's signed in with. */
     fun startUpdate() {
-        val p = home.phase as? Phase.SignedIn ?: return
-        val session = p.session ?: return
-        val id = session.login.account ?: return
+        if (home.session?.login?.account == null) return
         start {
             login = Login.Planning
-            login = try {
-                val release = home.releases.get(force = false).worker(engine)
-                val plan = CloudflareApi(session, engine).use { it.planUpdate(it.account(id), release) }
-                if (plan is Plan.Fresh) throw ApiException("There's no realm worker on that account any more.")
-                (plan.found.script as? Existing.Answered)?.let { a -> p.facts.update { it.copy(info = a.info) } }
-                Login.Confirm(session, plan, Choices(), null)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                logFailure("Working out an update on $id", e)
-                Login.Failed(explain(e))
+            login = planned()
+        }
+    }
+
+    private suspend fun planned(): Login? {
+        val p = home.phase as? Phase.SignedIn ?: return null
+        val session = p.session ?: return null
+        val id = session.login.account ?: return null
+        val origin = p.server.base.removeSuffix("/api")
+        return try {
+            val release = home.releases.get(force = false).worker(engine)
+            val plan = CloudflareApi(session, engine).use { cf ->
+                val account = cf.account(id)
+                if (origin !in cf.addresses(account).origins) throw NotOnThisAccount(origin.removePrefix("https://"))
+                cf.planUpdate(account, release)
             }
+            if (plan is Plan.Fresh) throw ApiException("There's no realm worker on that account any more.")
+            (plan.found.script as? Existing.Answered)?.let { a -> p.facts.update { it.copy(info = a.info) } }
+            Login.Confirm(session, plan, Choices(), null)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logFailure("Working out an update on $id", e)
+            Login.Failed(explain(e))
         }
     }
 

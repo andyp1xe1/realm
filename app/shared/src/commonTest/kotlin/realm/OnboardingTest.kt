@@ -206,6 +206,41 @@ class OnboardingTest {
     }
 
     @Test
+    fun loggingInToUpdateGoesOnToThePlan() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByToken("https://realm.jo.workers.dev", Secret("token"))) }
+        val cloud = Cloud(this).apply {
+            worker = true
+            build = "v1.1.0"
+        }
+        val home = home(prefs, cloud)
+        advanceUntilIdle()
+
+        home.cloudflare.manage(thenUpdate = true)
+        while (home.cloudflare.login !is Login.Confirm) {
+            advanceUntilIdle()
+            withContext(Dispatchers.Default) { delay(5) }
+        }
+        assertIs<Connection.ByCloudflare>(prefs.own())
+        assertIs<Plan.Update>(assertIs<Login.Confirm>(home.cloudflare.login).plan)
+    }
+
+    @Test
+    fun loggingInToSeveralAccountsSignsOutOfTheServerSignedInToWithAToken() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByToken("https://realm.jo.workers.dev", Secret("token"))) }
+        val cloud = Cloud(this, studio = true).apply { worker = true }
+        val home = home(prefs, cloud)
+        advanceUntilIdle()
+        assertEquals(listOf("Main"), home.realms.map { it.name })
+
+        home.cloudflare.logIn()
+        loggedIn(home)
+        assertEquals(Screen.Onboarding, home.screen)
+        assertNull(home.server)
+        assertEquals(emptyList(), home.realms.toList())
+        assertIs<Connection.LoginOnly>(prefs.own())
+    }
+
+    @Test
     fun aRestartWithOnlyACloudflareLoginOpensOnboardingWithItsChecks() = runTest {
         val home = home(MapPrefs(kept), Cloud(this))
         assertEquals(Screen.Onboarding, home.screen)

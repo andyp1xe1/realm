@@ -32,6 +32,8 @@ data class Manifest(
     @SerialName("r2_buckets") val buckets: List<BucketBinding> = emptyList(),
     @SerialName("d1_databases") val databases: List<DatabaseBinding> = emptyList(),
     val crons: List<String> = emptyList(),
+    /** The release tag the worker says it runs, when it was built for one. */
+    val build: String? = null,
 )
 
 @Serializable
@@ -123,7 +125,7 @@ suspend fun fetchReleases(engine: HttpClientEngine? = null): Releases = client(e
         val manifest = files["worker.json"]?.let { url ->
             val text = http.fromGitHub(url).bodyAsText()
             runCatching { cloudflareJson.decodeFromString<Manifest>(text) }.getOrNull()
-        }?.takeIf { it.fork == Api.FORK }
+        }?.takeIf { it.fork == Api.FORK && (it.build ?: "$tag") == "$tag" }
         list += Listed(tag, files, manifest)
         if (manifest != null && manifest.version <= Api.VERSION && manifest.mainModule in files) break
     }

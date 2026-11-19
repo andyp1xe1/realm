@@ -167,7 +167,10 @@ private fun ColumnScope.Status(v: UpdatesView, home: Home, onClose: () -> Unit) 
             home.cloudflare.startUpdate()
         })
 
-        v.status is ServerStatus.Behind -> InlineButton("Log in with Cloudflare to update", manage)
+        v.status is ServerStatus.Behind -> InlineButton("Log in with Cloudflare to update", {
+            onClose()
+            home.cloudflare.manage(thenUpdate = true)
+        })
 
         else -> {
             InlineButton(if (v.status == null) "Check for updates" else "Check again", home.serverSettings::checkForUpdates)

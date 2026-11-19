@@ -229,11 +229,6 @@ private suspend fun CloudflareApi.upload(account: Account, release: Release, dat
                 put("name", "REALM_ACCOUNT")
                 put("text", account.id)
             }
-            addJsonObject {
-                put("type", "plain_text")
-                put("name", "REALM_BUILD")
-                put("text", "${release.tag}")
-            }
         }
         putJsonArray("keep_bindings") { add("secret_text") }
     }

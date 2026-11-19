@@ -86,6 +86,9 @@ suspend fun logInWithCloudflare(
 class NotThisServer(val hostname: String) :
     ApiException("None of the Cloudflare accounts you picked runs $hostname. Pick the one it runs on.")
 
+class NotOnThisAccount(val hostname: String) :
+    ApiException("The Cloudflare account you're signed in with doesn't run $hostname any more.")
+
 /**
  * Logs in with Cloudflare in the browser to manage the server at [origin]: signs in to it again with the account
  * whose realm worker answers there, else ends the login and throws [NotThisServer]. [session] is as for

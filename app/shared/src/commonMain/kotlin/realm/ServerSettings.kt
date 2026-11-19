@@ -39,6 +39,7 @@ class ServerSettings internal constructor(private val home: Home, private val en
         signedIn.scope.launch {
             try {
                 home.releases.get(force)
+                home.appUpdates.refresh()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -64,6 +65,7 @@ class ServerSettings internal constructor(private val home: Home, private val en
                     p.facts.update { it.copy(info = info) }
                     check = Check.Idle
                 }
+                home.appUpdates.refresh()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

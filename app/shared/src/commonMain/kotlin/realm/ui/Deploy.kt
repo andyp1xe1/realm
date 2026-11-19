@@ -159,7 +159,7 @@ private fun ColumnScope.Refused(l: Login.Confirm, cloudflare: CloudflareSetup) {
 
 @Composable
 private fun ColumnScope.Failed(l: Login.Failed, cloudflare: CloudflareSetup) {
-    Title("Can't deploy realm")
+    Title("Can't update realm")
     Spacer(Modifier.height(8.dp))
     Text(l.message, style = MaterialTheme.typography.bodyMedium)
     Buttons { TextButton(onClick = cloudflare::dismiss) { Text("Close") } }

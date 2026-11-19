@@ -44,9 +44,12 @@ class AppUpdatesTest {
         }
     }
 
-    private fun TestScope.updates(updater: Updater? = FakeUpdater()) = AppUpdates(prefs, updater, {
-        Releases(emptyList())
-    }, backgroundScope) { now }
+    private var listed = Releases(emptyList())
+
+    private fun feed() = ReleaseFeed(prefs, { listed }) { now }
+
+    private fun TestScope.updates(updater: Updater? = FakeUpdater(), feed: ReleaseFeed = feed()) =
+        AppUpdates(prefs, updater, feed, backgroundScope)
 
     @Test
     fun looksQuietlyAtMostOnceADay() = runTest {
@@ -61,6 +64,24 @@ class AppUpdatesTest {
         now += 1
         u.refresh()
         runCurrent()
+        assertEquals(2, looks)
+    }
+
+    @Test
+    fun aNewListingIsLookedAtWithinTheDay() = runTest {
+        newest = null
+        val feed = feed()
+        val u = updates(feed = feed)
+        u.refresh()
+        runCurrent()
+        assertEquals(SelfUpdate.UpToDate, u.state)
+
+        listed = Releases(listOf(Listed(v120, emptyMap())))
+        newest = update
+        feed.get(force = true)
+        u.refresh()
+        runCurrent()
+        assertEquals(SelfUpdate.Available(v120), u.state)
         assertEquals(2, looks)
     }
 
@@ -102,7 +123,10 @@ class AppUpdatesTest {
     fun installsWithProgressThenWaitsToRestart() = runTest {
         val updater = FakeUpdater()
         val u = updates(updater)
+        u.refresh()
+        runCurrent()
         u.install()
+        assertEquals(SelfUpdate.Checking, u.state)
         runCurrent()
         assertEquals(SelfUpdate.Downloading(v120, 0.5f), u.state)
         updater.downloaded.complete(Unit)

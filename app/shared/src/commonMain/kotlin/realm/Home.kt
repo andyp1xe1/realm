@@ -66,7 +66,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     val onboarding = Onboarding(this, scope, engine)
 
     /** Replacing this copy of the app with a newer release. */
-    val appUpdates = AppUpdates(platform.prefs, platform.updater, releases::get, scope)
+    val appUpdates = AppUpdates(platform.prefs, platform.updater, releases, scope)
 
     /** Whether the app update out speaks a newer API than the server signed in to: the server needs updating after it. */
     val appOutpacesServer: Boolean
@@ -293,6 +293,12 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         realms.addAll(s.realms)
         knownRealms.set(s.realms)
         fetchAhead(p, s.info, force = false)
+    }
+
+    /** Opens onboarding with [login] to pick among [accounts], signing out of the server signed in to. */
+    internal fun chooseAccount(login: CloudflareLogin, accounts: List<Account>) {
+        if (phase is Phase.SignedIn) signOut()
+        onboarding.start(login, accounts)
     }
 
     private fun fetchAhead(p: Phase.SignedIn?, known: Info?, force: Boolean) {

@@ -126,11 +126,16 @@ test("info tells a client what a link is without spending a use", async () => {
   assert.match(await (await call("/api")).text(), /## Realms/);
 });
 
-test("the owner's info says the release the worker was deployed from", async () => {
-  const { call, env } = setup();
-  (env as { REALM_BUILD?: string }).REALM_BUILD = "v1.2.0";
-  const o = await (await call("/api/info")).json();
-  assert.deepEqual([o.version, o.build], [VERSION, "v1.2.0"]);
+test("the owner's info says the release the worker was built for", async () => {
+  const { call } = setup();
+  const built = globalThis as { REALM_BUILD_TAG?: string };
+  built.REALM_BUILD_TAG = "v1.2.0";
+  try {
+    const o = await (await call("/api/info")).json();
+    assert.deepEqual([o.version, o.build], [VERSION, "v1.2.0"]);
+  } finally {
+    delete built.REALM_BUILD_TAG;
+  }
 });
 
 test("an existing database migrates: items land in Main, item links become selections", async () => {

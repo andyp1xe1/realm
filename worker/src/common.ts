@@ -7,8 +7,6 @@ export interface Env {
   REALM_ACCOUNT?: string;
   /** This worker's script name on Cloudflare, if not "realm". */
   REALM_WORKER?: string;
-  /** The release tag this worker was deployed from, like v1.2.0. Set by the app when it deploys a release. */
-  REALM_BUILD?: string;
 }
 
 /** The GitHub "owner/repo" of a fork; realm itself has none. */

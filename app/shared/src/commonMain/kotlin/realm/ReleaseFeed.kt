@@ -18,6 +18,9 @@ class ReleaseFeed internal constructor(prefs: Prefs, private val fetch: suspend 
     var known by mutableStateOf(kept.get())
         private set
 
+    /** Whether [known] was listed in the last day. */
+    val fresh: Boolean get() = kept.fresh
+
     /** The releases: those listed in the last day unless [force]d, else GitHub's. */
     suspend fun get(force: Boolean): Releases = asking.withLock {
         known?.takeIf { !force && kept.fresh } ?: fetch().also {

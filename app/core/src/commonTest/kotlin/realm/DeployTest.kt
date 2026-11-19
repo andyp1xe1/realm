@@ -81,7 +81,6 @@ class DeployTest {
                 mapOf("type" to "r2_bucket", "name" to "BUCKET", "bucket_name" to "realm"),
                 mapOf("type" to "d1", "name" to "DB", "id" to "new-db"),
                 mapOf("type" to "secret_text", "name" to "REALM_ACCOUNT", "text" to "a1"),
-                mapOf("type" to "plain_text", "name" to "REALM_BUILD", "text" to "v1.0.0"),
             ),
             meta["bindings"]!!.jsonArray.map { b -> b.jsonObject.mapValues { it.value.jsonPrimitive.content } }.toSet(),
         )

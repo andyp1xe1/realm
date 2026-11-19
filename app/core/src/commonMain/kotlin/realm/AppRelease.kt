@@ -24,9 +24,12 @@ data class AppVersion(val release: Semver, val candidate: Int? = null) {
 /** The app file at [url] in release [tag], whose SHA-256 is [sha256] as the release's signed app.json says. */
 data class AppUpdate(val tag: Semver, val url: String, val sha256: String)
 
-/** What a look for a newer app found: the release newer than the copy that looked, or null when there was none. */
+/**
+ * What a look for a newer app found: the release newer than the copy that looked, or null when there was none, with
+ * the [newest] release listed then.
+ */
 @Serializable
-data class AppLook(val newer: Semver?)
+data class AppLook(val newer: Semver?, val newest: Semver?)
 
 /** app.json as the release workflow writes and signs it: each file in release [tag] by name, with its SHA-256. */
 @Serializable
