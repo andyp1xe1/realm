@@ -272,11 +272,13 @@ internal fun updating() {
     }.close()
     val film = Film(home, settings = true)
     film.roll("update", max = 20)
-    film.tap(88, 436) // Update, in settings
+    film.tap(80, 380) // Update, in settings
     film.roll("update", max = 200) { home.cloudflare.login is Login.Confirm }
+    check(home.cloudflare.login is Login.Confirm) { "update: tapping Update opened no plan: ${home.cloudflare.login}" }
     film.roll("update", max = 30)
     home.cloudflare.deploy(Choices())
     film.roll("update", every = 6, max = 600) { home.serverStatus == ServerStatus.Current }
+    check(home.serverStatus == ServerStatus.Current) { "update: the server isn't current after updating: ${home.serverStatus}" }
     film.roll("update", max = 20)
     film.close()
 
