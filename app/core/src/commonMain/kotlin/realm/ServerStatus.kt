@@ -34,9 +34,19 @@ fun serverStatus(info: Info, releases: Releases?): ServerStatus? {
 
 /**
  * How what [this] worker runs compares with release [tag], whose worker speaks API version [api]: by API version,
- * then by release when the worker says its own. A worker that doesn't say counts as that release.
+ * then by release when the worker says its own. A worker that doesn't say counts as that release; one that says
+ * something other than a release, or a candidate for [tag], counts as older.
  */
-internal fun Info.against(tag: Semver, api: Int): Int = if (version != api) version.compareTo(api) else release?.compareTo(tag) ?: 0
+internal fun Info.against(tag: Semver, api: Int): Int {
+    if (version != api) return version.compareTo(api)
+    if (build == null) return 0
+    val r = release ?: return -1
+    return when {
+        r.olderThan(tag) -> -1
+        r.release == tag -> 0
+        else -> 1
+    }
+}
 
 /** A warning for a server this app speaks to only in part, as [status] says what can be done about it, or null. */
 fun warning(info: Info, status: ServerStatus?): String? = when {

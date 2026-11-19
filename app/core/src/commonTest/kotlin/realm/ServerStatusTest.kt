@@ -24,6 +24,19 @@ class ServerStatusTest {
     }
 
     @Test
+    fun aWorkerOnACandidateIsBehindTheReleaseItLeadsUpTo() {
+        assertEquals(ServerStatus.Behind(v110), serverStatus(runs("v1.1.0-rc.2"), releases(v110 to v)))
+        assertEquals(ServerStatus.Current, serverStatus(runs("v1.2.0-rc.1"), releases(v110 to v)))
+    }
+
+    @Test
+    fun aWorkerThatSaysSomethingOtherThanAReleaseIsBehind() {
+        for (build in listOf("v1.1.0-test", "1.1.0", "main")) {
+            assertEquals(ServerStatus.Behind(v110), serverStatus(runs(build), releases(v110 to v)), build)
+        }
+    }
+
+    @Test
     fun aWorkerThatDoesNotSayItsReleaseIsComparedByApi() {
         assertEquals(ServerStatus.Current, serverStatus(runs(null), releases(v110 to v)))
         assertEquals(ServerStatus.Behind(v110), serverStatus(runs(null, version = v - 1), releases(v110 to v)))
@@ -66,6 +79,7 @@ class ServerStatusTest {
     @Test
     fun theWorkerRunsItsReleaseOrItsApiVersionInWords() {
         assertEquals("realm v1.0.0", runs("v1.0.0").running)
+        assertEquals("realm v1.1.0-rc.2", runs("v1.1.0-rc.2").running)
         assertEquals("realm API version 4", runs(null, version = 4).running)
         assertEquals("someone/realm API version 4", Info(fork = "someone/realm", version = 4, scope = "owner").running)
     }

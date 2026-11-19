@@ -112,7 +112,10 @@ class PlanTest {
             decide(RELEASE, found(Existing.Answered("https://x", Info(version = 3, scope = "owner", build = build))))
 
         assertIs<Plan.Update>(decided("v0.9.0"))
+        assertIs<Plan.Update>(decided("v1.0.0-rc.3"))
+        assertIs<Plan.Update>(decided("v1.0.0-test"))
         assertIs<Refusal.Current>(assertIs<Plan.Refused>(decided("v1.0.0")).reason)
+        assertIs<Refusal.Newer>(assertIs<Plan.Refused>(decided("v1.1.0-rc.1")).reason)
         assertIs<Refusal.Newer>(assertIs<Plan.Refused>(decided("v1.0.1")).reason)
         assertIs<Refusal.Current>(assertIs<Plan.Refused>(decided(null)).reason)
     }

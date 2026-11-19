@@ -192,21 +192,21 @@ class DeployTest {
     @Test
     fun anUpdateTheOldWorkerKeepsAnsweringIsNotRunYet() = runTest {
         val release = Release(Semver(1, 1, 0), MANIFEST.copy(version = Api.VERSION), "abc".encodeToByteArray(), null)
-        val old = Info(version = Api.VERSION, scope = "owner", build = "v1.0.0")
-        val c = clouds { route ->
-            if (route ==
-                "GET realm.jo.workers.dev/api/info"
-            ) {
-                json("""{"version":${Api.VERSION},"scope":"owner","build":"v1.0.0"}""")
-            } else {
-                null
+        for (build in listOf("v1.0.0", "v1.1.0-rc.2")) {
+            val old = Info(version = Api.VERSION, scope = "owner", build = build)
+            val c = clouds { route ->
+                if (route == "GET realm.jo.workers.dev/api/info") {
+                    json("""{"version":${Api.VERSION},"scope":"owner","build":"$build"}""")
+                } else {
+                    null
+                }
             }
-        }
-        val done = c.api().deploy(
-            Plan.Update(release, found(Existing.Answered("https://realm.jo.workers.dev", old), workersDevOn = true), old),
-        )
+            val done = c.api().deploy(
+                Plan.Update(release, found(Existing.Answered("https://realm.jo.workers.dev", old), workersDevOn = true), old),
+            )
 
-        assertNull(assertIs<Answer.NotYet>(done.answer).last)
+            assertNull(assertIs<Answer.NotYet>(done.answer).last, build)
+        }
     }
 
     @Test

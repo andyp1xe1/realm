@@ -73,11 +73,11 @@ data class Info(
     /** The release tag the worker was built for, like v1.2.0; null when it doesn't say, as one built from source. */
     val build: String? = null,
 ) {
-    /** The release the worker was built for, when it says. */
-    val release: Semver? get() = build?.let(Semver::parse)
+    /** The release or release candidate the worker was built for; null when it doesn't say, or says something else. */
+    val release: AppVersion? get() = build?.takeIf { it.startsWith("v") }?.drop(1)?.let(AppVersion::parse)
 
     /** What the worker runs, in words: its fork and release, or its API version when it doesn't say its release. */
-    val running: String get() = "${fork ?: "realm"} " + (release?.toString() ?: "API version $version")
+    val running: String get() = "${fork ?: "realm"} " + (release?.let { "v$it" } ?: "API version $version")
 }
 
 @Serializable
