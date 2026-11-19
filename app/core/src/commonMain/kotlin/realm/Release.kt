@@ -58,7 +58,7 @@ data class Semver(val major: Int, val minor: Int, val patch: Int) : Comparable<S
     }
 }
 
-private object SemverAsTag : KSerializer<Semver> {
+internal object SemverAsTag : KSerializer<Semver> {
     override val descriptor = PrimitiveSerialDescriptor("realm.Semver", PrimitiveKind.STRING)
 
     override fun serialize(encoder: Encoder, value: Semver) = encoder.encodeString("$value")
