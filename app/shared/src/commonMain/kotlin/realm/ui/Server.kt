@@ -73,7 +73,9 @@ private fun DetailsSkeleton(managed: Boolean) = Column {
     Spacer(Modifier.height(12.dp))
     FactSkeleton("Runs")
     FactSkeleton("Newest")
+    Box(StatusLine, contentAlignment = Alignment.CenterStart) { SkeletonLine(0.3f, style = MaterialTheme.typography.bodyMedium) }
     InlineButtonSkeleton(0.4f)
+    if (!managed) InlineButtonSkeleton(0.7f)
     if (managed) {
         Spacer(Modifier.height(12.dp))
         Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -110,6 +112,8 @@ private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> U
     Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Addresses(facts.origin, addresses, settings)
 }
+
+private val StatusLine = Modifier.fillMaxWidth().heightIn(min = 24.dp)
 
 /** What the updates part shows, as one value: [managed] with a Cloudflare login, and whether the app [updatesItself]. */
 private data class UpdatesView(val check: Check, val status: ServerStatus?, val managed: Boolean, val updatesItself: Boolean)
@@ -152,7 +156,7 @@ private fun ColumnScope.Status(v: UpdatesView, home: Home, onClose: () -> Unit) 
         ServerStatus.NewerThanApp -> "It's newer than this app. $app"
         is ServerStatus.OtherFork -> "This app doesn't update ${s.fork ?: "realm"}."
     }
-    if (text != null) Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.heightIn(min = 24.dp))
+    Box(StatusLine, contentAlignment = Alignment.CenterStart) { if (text != null) Text(text, style = MaterialTheme.typography.bodyMedium) }
     val manage = {
         onClose()
         home.cloudflare.manage()
