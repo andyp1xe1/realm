@@ -86,51 +86,64 @@ class ChecksumMismatch(val tag: Semver) : ApiException("The worker in release $t
 
 internal val RELEASES = Api.FORK ?: "andyp1xe1/realm"
 
-/** A stable release of this app's fork: its files by name, and the worker it ships, as its worker.json says, if it's this fork's. */
+/**
+ * A stable release of this app's fork, by its GitHub tag [name], with its files by name, and the worker it ships, as
+ * its worker.json says, if it's this fork's.
+ */
 @Serializable
-data class Listed(val tag: Semver, val files: Map<String, String>, val worker: Manifest? = null)
+data class Listed(val name: String, val tag: Semver, val files: Map<String, String>, val worker: Manifest? = null)
 
 /** The release whose worker this app can deploy: [code] is where its worker.js is. */
 data class Deployable(val tag: Semver, val manifest: Manifest, val code: String)
 
-/** This app's fork's stable releases, newest first, down to the newest whose worker this app can deploy. */
+/**
+ * This app's fork's stable releases, newest first: every release of the app, and the worker's down to the newest
+ * this app can deploy.
+ */
 @Serializable
-data class Releases(val list: List<Listed>) {
-    val newest: Listed? get() = list.firstOrNull()
-
-    /** The newest release whose worker speaks an API version up to [Api.VERSION]. */
+data class Releases(val apps: List<Listed>, val workers: List<Listed>) {
+    /** The newest worker release whose worker speaks a protocol up to [Api.VERSION]. */
     val deployable: Deployable?
-        get() = list.firstNotNullOfOrNull { l ->
+        get() = workers.firstNotNullOfOrNull { l ->
             l.worker?.takeIf { it.version <= Api.VERSION }?.let { m -> l.files[m.mainModule]?.let { Deployable(l.tag, m, it) } }
         }
 
-    /** The newest release, when its worker needs a newer app than this one: newer than [deployable]. */
-    val needsNewerApp: Semver?
-        get() = deployable?.tag.let { d -> list.takeWhile { it.tag != d }.firstOrNull { it.worker != null }?.tag }
+    /** The newest worker release, when its worker speaks a newer protocol than this app: newer than [deployable]. */
+    val needsNewerApp: Listed?
+        get() = deployable?.tag.let { d -> workers.takeWhile { it.tag != d }.firstOrNull { it.worker != null } }
 
     /** The worker of [deployable], fetched and checked; else [NoRelease] or [ChecksumMismatch]. */
     suspend fun worker(engine: HttpClientEngine? = null): Release {
-        val d = deployable ?: throw NoRelease(needsNewerApp)
+        val newer = needsNewerApp?.tag
+        val d = deployable ?: throw NoRelease(newer)
         val code = client(engine).use { it.fromGitHub(d.code).bodyAsBytes() }
         if (sha256(code).toHexString() != d.manifest.sha256.lowercase()) throw ChecksumMismatch(d.tag)
-        return Release(d.tag, d.manifest, code, needsNewerApp)
+        return Release(d.tag, d.manifest, code, newer)
     }
 }
 
-/** What GitHub lists of this app's fork's stable releases, each with its worker.json, down to the newest this app can deploy. */
+/** What a release tag releases. */
+enum class ReleasePart { App, Worker }
+
+/** What GitHub lists of this app's fork's stable releases, each worker release with its worker.json, as [Releases] keeps them. */
 suspend fun fetchReleases(engine: HttpClientEngine? = null): Releases = client(engine).use { http ->
-    val list = mutableListOf<Listed>()
-    for ((tag, r) in http.stableReleases()) {
-        val files = r.assets.associate { it.name to it.url }
-        val manifest = files["worker.json"]?.let { url ->
-            val text = http.fromGitHub(url).bodyAsText()
-            runCatching { cloudflareJson.decodeFromString<Manifest>(text) }.getOrNull()
-        }?.takeIf { it.fork == Api.FORK && (it.build ?: "$tag") == "$tag" }
-        list += Listed(tag, files, manifest)
-        if (manifest != null && manifest.version <= Api.VERSION && manifest.mainModule in files) break
+    val apps = mutableListOf<Listed>()
+    val workers = mutableListOf<Listed>()
+    for (r in http.stableReleases()) {
+        val files = r.release.assets.associate { it.name to it.url }
+        if (ReleasePart.App in r.parts) apps += Listed(r.name, r.tag, files)
+        if (ReleasePart.Worker in r.parts && workers.none { it.worker.deployable(it.files) }) {
+            val manifest = files["worker.json"]?.let { url ->
+                val text = http.fromGitHub(url).bodyAsText()
+                runCatching { cloudflareJson.decodeFromString<Manifest>(text) }.getOrNull()
+            }?.takeIf { it.fork == Api.FORK && (it.build ?: "${r.tag}") == "${r.tag}" }
+            workers += Listed(r.name, r.tag, files, manifest)
+        }
     }
-    Releases(list)
+    Releases(apps, workers)
 }
+
+private fun Manifest?.deployable(files: Map<String, String>) = this != null && version <= Api.VERSION && mainModule in files
 
 /** The newest stable release of this app's fork that this app can deploy; else [NoRelease] or [ChecksumMismatch]. */
 suspend fun latestRelease(engine: HttpClientEngine? = null): Release = fetchReleases(engine).worker(engine)
@@ -150,8 +163,14 @@ internal suspend fun HttpClient.fromGitHub(url: String): HttpResponse {
     return res
 }
 
-/** The releases of this app's fork that aren't drafts or release candidates, newest first. */
-internal suspend fun HttpClient.stableReleases(): List<Pair<Semver, GitHubRelease>> =
+/** A stable release on GitHub: its tag [name], what it releases, and the version it names. */
+internal data class Tagged(val name: String, val parts: Set<ReleasePart>, val tag: Semver, val release: GitHubRelease)
+
+/**
+ * The releases of this app's fork that aren't drafts or release candidates, newest first: app/vX.Y.Z releases the
+ * app, worker/vX.Y.Z the worker, and a plain vX.Y.Z, from before the two had their own, both.
+ */
+internal suspend fun HttpClient.stableReleases(): List<Tagged> =
     fromGitHub("https://api.github.com/repos/$RELEASES/releases?per_page=100").bodyAsText()
         .let {
             runCatching {
@@ -159,8 +178,15 @@ internal suspend fun HttpClient.stableReleases(): List<Pair<Semver, GitHubReleas
             }.getOrElse { throw ApiException("GitHub sent something odd", cause = it) }
         }
         .filter { !it.draft && !it.prerelease }
-        .mapNotNull { r -> Semver.parse(r.tag)?.let { it to r } }
-        .sortedByDescending { it.first }
+        .mapNotNull { r ->
+            val (parts, version) = when {
+                r.tag.startsWith("app/") -> setOf(ReleasePart.App) to r.tag.removePrefix("app/")
+                r.tag.startsWith("worker/") -> setOf(ReleasePart.Worker) to r.tag.removePrefix("worker/")
+                else -> setOf(ReleasePart.App, ReleasePart.Worker) to r.tag
+            }
+            Semver.parse(version)?.let { Tagged(r.tag, parts, it, r) }
+        }
+        .sortedByDescending { it.tag }
 
 @Serializable
 internal data class GitHubRelease(

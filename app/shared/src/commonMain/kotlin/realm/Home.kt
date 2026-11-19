@@ -68,11 +68,10 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** Replacing this copy of the app with a newer release. */
     val appUpdates = AppUpdates(platform.prefs, platform.updater, releases, scope)
 
-    /** Whether the app update out speaks a newer API than the server signed in to: the server needs updating after it. */
+    /** Whether the app update out speaks a newer protocol than the server signed in to: the server needs updating after it. */
     val appOutpacesServer: Boolean
         get() {
-            val api =
-                appUpdates.available?.let { tag -> releases.known?.list?.firstOrNull { it.tag == tag }?.worker?.version } ?: return false
+            val api = appUpdates.availableProtocol ?: return false
             val info = (phase as? Phase.SignedIn)?.facts?.state?.value?.info ?: return false
             return info.fork == Api.FORK && info.version < api
         }

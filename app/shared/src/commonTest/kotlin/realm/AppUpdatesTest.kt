@@ -44,7 +44,7 @@ class AppUpdatesTest {
         }
     }
 
-    private var listed = Releases(emptyList())
+    private var listed = Releases(emptyList(), emptyList())
 
     private fun feed() = ReleaseFeed(prefs, { listed }) { now }
 
@@ -76,7 +76,7 @@ class AppUpdatesTest {
         runCurrent()
         assertEquals(SelfUpdate.UpToDate, u.state)
 
-        listed = Releases(listOf(Listed(v120, emptyMap())))
+        listed = Releases(listOf(Listed("$v120", v120, emptyMap())), emptyList())
         newest = update
         feed.get(force = true)
         u.refresh()

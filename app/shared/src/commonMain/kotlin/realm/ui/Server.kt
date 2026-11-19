@@ -102,8 +102,8 @@ private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> U
     val releases = home.releases.known
     Spacer(Modifier.height(12.dp))
     Fact("Runs", facts.info.running)
-    LoadingFact("Newest", releases?.let { Loaded.Known(it.newest?.tag?.toString().orEmpty()) } ?: Loaded.Unknown)
-    Updates(settings.check, serverStatus(facts.info, releases), addresses != null, home.appUpdates.version != null, home, onClose)
+    LoadingFact("Newest", releases?.let { Loaded.Known(it.workers.firstOrNull()?.tag?.toString().orEmpty()) } ?: Loaded.Unknown)
+    Updates(settings.check, serverStatus(facts.info, releases), addresses != null, home.appUpdates.availableProtocol, home, onClose)
     if (addresses == null) return
     Spacer(Modifier.height(12.dp))
     Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -140,14 +140,14 @@ private enum class UpdateAction(val label: String) {
 }
 
 @Composable
-private fun Updates(check: Check, status: ServerStatus?, managed: Boolean, updatesItself: Boolean, home: Home, onClose: () -> Unit) {
-    val app = if (updatesItself) "Update the app above first." else "Install a newer app first."
+private fun Updates(check: Check, status: ServerStatus?, managed: Boolean, appSpeaks: Int?, home: Home, onClose: () -> Unit) {
+    fun app(protocol: Int) = if (appSpeaks != null && appSpeaks >= protocol) "Update the app above first." else "Install a newer app first."
     val text = when (status) {
         null -> null
         ServerStatus.Current -> "Up to date."
         is ServerStatus.Behind -> "Update available: ${status.to}."
-        is ServerStatus.AppFirst -> "Release ${status.newest} needs a newer app. $app"
-        ServerStatus.NewerThanApp -> "It's newer than this app. $app"
+        is ServerStatus.AppFirst -> "Release ${status.newest} needs a newer app. ${app(status.protocol)}"
+        is ServerStatus.NewerThanApp -> "It's newer than this app. ${app(status.protocol)}"
         is ServerStatus.OtherFork -> "This app doesn't update ${status.fork ?: "realm"}."
     }
     Steps(check to text, step = { it }) { (c, t) ->

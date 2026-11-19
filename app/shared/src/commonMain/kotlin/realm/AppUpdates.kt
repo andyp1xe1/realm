@@ -30,6 +30,9 @@ class AppUpdates internal constructor(
     /** The release newer than this copy that the last look found, here or in an earlier run. */
     val available: Semver? get() = looked?.newer?.takeIf { version?.olderThan(it) == true }
 
+    /** The protocol [available] speaks, when its release says. */
+    val availableProtocol: Int? get() = looked?.protocol?.takeIf { available != null }
+
     /** What's being done, else what the last look found. */
     val state: SelfUpdate
         get() = work ?: available?.let(SelfUpdate::Available) ?: if (looked == null) SelfUpdate.NotYet else SelfUpdate.UpToDate
@@ -39,7 +42,7 @@ class AppUpdates internal constructor(
 
     private val busy get() = job?.isActive == true
 
-    private val settled get() = feed.fresh && looked?.let { it.newest == feed.known?.newest?.tag } == true
+    private val settled get() = feed.fresh && looked?.let { it.newest == feed.known?.apps?.firstOrNull()?.tag } == true
 
     /** Looks for a newer release, without showing it's looking, unless the last look was at the releases listed in the last day. */
     fun refresh() {
@@ -93,7 +96,7 @@ class AppUpdates internal constructor(
     private suspend fun look(u: Updater, force: Boolean): AppUpdate? {
         val releases = feed.get(force)
         val update = u.newer(releases)
-        val l = AppLook(update?.tag, releases.newest?.tag)
+        val l = AppLook(update?.tag, releases.apps.firstOrNull()?.tag, update?.protocol)
         kept.set(l)
         looked = l
         return update

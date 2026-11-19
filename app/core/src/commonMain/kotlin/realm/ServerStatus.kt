@@ -5,14 +5,14 @@ sealed interface ServerStatus {
     /** It runs another fork, which this app neither updates nor knows the releases of. */
     data class OtherFork(val fork: String?) : ServerStatus
 
-    /** It speaks a newer API than this app: the app needs updating, not the server. */
-    data object NewerThanApp : ServerStatus
+    /** It speaks [protocol], newer than this app's: the app needs updating, not the server. */
+    data class NewerThanApp(val protocol: Int) : ServerStatus
 
     /** Release [to] is newer than what it runs, and this app can deploy it. */
     data class Behind(val to: Semver) : ServerStatus
 
-    /** It runs the newest release this app can deploy, but release [newest] needs a newer app first. */
-    data class AppFirst(val newest: Semver) : ServerStatus
+    /** It runs the newest release this app can deploy, but release [newest] speaks [protocol], so it needs a newer app first. */
+    data class AppFirst(val newest: Semver, val protocol: Int) : ServerStatus
 
     /** Nothing newer than what it runs is out. */
     data object Current : ServerStatus
@@ -21,13 +21,13 @@ sealed interface ServerStatus {
 /** Where the server that says [info] stands against [releases]; null while they aren't known, for this fork's server. */
 fun serverStatus(info: Info, releases: Releases?): ServerStatus? {
     if (info.fork != Api.FORK) return ServerStatus.OtherFork(info.fork)
-    if (info.version > Api.VERSION) return ServerStatus.NewerThanApp
+    if (info.version > Api.VERSION) return ServerStatus.NewerThanApp(info.version)
     if (releases == null) return null
     val target = releases.deployable
     val newest = releases.needsNewerApp
     return when {
         target != null && info.against(target.tag, target.manifest.version) < 0 -> ServerStatus.Behind(target.tag)
-        newest != null -> ServerStatus.AppFirst(newest)
+        newest?.worker != null -> ServerStatus.AppFirst(newest.tag, newest.worker.version)
         else -> ServerStatus.Current
     }
 }

@@ -21,19 +21,22 @@ data class AppVersion(val release: Semver, val candidate: Int? = null) {
     }
 }
 
-/** The app file at [url] in release [tag], whose SHA-256 is [sha256] as the release's signed app.json says. */
-data class AppUpdate(val tag: Semver, val url: String, val sha256: String)
+/**
+ * The app file at [url] in release [tag], whose SHA-256 is [sha256] as the release's signed app.json says, with the
+ * [protocol] it speaks when the release says.
+ */
+data class AppUpdate(val tag: Semver, val url: String, val sha256: String, val protocol: Int? = null)
 
 /**
- * What a look for a newer app found: the release newer than the copy that looked, or null when there was none, with
- * the [newest] release listed then.
+ * What a look for a newer app found: the release newer than the copy that looked, or null when there was none, and
+ * the [protocol] it speaks when it says, with the [newest] app release listed then.
  */
 @Serializable
-data class AppLook(val newer: Semver?, val newest: Semver?)
+data class AppLook(val newer: Semver?, val newest: Semver?, val protocol: Int? = null)
 
-/** app.json as the release workflow writes and signs it: each file in release [tag] by name, with its SHA-256. */
+/** app.json as the release workflow writes and signs it: each file in release [tag] by name, with its SHA-256, and the [protocol] it speaks. */
 @Serializable
-private data class AppFiles(val tag: String, val files: Map<String, String>)
+private data class AppFiles(val tag: String, val files: Map<String, String>, val protocol: Int? = null)
 
 class BadSignature(val tag: Semver) : ApiException("Release $tag isn't signed with this app's key, so it isn't installed.")
 
@@ -50,17 +53,17 @@ suspend fun newerApp(
     engine: HttpClientEngine? = null,
     key: String = Api.APP_KEY,
 ): AppUpdate? = client(engine).use { http ->
-    for (r in releases.list) {
+    for (r in releases.apps) {
         if (!installed.olderThan(r.tag)) break
         val filesUrl = r.files["app.json"] ?: continue
         val signatureUrl = r.files["app.json.sig"] ?: throw BadSignature(r.tag)
         val text = http.fromGitHub(filesUrl).bodyAsBytes()
         if (!verifies(key, text, http.fromGitHub(signatureUrl).bodyAsBytes())) throw BadSignature(r.tag)
         val files = runCatching { cloudflareJson.decodeFromString<AppFiles>(text.decodeToString()) }.getOrNull()
-        if (files?.tag != "${r.tag}") throw BadSignature(r.tag)
+        if (files?.tag != r.name) throw BadSignature(r.tag)
         val name = file(r.tag)
         val sha256 = files.files[name] ?: continue
-        return@use AppUpdate(r.tag, r.files[name] ?: continue, sha256.lowercase())
+        return@use AppUpdate(r.tag, r.files[name] ?: continue, sha256.lowercase(), files.protocol)
     }
     null
 }

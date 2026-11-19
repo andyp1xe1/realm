@@ -90,10 +90,11 @@ class ReleaseTest {
         )
         val r = fetchReleases(gh.engine)
 
-        assertEquals(listOf("v2.0.0", "v1.3.0", "v1.2.0"), r.list.map { "${it.tag}" })
-        assertNull(r.list[1].worker)
+        assertEquals(listOf("v2.0.0", "v1.3.0", "v1.2.0"), r.workers.map { "${it.tag}" })
+        assertEquals(listOf("v2.0.0", "v1.3.0", "v1.2.0", "v1.1.0"), r.apps.map { "${it.tag}" })
+        assertNull(r.workers[1].worker)
         assertEquals(Semver(1, 2, 0), r.deployable?.tag)
-        assertEquals(Semver(2, 0, 0), r.needsNewerApp)
+        assertEquals(Semver(2, 0, 0), r.needsNewerApp?.tag)
         assertTrue(gh.routes.none { "v1.1.0" in it || it.endsWith("/worker.js") }, gh.routes.toString())
         assertEquals(r, cloudflareJson.decodeFromString(Releases.serializer(), cloudflareJson.encodeToString(Releases.serializer(), r)))
     }
@@ -106,9 +107,30 @@ class ReleaseTest {
         )
         val r = fetchReleases(gh.engine)
 
-        assertNull(r.list[0].worker)
+        assertNull(r.workers[0].worker)
         assertEquals(Semver(1, 2, 0), r.deployable?.tag)
         assertEquals("v1.2.0", r.deployable?.manifest?.build)
+    }
+
+    @Test
+    fun appAndWorkerTagsReleaseOnlyTheirPartAndPlainTagsBoth() = runTest {
+        val gh = github(
+            listOf(
+                release("app/v0.5.0"),
+                release("worker/v0.4.1"),
+                release("worker/v0.5.0-rc.1", prerelease = true),
+                release("app/v0.4.0"),
+                release("cli/v1.0.0"),
+                release("v0.3.0"),
+            ),
+            mapOf("v0.4.1" to manifest(3, build = "v0.4.1"), "v0.3.0" to manifest(3, build = "v0.3.0")),
+        )
+        val r = fetchReleases(gh.engine)
+
+        assertEquals(listOf("app/v0.5.0", "app/v0.4.0", "v0.3.0"), r.apps.map { it.name })
+        assertEquals(listOf("worker/v0.4.1"), r.workers.map { it.name })
+        assertEquals(Semver(0, 4, 1), r.deployable?.tag)
+        assertTrue(gh.routes.none { "v0.3.0/worker" in it || "rc" in it || "cli" in it }, gh.routes.toString())
     }
 
     @Test

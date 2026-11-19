@@ -118,6 +118,21 @@ class AppReleaseTest {
     }
 
     @Test
+    fun anAppReleaseSignsItsOwnTagAndTheProtocolItSpeaks() = runTest {
+        val files = listOf("realm-v1.3.0.apk", "app.json", "app.json.sig")
+        val tagged = """{"tag_name":"app/v1.3.0","assets":[${files.joinToString(",") {
+            """{"name":"$it","browser_download_url":"https://$dl/app/v1.3.0/$it"}"""
+        }}]}"""
+        val signed = """{"tag":"app/v1.3.0","protocol":7,"files":{"realm-v1.3.0.apk":"${sha256(apk)}"}}"""
+        assertEquals(
+            AppUpdate(Semver(1, 3, 0), "https://$dl/app/v1.3.0/realm-v1.3.0.apk", sha256(apk), protocol = 7),
+            github(listOf(tagged), mapOf("v1.3.0" to signed)).newer("1.2.0"),
+        )
+        val moved = github(listOf(tagged), mapOf("v1.3.0" to signed.replace("app/v1.3.0", "v1.3.0")))
+        assertFailsWith<BadSignature> { moved.newer("1.2.0") }
+    }
+
+    @Test
     fun refusesGarbageForASignature() = runTest {
         val gh = github(listOf(release("v1.2.0")), mapOf("v1.2.0" to appJson("v1.2.0"))) { "not a signature".encodeToByteArray() }
         assertFailsWith<BadSignature> { gh.newer("1.1.0") }

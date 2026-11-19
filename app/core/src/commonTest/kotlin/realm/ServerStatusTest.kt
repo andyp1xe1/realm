@@ -8,9 +8,9 @@ class ServerStatusTest {
     private val v = Api.VERSION
 
     private fun listed(tag: Semver, api: Int?) =
-        Listed(tag, mapOf("worker.js" to "https://github.com/$tag/worker.js"), api?.let { MANIFEST.copy(version = it) })
+        Listed("$tag", tag, mapOf("worker.js" to "https://github.com/$tag/worker.js"), api?.let { MANIFEST.copy(version = it) })
 
-    private fun releases(vararg list: Pair<Semver, Int?>) = Releases(list.map { (tag, api) -> listed(tag, api) })
+    private fun releases(vararg list: Pair<Semver, Int?>) = Releases(emptyList(), list.map { (tag, api) -> listed(tag, api) })
 
     private fun runs(build: String?, version: Int = v) = Info(version = version, scope = "owner", build = build)
 
@@ -46,20 +46,20 @@ class ServerStatusTest {
     fun aReleaseThatNeedsANewerAppAsksForTheAppFirst() {
         val v200 = Semver(2, 0, 0)
         val list = releases(v200 to v + 1, Semver(1, 5, 0) to null, v110 to v)
-        assertEquals(ServerStatus.AppFirst(v200), serverStatus(runs("v1.1.0"), list))
+        assertEquals(ServerStatus.AppFirst(v200, v + 1), serverStatus(runs("v1.1.0"), list))
         assertEquals(ServerStatus.Behind(v110), serverStatus(runs("v1.0.0"), list))
-        assertEquals(ServerStatus.AppFirst(v200), serverStatus(runs(null), releases(v200 to v + 1)))
+        assertEquals(ServerStatus.AppFirst(v200, v + 1), serverStatus(runs(null), releases(v200 to v + 1)))
     }
 
     @Test
     fun whatTheAppCannotUpdateSaysWhy() {
         val list = releases(v110 to v)
-        assertEquals(ServerStatus.NewerThanApp, serverStatus(runs("v2.0.0", version = v + 1), list))
+        assertEquals(ServerStatus.NewerThanApp(v + 1), serverStatus(runs("v2.0.0", version = v + 1), list))
         assertEquals(
             ServerStatus.OtherFork("someone/realm"),
             serverStatus(Info(fork = "someone/realm", version = v, scope = "owner"), list),
         )
-        assertEquals(ServerStatus.NewerThanApp, serverStatus(runs(null, version = v + 1), null))
+        assertEquals(ServerStatus.NewerThanApp(v + 1), serverStatus(runs(null, version = v + 1), null))
         assertNull(serverStatus(runs("v1.0.0"), null))
     }
 
