@@ -24,7 +24,12 @@ class AppUpdates internal constructor(
     /** This copy's version; null when it can't update itself. */
     val version: AppVersion? get() = updater?.version
 
-    private var looked by mutableStateOf(kept.get())
+    private var looked by mutableStateOf(
+        kept.get()?.takeIf { l ->
+            l.by?.let(AppVersion::parse)?.let { by -> version?.let { by <= it } } ==
+                true
+        },
+    )
     private var work by mutableStateOf<SelfUpdate.Work?>(null)
 
     /** The release newer than this copy that the last look found, here or in an earlier run. */
@@ -96,7 +101,7 @@ class AppUpdates internal constructor(
     private suspend fun look(u: Updater, force: Boolean): AppUpdate? {
         val releases = feed.get(force)
         val update = u.newer(releases)
-        val l = AppLook(update?.tag, releases.apps.firstOrNull()?.tag, update?.protocol)
+        val l = AppLook(update?.tag, releases.apps.firstOrNull()?.tag, update?.protocol, "${u.version}")
         kept.set(l)
         looked = l
         return update

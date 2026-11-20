@@ -166,6 +166,12 @@ class ReleaseTest {
     }
 
     @Test
+    fun appVersionsComeInReleaseOrderWithACandidateBeforeItsRelease() {
+        val order = listOf("1.1.0", "1.2.0-rc.1", "1.2.0-rc.2", "1.2.0", "1.10.0").map { AppVersion.parse(it)!! }
+        assertEquals(order, order.shuffled().sorted())
+    }
+
+    @Test
     fun readsOnlyPlainVersionTags() {
         assertEquals(Semver(1, 2, 3), Semver.parse("v1.2.3"))
         for (bad in listOf("1.2.3", "v1.2", "v1.2.3-rc.1", "v1.2.3-test", "release")) assertNull(Semver.parse(bad), bad)
