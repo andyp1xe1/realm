@@ -46,12 +46,12 @@ import realm.R2NotEnabled
 import realm.Resource
 import realm.Step
 
-/** What deploying or updating is asking or doing; nothing while the browser is out. */
+/** What deploying or updating is asking or doing, where it was started; nothing while the browser is out. */
 @Composable
-fun CloudflareSheet(cloudflare: CloudflareSetup, modifier: Modifier = Modifier) {
+fun CloudflareWork(cloudflare: CloudflareSetup, modifier: Modifier = Modifier) {
     val login = cloudflare.login
     if (login == null || login == Login.LoggingIn) return
-    Sheet(cloudflare::dismiss, modifier) {
+    Box(modifier.reportsHeight("work")) {
         AnimatedContent(
             login,
             transitionSpec = {

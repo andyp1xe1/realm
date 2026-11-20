@@ -180,7 +180,7 @@ class CloudflareSetup internal constructor(
         home.signedIn(s)
     }
 
-    /** Puts the sheet away; a deploy under way runs to the end. */
+    /** Cancels a plan being worked out or confirmed, or puts away what went wrong; a deploy under way runs to the end. */
     fun dismiss() {
         when (login) {
             is Login.Deploying, is Login.Replace, null -> {}

@@ -10,11 +10,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,14 +48,17 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import realm.Model
+import realm.SettingsMark
 
 val TopBarHeight = 56.dp
 
 /**
- * The bar over the feed and the overview. [model] is the open feed's, or null in the overview; [update] dots settings.
+ * The bar over the feed and the overview. [model] is the open feed's, or null in the overview; [mark] shows on settings
+ * what runs on or waits there, and brings settings into a feed's bar while there's something to show.
  */
 @Composable
 fun TopBar(
@@ -62,7 +68,7 @@ fun TopBar(
     onTabs: () -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    update: Boolean = false,
+    mark: SettingsMark = SettingsMark.None,
 ) {
     Row(modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         if (model?.searching == true) {
@@ -71,12 +77,8 @@ fun TopBar(
             BarTitle(title, Modifier.weight(1f))
             BarItem(model != null && model.loaded && !model.isEmpty) { ShareButton(onClick = { model?.sharing = true }) }
             BarItem(model != null) { IconButton(onClick = { model?.searching = true }) { Icon(Icons.Outlined.Search, "Search") } }
-            BarItem(model == null) {
-                IconButton(onClick = onSettings) {
-                    BadgedBox(badge = { if (update) Badge(containerColor = MaterialTheme.colorScheme.primary) }) {
-                        Icon(Icons.Outlined.Settings, if (update) "Settings, an update is waiting" else "Settings")
-                    }
-                }
+            BarItem(model == null || mark != SettingsMark.None) {
+                SettingsButton(mark, onSettings)
             }
             TabsButton(tabs, onTabs)
         }
@@ -93,11 +95,31 @@ private fun RowScope.BarItem(visible: Boolean, content: @Composable () -> Unit) 
     ) { content() }
 }
 
+/** The settings icon, with a spinner round it while something runs there, or a dot while something waits there. */
 @Composable
-private fun BarTitle(realm: String?, modifier: Modifier = Modifier) {
+fun SettingsButton(mark: SettingsMark, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, modifier = modifier) {
+        Box(contentAlignment = Alignment.Center) {
+            if (mark == SettingsMark.Busy) CircularProgressIndicator(Modifier.size(34.dp), strokeWidth = 2.dp)
+            BadgedBox(badge = { if (mark == SettingsMark.Waiting) Badge(containerColor = MaterialTheme.colorScheme.primary) }) {
+                Icon(
+                    Icons.Outlined.Settings,
+                    when (mark) {
+                        SettingsMark.None -> "Settings"
+                        SettingsMark.Busy -> "Settings, something is under way"
+                        SettingsMark.Waiting -> "Settings, something is waiting for you"
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun BarTitle(realm: String?, modifier: Modifier = Modifier, start: Dp = PageGutter) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val lead by animateColorAsState(if (realm == null) MaterialTheme.colorScheme.onSurface else muted, tween(TAB_ZOOM_MILLIS))
-    Row(modifier.padding(start = PageGutter)) {
+    Row(modifier.padding(start = start)) {
         Text("realm", color = lead, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
         AnimatedContent(
             realm,

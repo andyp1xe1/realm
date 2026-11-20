@@ -51,9 +51,9 @@ import realm.ServerFacts
 import realm.ServerSettings
 import realm.Zone
 
-/** Settings' part about your own server. [onClose] puts settings away before a sheet of its own opens. */
+/** Settings' part about your own server. */
 @Composable
-fun ServerSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun ServerSection(home: Home, modifier: Modifier = Modifier) {
     val settings = home.serverSettings
     val signedIn = home.phase as? Phase.SignedIn ?: return
     val server = signedIn.server
@@ -62,7 +62,7 @@ fun ServerSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifier
     Column(modifier) {
         Text("Signed in to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(server.base.removeSuffix("/api"), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Loading(signedIn.facts.state, skeleton = { DetailsSkeleton(managed) }) { facts -> Column { Details(facts, home, onClose) } }
+        Loading(signedIn.facts.state, skeleton = { DetailsSkeleton(managed) }) { facts -> Column { Details(facts, home) } }
     }
 }
 
@@ -91,7 +91,7 @@ private fun FactSkeleton(label: String) {
 }
 
 @Composable
-private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> Unit) {
+private fun ColumnScope.Details(facts: ServerFacts, home: Home) {
     val settings = home.serverSettings
     val addresses = facts.addresses
     val releases = home.releases.known
@@ -99,10 +99,7 @@ private fun ColumnScope.Details(facts: ServerFacts, home: Home, onClose: () -> U
     Fact("Runs", facts.info.running)
     LoadingFact("Newest", releases?.let { Loaded.Known(it.workers.firstOrNull()?.tag?.toString().orEmpty()) } ?: Loaded.Unknown)
     if (addresses == null) {
-        InlineButton("Log in with Cloudflare to manage", {
-            onClose()
-            home.cloudflare.manage()
-        })
+        InlineButton("Log in with Cloudflare to manage", { home.cloudflare.manage() })
         return
     }
     Spacer(Modifier.height(12.dp))

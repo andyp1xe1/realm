@@ -1,19 +1,14 @@
 // Filmstrips of logging in with Cloudflare and deploying the worker, against [FakeCloud]. Nothing real is called.
 package realm.desktop
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.skia.EncodedImageFormat
@@ -21,42 +16,34 @@ import realm.Api
 import realm.Home
 import realm.Login
 import realm.ServerStatus
+import realm.SettingsMark
 import realm.screen
-import realm.ui.CloudflareSheet
 import realm.ui.INDICATOR_DELAY_MILLIS
 import realm.ui.Indicators
 import realm.ui.LocalIndicators
 import realm.ui.RealmTheme
-import realm.ui.SettingsDialog
-import realm.ui.SetupOrTabs
+import realm.ui.Screens
 import realm.value
 import java.io.File
 
 /** A scene of the app's first screen with the Cloudflare sheet over it, and frames taken as real time passes. */
 internal class Film(val home: Home, settings: Boolean = false) {
-    var settings by mutableStateOf(settings)
+    var settings: Boolean
+        get() = home.settings
+        set(value) {
+            home.settings = value
+        }
     private val indicators = Indicators()
     val scene = ImageComposeScene(400 * 2, 820 * 2, Density(2f)) {
         RealmTheme {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                CompositionLocalProvider(LocalIndicators provides indicators) {
-                    Box {
-                        SetupOrTabs(home)
-                        if (this@Film.settings) {
-                            SettingsDialog(
-                                home,
-                                onDismiss = { this@Film.settings = false },
-                                Modifier.onSizeChanged {
-                                    sheetHeight =
-                                        it.height
-                                },
-                            )
-                        }
-                        CloudflareSheet(home.cloudflare, Modifier.onSizeChanged { cloudflareHeight = it.height })
-                    }
-                }
+                CompositionLocalProvider(LocalIndicators provides indicators) { Screens(home) }
             }
         }
+    }
+
+    init {
+        home.settings = settings
     }
 
     @Volatile private var t = 0L
@@ -64,13 +51,11 @@ internal class Film(val home: Home, settings: Boolean = false) {
 
     /** The clock animations run on, in ms: 16 more each frame. */
     val ms: Long get() = t / 1_000_000
-    private var sheetHeight = 0
-    private var cloudflareHeight = 0
 
-    /** The Cloudflare sheet's height in pixels as each frame drew it. */
+    /** The height in pixels of what deploying or updating showed, as each frame drew it; 0 before it showed. */
     val cloudflareHeights = mutableListOf<Int>()
 
-    /** The settings sheet's height in pixels as each frame drew it; 0 before it was laid out. */
+    /** The height in pixels of what settings showed, as each frame drew it; 0 while it was closed or not laid out. */
     val sheetHeights = mutableListOf<Int>()
 
     /** What each frame drew from: the step of the sheet, and whether a server was signed in to. */
@@ -87,8 +72,8 @@ internal class Film(val home: Home, settings: Boolean = false) {
         val step = home.cloudflare.login?.let { it::class.simpleName } ?: "-"
         drawn += step to (home.server != null)
         screens += "${home.screen}/$step"
-        sheetHeights += sheetHeight
-        cloudflareHeights += cloudflareHeight
+        sheetHeights += if (home.settings) indicators.heights["settings"] ?: 0 else 0
+        cloudflareHeights += indicators.heights["work"] ?: 0
         indicated += indicators.showing
         check(!indicators.overlapping) { "frame ${drawn.size}: two steps of one part show at once" }
     }
@@ -256,7 +241,8 @@ internal fun deploying() {
 
 /**
  * update-N: signed in with Cloudflare to a version 2 worker, the overview's settings has a dot (update-grid),
- * settings offers the update, and Update runs it straight through, as there's nothing to decide. refused-N: the worker turned out to be newer meanwhile, so
+ * settings offers the update, and Update runs it straight through, as there's nothing to decide; leaving settings
+ * partway leaves it running, the settings button turning while it does, and settings shows it again on return. refused-N: the worker turned out to be newer meanwhile, so
  * the plan says why it stays.
  */
 internal fun updating() {
@@ -271,7 +257,14 @@ internal fun updating() {
     }.close()
     val film = Film(home, settings = true)
     film.roll("update", max = 20)
-    film.tap(80, 274) // Update, at the top of settings
+    film.tap(44, 166) // Update, at the top of settings
+    film.roll("update", every = 6, max = 400) { home.cloudflare.login is Login.Deploying }
+    film.settings = false
+    var busy = 0
+    film.roll("update", every = 6, max = 30) { false.also { if (home.settingsMark == SettingsMark.Busy) busy++ } }
+    check(busy == 30) { "update: settings showed nothing under way while the update ran: $busy of 30 frames" }
+    check(home.cloudflare.login is Login.Deploying) { "update: leaving settings stopped the update: ${home.cloudflare.login}" }
+    film.settings = true
     film.roll("update", every = 6, max = 800) { home.serverStatus == ServerStatus.Current }
     check(home.serverStatus == ServerStatus.Current) { "update: the server isn't current after Update: ${home.serverStatus}" }
     check(film.drawn.any { it.first == "Deploying" } && film.drawn.none { it.first == "Confirm" }) {

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -20,16 +21,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import realm.AppUpdates
 import realm.Home
+import realm.Login
+import realm.Phase
 import realm.SelfUpdate
 import realm.UpdatesView
 import realm.Updating
 
 /**
  * The wordmark with the app's version, and what's out for this device's app and the server signed in to, updated
- * at one ask. It keeps one height whatever it shows.
+ * at one ask; or the server's update itself, while it runs or asks something. Updates keep one height whatever they show.
  */
 @Composable
-fun UpdatesSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun UpdatesSection(home: Home, modifier: Modifier = Modifier) {
     val updates = home.appUpdates
     val updating = home.updating
     LaunchedEffect(updates) { updates.refresh() }
@@ -48,11 +51,18 @@ fun UpdatesSection(home: Home, onClose: () -> Unit, modifier: Modifier = Modifie
             }
         }
         Spacer(Modifier.height(4.dp))
-        Steps(updating.view) { v ->
-            Column {
-                Column(Modifier.fillMaxWidth().heightIn(min = Lines), verticalArrangement = Arrangement.Center) { Said(v) }
-                Box(Modifier.fillMaxWidth().heightIn(min = ButtonRow), contentAlignment = Alignment.CenterStart) {
-                    Action(v, updating, updates, onClose)
+        val working = home.cloudflare.login.let { it != null && it != Login.LoggingIn && home.phase is Phase.SignedIn }
+        Steps(working, step = { it }) { w ->
+            if (w) {
+                Column(Modifier.padding(vertical = 8.dp)) { CloudflareWork(home.cloudflare) }
+            } else {
+                Steps(updating.view) { v ->
+                    Column {
+                        Column(Modifier.fillMaxWidth().heightIn(min = Lines), verticalArrangement = Arrangement.Center) { Said(v) }
+                        Box(Modifier.fillMaxWidth().heightIn(min = ButtonRow), contentAlignment = Alignment.CenterStart) {
+                            Action(v, updating, updates)
+                        }
+                    }
                 }
             }
         }
@@ -106,7 +116,7 @@ private fun ColumnScope.Said(v: UpdatesView) {
 }
 
 @Composable
-private fun Action(v: UpdatesView, updating: Updating, updates: AppUpdates, onClose: () -> Unit) {
+private fun Action(v: UpdatesView, updating: Updating, updates: AppUpdates) {
     when (v) {
         UpdatesView.NotYet -> InlineButton("Check for updates", updating::check)
 
@@ -114,10 +124,7 @@ private fun Action(v: UpdatesView, updating: Updating, updates: AppUpdates, onCl
 
         UpdatesView.Checking -> {}
 
-        is UpdatesView.Out -> InlineButton("Update", {
-            if (v.app == null) onClose()
-            updating.start()
-        })
+        is UpdatesView.Out -> InlineButton("Update", updating::start)
 
         is UpdatesView.App -> when (val w = v.work) {
             is SelfUpdate.Ready -> InlineButton("Restart", updates::restart)
