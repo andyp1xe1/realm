@@ -122,7 +122,6 @@ data class Releases(val apps: List<Listed>, val workers: List<Listed>) {
     }
 }
 
-/** What a release tag releases. */
 enum class ReleasePart { App, Worker }
 
 /** What GitHub lists of this app's fork's stable releases, each worker release with its worker.json, as [Releases] keeps them. */
@@ -163,13 +162,8 @@ internal suspend fun HttpClient.fromGitHub(url: String): HttpResponse {
     return res
 }
 
-/** A stable release on GitHub: its tag [name], what it releases, and the version it names. */
 internal data class Tagged(val name: String, val parts: Set<ReleasePart>, val tag: Semver, val release: GitHubRelease)
 
-/**
- * The releases of this app's fork that aren't drafts or release candidates, newest first: app/vX.Y.Z releases the
- * app, worker/vX.Y.Z the worker, and a plain vX.Y.Z, from before the two had their own, both.
- */
 internal suspend fun HttpClient.stableReleases(): List<Tagged> =
     fromGitHub("https://api.github.com/repos/$RELEASES/releases?per_page=100").bodyAsText()
         .let {

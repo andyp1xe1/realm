@@ -40,7 +40,6 @@ jobs:
         with:
           name: worker
           path: dist
-      # Apps install only a worker whose protocol they speak, so an app release must speak it first.
       - name: Check an app release speaks the worker's protocol
         env:
           GH_TOKEN: ${{ github.token }}

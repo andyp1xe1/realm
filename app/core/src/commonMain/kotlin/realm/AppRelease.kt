@@ -42,7 +42,6 @@ data class AppLook(val newer: Semver?, val newest: Semver?, val protocol: Int? =
 @Serializable
 data class UpdateAsked(val app: Semver?)
 
-/** app.json as the release workflow writes and signs it: each file in release [tag] by name, with its SHA-256, and the [protocol] it speaks. */
 @Serializable
 private data class AppFiles(val tag: String, val files: Map<String, String>, val protocol: Int? = null)
 

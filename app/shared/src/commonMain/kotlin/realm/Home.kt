@@ -73,6 +73,23 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     /** Updating the app and the server at one ask. */
     val updating = Updating(this, platform.prefs)
 
+    /** Whether the settings page is open, over whatever screen is. Leaving it stops nothing that runs there. */
+    var settings by mutableStateOf(false)
+
+    /** What the settings button shows of work that runs on, or waits, while settings is closed. */
+    val settingsMark: SettingsMark
+        get() {
+            val work = appUpdates.state
+            val cf = cloudflare.login
+            return when {
+                cf is Login.LoggingIn || cf is Login.Planning || cf is Login.Deploying -> SettingsMark.Busy
+                work is SelfUpdate.Downloading || work is SelfUpdate.Installing || serverSettings.task != null -> SettingsMark.Busy
+                cf != null || work is SelfUpdate.Ready || work is SelfUpdate.Failed -> SettingsMark.Waiting
+                updating.due.let { it.app != null || it.server != null } -> SettingsMark.Waiting
+                else -> SettingsMark.None
+            }
+        }
+
     /** Where the server signed in to stands against the releases, from what it last said it runs; null while either isn't known. */
     val serverStatus: ServerStatus? get() = (phase as? Phase.SignedIn)?.facts?.state?.value?.info?.let { serverStatus(it, releases.known) }
 
@@ -281,7 +298,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         fetchAhead(p, s.info, force = true)
     }
 
-    /** Signs in to the same server again with [s], made with a Cloudflare login that manages it; its realms and feeds stay. */
     internal fun managedWith(s: SignedIn) {
         val was = phase as? Phase.SignedIn ?: return signedIn(s)
         realms.forEach { forget(ownKey(it.id), drop = false) }
@@ -297,7 +313,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         fetchAhead(p, s.info, force = false)
     }
 
-    /** Opens onboarding with [login] to pick among [accounts], signing out of the server signed in to. */
     internal fun chooseAccount(login: CloudflareLogin, accounts: List<Account>) {
         if (phase is Phase.SignedIn) signOut()
         onboarding.start(login, accounts)
@@ -347,6 +362,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
     private fun endSession(): CloudflareSession? {
         val was = phase
         phase = Phase.Setup
+        settings = false
         realms.forEach { forget(ownKey(it.id), drop = true) }
         realms.clear()
         onboarding.forget()
@@ -465,3 +481,14 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 }
 
 private const val NO_ACCOUNT = "no-account"
+
+/** What the settings button shows besides itself. */
+enum class SettingsMark {
+    None,
+
+    /** Something runs on: a download, a deploy, a change to the server's addresses. */
+    Busy,
+
+    /** Something waits for you: an update to start, a question, a restart, or what went wrong. */
+    Waiting,
+}

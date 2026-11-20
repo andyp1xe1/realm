@@ -28,6 +28,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -58,6 +59,9 @@ class Indicators {
 
     internal fun addStep(of: Any, alpha: () -> Float) = steps.getOrPut(of) { mutableSetOf() }.add(alpha)
 
+    /** The height in pixels each part that reports one was last laid out at, by its name. */
+    val heights = mutableMapOf<String, Int>()
+
     internal fun removeStep(of: Any, alpha: () -> Float) {
         val shown = steps[of] ?: return
         shown.remove(alpha)
@@ -67,6 +71,10 @@ class Indicators {
 
 /** Where [Delayed] and [Steps] report what's on screen; null in the app. */
 val LocalIndicators = staticCompositionLocalOf<Indicators?> { null }
+
+@Composable
+internal fun Modifier.reportsHeight(name: String): Modifier =
+    LocalIndicators.current?.let { indicators -> onSizeChanged { indicators.heights[name] = it.height } } ?: this
 
 /**
  * [content] once [state]'s value is known; until then [skeleton] holds its room, drawn only after

@@ -152,10 +152,7 @@ suspend fun CloudflareApi.deploy(plan: Plan.Ready, choices: Choices = Choices(),
     throw NeedsSubdomain()
 }
 
-/**
- * Polls the worker at [origin] until it takes this login as its owner and runs [release], for at most [within]: until
- * then, the worker that answers may still be the one it replaces.
- */
+/** Polls the worker at [origin] until it takes this login as its owner and runs [release], for at most [within]. */
 suspend fun CloudflareApi.waitForRelease(origin: String, release: Release, within: Duration = 60.seconds): Answer {
     val api = Api.server(origin, bearer, "deploy", engine)
     var last: ApiException? = null

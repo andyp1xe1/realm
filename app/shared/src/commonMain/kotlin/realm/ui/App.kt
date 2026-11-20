@@ -98,8 +98,7 @@ fun App(platform: Platform, modifier: Modifier = Modifier) {
 
         Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.TopCenter) {
-                SetupOrTabs(home)
-                CloudflareSheet(home.cloudflare)
+                Screens(home)
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp)) {
                     Snackbar(
                         it,
@@ -127,7 +126,6 @@ fun App(platform: Platform, modifier: Modifier = Modifier) {
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun Tabs(home: Home, modifier: Modifier = Modifier) {
-    var settings by remember { mutableStateOf(false) }
     val current = home.openKey.takeUnless { home.showingTabs || home.model == null }
     val open = current?.let { k -> home.spaces.firstOrNull { it.key == k } }
     Column(modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -136,9 +134,9 @@ fun Tabs(home: Home, modifier: Modifier = Modifier) {
             model = open?.let(home::modelOf),
             tabs = home.spaces.size,
             onTabs = { if (open == null) home.hideTabs() else home.showTabs() },
-            onSettings = { settings = true },
+            onSettings = { home.settings = true },
             modifier = Modifier.widthIn(max = PageWidth),
-            update = home.updating.due.let { it.app != null || it.server != null } || home.appUpdates.waiting,
+            mark = home.settingsMark,
         )
         SharedTransitionLayout(Modifier.weight(1f)) {
             AnimatedContent(
@@ -165,7 +163,6 @@ fun Tabs(home: Home, modifier: Modifier = Modifier) {
             }
         }
     }
-    if (settings) SettingsDialog(home, onDismiss = { settings = false })
 }
 
 /** One realm's feed, below the top bar. */

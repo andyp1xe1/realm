@@ -56,6 +56,7 @@ import realm.D1_FREE_LIMIT
 import realm.DatabaseCheck
 import realm.DomainChoice
 import realm.Home
+import realm.Login
 import realm.R2Check
 import realm.R2NotEnabled
 import realm.ReleaseCheck
@@ -70,7 +71,7 @@ import realm.Onboarding as State
 @Composable
 fun OnboardingScreen(home: Home, modifier: Modifier = Modifier) {
     val o = home.onboarding
-    var settings by remember { mutableStateOf(false) }
+    val working = home.cloudflare.login.let { it is Login.Deploying || it is Login.Replace }
     Box(modifier.fillMaxSize()) {
         Column(Modifier.align(Alignment.TopCenter).widthIn(max = 460.dp).fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp)) {
@@ -78,23 +79,28 @@ fun OnboardingScreen(home: Home, modifier: Modifier = Modifier) {
                 Wordmark(size = 28)
                 Spacer(Modifier.height(12.dp))
                 AnimatedContent(
-                    o.account,
+                    o.account to working,
                     transitionSpec = {
                         (fadeIn(tween(STEP_MILLIS * 2 / 3, delayMillis = STEP_MILLIS / 3)) togetherWith fadeOut(tween(STEP_MILLIS / 3)))
                             .using(SizeTransform(clip = true))
                     },
-                    contentKey = { it != null },
-                ) { a -> Column { if (a == null) Chooser(home) else Checks(a, o) } }
+                    contentKey = { (a, w) -> if (w) "working" else a != null },
+                ) { (a, w) ->
+                    Column {
+                        when {
+                            w -> CloudflareWork(home.cloudflare)
+                            a == null -> Chooser(home)
+                            else -> Checks(a, o)
+                        }
+                    }
+                }
             }
             AnimatedVisibility(o.account != null, enter = fadeIn(tween(STEP_MILLIS)), exit = fadeOut(tween(STEP_MILLIS))) {
                 Box(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp)) { DeployButton(o) }
             }
         }
-        IconButton(onClick = { settings = true }, Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-            Icon(Icons.Outlined.Settings, "Settings")
-        }
+        SettingsButton(home.settingsMark, { home.settings = true }, Modifier.align(Alignment.TopEnd).padding(8.dp))
     }
-    if (settings) SettingsDialog(home, onDismiss = { settings = false })
 }
 
 private const val STEP_MILLIS = 300

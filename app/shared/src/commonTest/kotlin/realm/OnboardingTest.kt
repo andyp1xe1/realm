@@ -208,7 +208,6 @@ class OnboardingTest {
         assertNotNull(home.serverSettings.facts?.state?.value?.addresses)
     }
 
-    /** Runs the deploys and logins under way until [done], each login's nonces coming from a dispatcher of their own. */
     private suspend fun TestScope.until(home: Home, done: () -> Boolean) {
         repeat(400) {
             advanceUntilIdle()

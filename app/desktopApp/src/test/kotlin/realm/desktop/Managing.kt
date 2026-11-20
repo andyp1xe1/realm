@@ -129,7 +129,7 @@ internal fun managing() {
  * fade in over it. settings-warm-N: the same with what the last run fetched kept: it shows at once, and the
  * refresh changes nothing on screen. settings-first-N and settings-first-slow-N: the first run, with nothing
  * kept about the server or the releases either. settings-token-first-N: the same signed in with a fixed token to
- * a worker an update is out for. Checks the sheet keeps one height in every frame of each.
+ * a worker an update is out for. Checks settings keeps one height in every frame of each.
  */
 private fun steadySettings() {
     val cloud = FakeCloud(worker = """{"version":${Api.VERSION},"scope":"owner"}""")
@@ -159,9 +159,9 @@ private fun steadySettings() {
         val known = film.indicated.size
         film.roll(name, every = 2, max = 40)
         film.close()
-        val heights = film.sheetHeights.filter { it > 0 }
-        println("$name: ${heights.size} frames, sheet heights ${heights.distinct()} px")
-        check(heights.size > 30 && heights.distinct().size == 1) { "$name: the settings sheet changed height: $heights" }
+        val heights = film.settingsHeights.filter { it > 0 }
+        println("$name: ${heights.size} frames, settings heights ${heights.distinct()} px")
+        check(heights.size > 30 && heights.distinct().size == 1) { "$name: settings changed height: $heights" }
         check(next.serverStatus != null) { "$name: the server's update status never arrived" }
         film.checkIndicator(name, 0, known)
         if (slowness == 0L && name != "settings-warm") {

@@ -3,8 +3,8 @@ package realm
 import kotlinx.coroutines.CompletableDeferred
 
 /**
- * Where logging in with Cloudflare, or deploying or updating the worker, has got to: one whole value, so
- * the sheet never draws a step without what it shows.
+ * Where logging in with Cloudflare, or deploying or updating the worker, has got to: one whole value, so nothing
+ * draws a step without what it shows.
  */
 sealed interface Login {
     /** The browser is out, or the worker is being looked for. */
