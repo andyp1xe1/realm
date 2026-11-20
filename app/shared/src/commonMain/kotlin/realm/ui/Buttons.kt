@@ -15,7 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.LayoutDirection
 
-private val InlinePadding = ButtonDefaults.TextButtonContentPadding.calculateStartPadding(LayoutDirection.Ltr)
+internal val InlinePadding = ButtonDefaults.TextButtonContentPadding.calculateStartPadding(LayoutDirection.Ltr)
 
 /** A text button whose label lines up with the text around it, its hover background reaching past it. */
 @Composable
