@@ -49,11 +49,17 @@ internal class DesktopUpdater(
             Kind.AppImage -> listOf(target.path)
             Kind.Jar -> listOf(File(System.getProperty("java.home"), "bin/java").path, "-jar", target.path)
         }
-        ProcessBuilder(command).inheritIO().start()
+        ProcessBuilder(listOf("/bin/sh", "-c", "\"$@\" &", "sh") + command)
+            .inheritIO()
+            .apply { environment().remove(JPACKAGE_HANDOFF) }
+            .start()
+            .waitFor()
         exitProcess(0)
     }
 
     companion object {
+        private const val JPACKAGE_HANDOFF = "_JPACKAGE_LAUNCHER"
+
         /** The updater for the release file this app runs from, if it was built for a release and runs from one. */
         fun find(): DesktopUpdater? {
             val version =

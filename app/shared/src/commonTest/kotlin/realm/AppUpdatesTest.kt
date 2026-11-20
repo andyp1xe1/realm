@@ -181,6 +181,20 @@ class AppUpdatesTest {
     }
 
     @Test
+    fun aLookByAnotherVersionIsLookedAtAgain() = runTest {
+        newest = null
+        updates(FakeUpdater("1.3.0")).check()
+        runCurrent()
+        newest = update
+        val older = updates(FakeUpdater("1.1.0"))
+        assertEquals(SelfUpdate.NotYet, older.state)
+        older.refresh()
+        runCurrent()
+        assertEquals(2, looks)
+        assertEquals(SelfUpdate.Available(v120), older.state)
+    }
+
+    @Test
     fun aFailedDownloadKeepsTheUpdateWaiting() = runTest {
         val updater = FakeUpdater()
         val u = updates(updater)

@@ -5,9 +5,13 @@ import io.ktor.client.statement.bodyAsBytes
 import kotlinx.serialization.Serializable
 
 /** A build of the app as its version names it: 1.2.0, or 1.2.0-rc.3 for a release candidate. */
-data class AppVersion(val release: Semver, val candidate: Int? = null) {
+data class AppVersion(val release: Semver, val candidate: Int? = null) : Comparable<AppVersion> {
     /** Whether release [tag] replaces this build: a later release, or the release this candidate leads up to. */
     fun olderThan(tag: Semver): Boolean = tag > release || (tag == release && candidate != null)
+
+    /** By release, a candidate coming before its release. */
+    override fun compareTo(other: AppVersion) =
+        compareValuesBy(this, other, { it.release }, { it.candidate == null }, { it.candidate ?: 0 })
 
     override fun toString() = "$release".removePrefix("v") + (candidate?.let { "-rc.$it" } ?: "")
 
@@ -29,10 +33,10 @@ data class AppUpdate(val tag: Semver, val url: String, val sha256: String, val p
 
 /**
  * What a look for a newer app found: the release newer than the copy that looked, or null when there was none, and
- * the [protocol] it speaks when it says, with the [newest] app release listed then.
+ * the [protocol] it speaks when it says, with the [newest] app release listed then; [by] is the version that looked, and only it or a newer copy can go by it.
  */
 @Serializable
-data class AppLook(val newer: Semver?, val newest: Semver?, val protocol: Int? = null)
+data class AppLook(val newer: Semver?, val newest: Semver?, val protocol: Int? = null, val by: String? = null)
 
 /** An update of the app and the server asked for, with the [app] release installed for it so far. */
 @Serializable

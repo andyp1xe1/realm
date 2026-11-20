@@ -25,6 +25,7 @@ Terminal=false
 EOF
 cat >"$appdir/AppRun" <<'EOF'
 #!/bin/sh
+unset _JPACKAGE_LAUNCHER
 exec "$(dirname "$(readlink -f "$0")")/bin/realm" "$@"
 EOF
 chmod +x "$appdir/AppRun"
