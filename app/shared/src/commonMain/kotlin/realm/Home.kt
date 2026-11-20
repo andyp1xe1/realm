@@ -298,7 +298,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         fetchAhead(p, s.info, force = true)
     }
 
-    /** Signs in to the same server again with [s], made with a Cloudflare login that manages it; its realms and feeds stay. */
     internal fun managedWith(s: SignedIn) {
         val was = phase as? Phase.SignedIn ?: return signedIn(s)
         realms.forEach { forget(ownKey(it.id), drop = false) }
@@ -314,7 +313,6 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         fetchAhead(p, s.info, force = false)
     }
 
-    /** Opens onboarding with [login] to pick among [accounts], signing out of the server signed in to. */
     internal fun chooseAccount(login: CloudflareLogin, accounts: List<Account>) {
         if (phase is Phase.SignedIn) signOut()
         onboarding.start(login, accounts)

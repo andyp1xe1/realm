@@ -72,7 +72,6 @@ class Indicators {
 /** Where [Delayed] and [Steps] report what's on screen; null in the app. */
 val LocalIndicators = staticCompositionLocalOf<Indicators?> { null }
 
-/** Reports this part's height as [name] to [LocalIndicators], when there are any. */
 @Composable
 internal fun Modifier.reportsHeight(name: String): Modifier =
     LocalIndicators.current?.let { indicators -> onSizeChanged { indicators.heights[name] = it.height } } ?: this

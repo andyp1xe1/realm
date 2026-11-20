@@ -26,7 +26,7 @@ import realm.ui.Screens
 import realm.value
 import java.io.File
 
-/** A scene of the app's first screen with the Cloudflare sheet over it, and frames taken as real time passes. */
+/** A scene of the app's screens, settings over them while it's open, and frames taken as real time passes. */
 internal class Film(val home: Home, settings: Boolean = false) {
     var settings: Boolean
         get() = home.settings
@@ -53,15 +53,15 @@ internal class Film(val home: Home, settings: Boolean = false) {
     val ms: Long get() = t / 1_000_000
 
     /** The height in pixels of what deploying or updating showed, as each frame drew it; 0 before it showed. */
-    val cloudflareHeights = mutableListOf<Int>()
+    val workHeights = mutableListOf<Int>()
 
     /** The height in pixels of what settings showed, as each frame drew it; 0 while it was closed or not laid out. */
-    val sheetHeights = mutableListOf<Int>()
+    val settingsHeights = mutableListOf<Int>()
 
-    /** What each frame drew from: the step of the sheet, and whether a server was signed in to. */
+    /** What each frame drew from: the step of deploying or updating, and whether a server was signed in to. */
     val drawn = mutableListOf<Pair<String, Boolean>>()
 
-    /** What each frame drew from as screen/sheet step, like Onboarding/Deploying. */
+    /** What each frame drew from as screen/step, like Onboarding/Deploying. */
     val screens = mutableListOf<String>()
 
     /** Whether each frame showed a skeleton or spinner, however faintly. */
@@ -72,8 +72,8 @@ internal class Film(val home: Home, settings: Boolean = false) {
         val step = home.cloudflare.login?.let { it::class.simpleName } ?: "-"
         drawn += step to (home.server != null)
         screens += "${home.screen}/$step"
-        sheetHeights += if (home.settings) indicators.heights["settings"] ?: 0 else 0
-        cloudflareHeights += indicators.heights["work"] ?: 0
+        settingsHeights += if (home.settings) indicators.heights["settings"] ?: 0 else 0
+        workHeights += indicators.heights["work"] ?: 0
         indicated += indicators.showing
         check(!indicators.overlapping) { "frame ${drawn.size}: two steps of one part show at once" }
     }
@@ -125,7 +125,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
     }
 
     /**
-     * Checks what the frames drew: setup, then [steps] of the sheet in order, then signed in. Every frame is a
+     * Checks what the frames drew: setup, then [steps] of deploying in order, then signed in. Every frame is a
      * step or signed in, never neither (setup again) and never both.
      */
     fun drew(name: String, vararg steps: String) {
@@ -136,11 +136,11 @@ internal class Film(val home: Home, settings: Boolean = false) {
             drawn.dropWhile {
                 it.first == "-"
             }.dropWhile { it.first != "-" }.all { it.second },
-        ) { "$name: a frame with neither sheet nor server" }
-        check(drawn.none { it.first != "-" && it.second }) { "$name: a frame with both the sheet and a server" }
+        ) { "$name: a frame with neither a step nor a server" }
+        check(drawn.none { it.first != "-" && it.second }) { "$name: a frame with both a step and a server" }
     }
 
-    /** Checks the frames drew [steps], screen/sheet step, in order and nothing else: no frame of another screen between. */
+    /** Checks the frames drew [steps], screen/step, in order and nothing else: no frame of another screen between. */
     fun went(name: String, vararg steps: String) {
         val seen = screens.fold(listOf<String>()) { acc, s -> if (acc.lastOrNull() == s) acc else acc + s }
         println("$name went: ${seen.joinToString(" → ")}")
@@ -148,7 +148,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
     }
 
     /**
-     * Checks the Cloudflare sheet kept one height through each run of frames showing [step], once the switch to
+     * Checks deploying kept one height through each run of frames showing [step], once the switch to
      * it, [SWITCH_FRAMES] frames, is over.
      */
     fun steady(name: String, step: String) {
@@ -158,9 +158,9 @@ internal class Film(val home: Home, settings: Boolean = false) {
         }
         check(runs.isNotEmpty()) { "$name never showed $step" }
         for (run in runs) {
-            val after = run.drop(SWITCH_FRAMES).map { cloudflareHeights[it] }
+            val after = run.drop(SWITCH_FRAMES).map { workHeights[it] }
             println("$name $step: ${run.size} frames, then ${after.distinct().joinToString("/")}px")
-            check(after.distinct().size <= 1) { "$name: the sheet changed height while showing $step: ${after.distinct()}" }
+            check(after.distinct().size <= 1) { "$name: deploying changed height while showing $step: ${after.distinct()}" }
         }
     }
 
@@ -170,7 +170,7 @@ internal class Film(val home: Home, settings: Boolean = false) {
     fun close() = scene.close()
 }
 
-/** Frames the sheet takes to switch from one step to the next: its 300ms crossfade and size change, and a little more. */
+/** Frames deploying takes to switch from one step to the next: its 300ms crossfade and size change, and a little more. */
 private const val SWITCH_FRAMES = 24
 
 /**
@@ -257,7 +257,8 @@ internal fun updating() {
     }.close()
     val film = Film(home, settings = true)
     film.roll("update", max = 20)
-    film.tap(350, 165) // Update, at the top of settings
+    val update = 350 to 165
+    film.tap(update.first, update.second)
     film.roll("update", every = 6, max = 400) { home.cloudflare.login is Login.Deploying }
     film.settings = false
     var busy = 0
