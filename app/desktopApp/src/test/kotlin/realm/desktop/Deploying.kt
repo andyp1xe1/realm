@@ -257,7 +257,7 @@ internal fun updating() {
     }.close()
     val film = Film(home, settings = true)
     film.roll("update", max = 20)
-    film.tap(44, 166) // Update, at the top of settings
+    film.tap(350, 165) // Update, at the top of settings
     film.roll("update", every = 6, max = 400) { home.cloudflare.login is Login.Deploying }
     film.settings = false
     var busy = 0

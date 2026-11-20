@@ -51,70 +51,38 @@ import realm.ServerFacts
 import realm.ServerSettings
 import realm.Zone
 
-/** Settings' part about your own server. */
+private val ActionSlot = 96.dp
+
+/** Settings' part about your own server: the addresses it answers at, and changing them with a Cloudflare login. */
 @Composable
 fun ServerSection(home: Home, modifier: Modifier = Modifier) {
     val settings = home.serverSettings
     val signedIn = home.phase as? Phase.SignedIn ?: return
-    val server = signedIn.server
-    LaunchedEffect(server) { settings.refresh() }
+    LaunchedEffect(signedIn.server) { settings.refresh() }
     val managed = signedIn.session?.login?.account != null
     Column(modifier) {
-        Text("Signed in to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(server.base.removeSuffix("/api"), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Loading(signedIn.facts.state, skeleton = { DetailsSkeleton(managed) }) { facts -> Column { Details(facts, home) } }
+        SectionLabel(if (managed) "Addresses" else "Address")
+        Loading(signedIn.facts.state, skeleton = { AddressesSkeleton(managed) }) { facts -> Column { Details(facts, home) } }
     }
 }
 
 @Composable
-private fun DetailsSkeleton(managed: Boolean) = Column {
-    Spacer(Modifier.height(12.dp))
-    FactSkeleton("Runs")
-    FactSkeleton("Newest")
-    if (!managed) InlineButtonSkeleton(0.7f)
-    if (managed) {
-        Spacer(Modifier.height(12.dp))
-        Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-            SkeletonLine(0.6f)
-        }
-        InlineButtonSkeleton(0.3f)
-    }
-}
-
-@Composable
-private fun FactSkeleton(label: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(label, Modifier.width(96.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        SkeletonLine(0.35f, style = MaterialTheme.typography.bodyMedium)
-    }
+private fun AddressesSkeleton(managed: Boolean) = Column {
+    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) { SkeletonLine(0.6f) }
+    InlineButtonSkeleton(if (managed) 0.3f else 0.7f)
 }
 
 @Composable
 private fun ColumnScope.Details(facts: ServerFacts, home: Home) {
-    val settings = home.serverSettings
     val addresses = facts.addresses
-    val releases = home.releases.known
-    Spacer(Modifier.height(12.dp))
-    Fact("Runs", facts.info.running)
-    LoadingFact("Newest", releases?.let { Loaded.Known(it.workers.firstOrNull()?.tag?.toString().orEmpty()) } ?: Loaded.Unknown)
     if (addresses == null) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(facts.origin.removePrefix("https://"), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         InlineButton("Log in with Cloudflare to manage", { home.cloudflare.manage() })
         return
     }
-    Spacer(Modifier.height(12.dp))
-    Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Addresses(facts.origin, addresses, settings)
-}
-
-@Composable
-private fun LoadingFact(label: String, value: Loaded<String>) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(label, Modifier.width(96.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Loading(value, skeleton = { SkeletonLine(0.35f, style = MaterialTheme.typography.bodyMedium) }) { v ->
-            Changing(v) { Text(it, style = MaterialTheme.typography.bodyMedium) }
-        }
-    }
+    Addresses(facts.origin, addresses, home.serverSettings)
 }
 
 @Composable
@@ -145,16 +113,30 @@ private fun ColumnScope.Addresses(inUse: String, a: Addresses, settings: ServerS
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (origin == inUse) {
-                    Text("In use", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(ActionSlot), contentAlignment = Alignment.CenterEnd) {
+                    when {
+                        origin == inUse -> Text(
+                            "In use",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+
+                        busy -> {}
+
+                        !on -> EndButton("Turn on", settings::turnOnWorkersDev)
+
+                        else -> EndButton("Use", { settings.use(origin) })
+                    }
                 }
-                if (!busy) {
-                    if (!on) TextButton(onClick = settings::turnOnWorkersDev) { Text("Turn on") }
-                    if (on && origin != inUse) TextButton(onClick = { settings.use(origin) }) { Text("Use") }
-                    if (on && a.origins.size > 1) {
-                        TextButton(onClick = { settings.remove(origin) }) {
-                            Text(if (origin == a.workersDev) "Turn off" else "Remove", color = MaterialTheme.colorScheme.error)
+                if (a.origins.size > 1) {
+                    Box(Modifier.width(ActionSlot), contentAlignment = Alignment.CenterEnd) {
+                        if (!busy && on) {
+                            EndButton(
+                                if (origin == a.workersDev) "Turn off" else "Remove",
+                                { settings.remove(origin) },
+                                color = MaterialTheme.colorScheme.error,
+                            )
                         }
                     }
                 }

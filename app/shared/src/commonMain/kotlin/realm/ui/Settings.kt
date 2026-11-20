@@ -44,7 +44,9 @@ import realm.Screen
 import realm.screen
 
 /** Widest settings gets. */
-val SettingsWidth = 520.dp
+val SettingsWidth = 560.dp
+
+private val SectionGap = 24.dp
 
 /** The screen the app is on, with the settings page over it while it's open; under it, the screen keeps its place. */
 @Composable
@@ -73,7 +75,7 @@ fun SettingsPage(home: Home, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(
-            Modifier.widthIn(max = PageWidth).fillMaxWidth().height(TopBarHeight).padding(horizontal = 4.dp),
+            Modifier.widthIn(max = SettingsWidth).fillMaxWidth().height(TopBarHeight).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
@@ -95,11 +97,12 @@ fun SettingsPage(home: Home, modifier: Modifier = Modifier) {
 private fun Settings(home: Home, modifier: Modifier = Modifier) = Column(modifier) {
     val server = home.server
     UpdatesSection(home)
-    Spacer(Modifier.height(12.dp))
+    Spacer(Modifier.height(SectionGap))
     when {
         server != null -> {
             ServerSection(home)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(SectionGap))
+            SectionLabel("Account")
             if (home.session?.login?.account != null) InlineButton("Use another Cloudflare account", home::useAnotherAccount)
             InlineButton("Sign out", home::signOut, color = MaterialTheme.colorScheme.error)
         }
@@ -107,6 +110,7 @@ private fun Settings(home: Home, modifier: Modifier = Modifier) = Column(modifie
         home.onboarding.session != null -> CloudflareAccount(home)
 
         else -> {
+            SectionLabel("Your server")
             Text(
                 "Sign in to your own server to make realms. Links you've added stay either way.",
                 style = MaterialTheme.typography.bodySmall,
@@ -123,7 +127,7 @@ private fun Settings(home: Home, modifier: Modifier = Modifier) = Column(modifie
 @Composable
 private fun CloudflareAccount(home: Home) = Column {
     val o = home.onboarding
-    Text("Logged in to Cloudflare", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    SectionLabel("Cloudflare account")
     Loading(o.accounts.state, skeleton = { SkeletonLine(0.5f) }) { accounts ->
         val names = (o.account?.let(::listOf) ?: accounts).joinToString(", ") { it.name.ifBlank { it.id } }
         Text(names, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -144,3 +148,11 @@ private fun CloudflareAccount(home: Home) = Column {
     }
     InlineButton("Sign out", home::signOut, color = MaterialTheme.colorScheme.error)
 }
+
+@Composable
+internal fun SectionLabel(text: String) = Text(
+    text,
+    Modifier.padding(bottom = 4.dp),
+    style = MaterialTheme.typography.labelLarge,
+    color = MaterialTheme.colorScheme.onSurfaceVariant,
+)
