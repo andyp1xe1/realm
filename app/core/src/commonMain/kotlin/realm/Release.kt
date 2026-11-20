@@ -147,6 +147,13 @@ private fun Manifest?.deployable(files: Map<String, String>) = this != null && v
 /** The newest stable release of this app's fork that this app can deploy; else [NoRelease] or [ChecksumMismatch]. */
 suspend fun latestRelease(engine: HttpClientEngine? = null): Release = fetchReleases(engine).worker(engine)
 
+/** GitHub turned this network away for asking too often, until [until], in Unix seconds. */
+class GitHubBusy(val until: Long, now: Long = Cloudflare.now()) :
+    ApiException(
+        "GitHub is limiting this network for now. realm asks again by itself in about " +
+            ((until - now + 59) / 60).let { if (it <= 1) "a minute." else "$it minutes." },
+    )
+
 internal suspend fun HttpClient.fromGitHub(url: String): HttpResponse {
     val res = try {
         get(url) {
@@ -158,29 +165,33 @@ internal suspend fun HttpClient.fromGitHub(url: String): HttpResponse {
     } catch (e: Exception) {
         throw ApiException("Can't reach GitHub", cause = e)
     }
-    if (!res.status.isSuccess()) throw ApiException("GitHub said no (HTTP ${res.status.value})", res.status.value)
+    val status = res.status.value
+    val retry = res.headers["retry-after"]?.toLongOrNull()
+    if ((status == 403 || status == 429) && (res.headers["x-ratelimit-remaining"] == "0" || retry != null)) {
+        throw GitHubBusy(res.headers["x-ratelimit-reset"]?.toLongOrNull() ?: (Cloudflare.now() + (retry ?: 60)))
+    }
+    if (!res.status.isSuccess()) throw ApiException("GitHub said no (HTTP $status)", status)
     return res
 }
 
 internal data class Tagged(val name: String, val parts: Set<ReleasePart>, val tag: Semver, val release: GitHubRelease)
 
-internal suspend fun HttpClient.stableReleases(): List<Tagged> =
-    fromGitHub("https://api.github.com/repos/$RELEASES/releases?per_page=100").bodyAsText()
-        .let {
-            runCatching {
-                cloudflareJson.decodeFromString<List<GitHubRelease>>(it)
-            }.getOrElse { throw ApiException("GitHub sent something odd", cause = it) }
+internal suspend fun HttpClient.stableReleases(): List<Tagged> = listing()
+    .let {
+        runCatching {
+            cloudflareJson.decodeFromString<List<GitHubRelease>>(it)
+        }.getOrElse { throw ApiException("GitHub sent something odd", cause = it) }
+    }
+    .filter { !it.draft && !it.prerelease }
+    .mapNotNull { r ->
+        val (parts, version) = when {
+            r.tag.startsWith("app/") -> setOf(ReleasePart.App) to r.tag.removePrefix("app/")
+            r.tag.startsWith("worker/") -> setOf(ReleasePart.Worker) to r.tag.removePrefix("worker/")
+            else -> setOf(ReleasePart.App, ReleasePart.Worker) to r.tag
         }
-        .filter { !it.draft && !it.prerelease }
-        .mapNotNull { r ->
-            val (parts, version) = when {
-                r.tag.startsWith("app/") -> setOf(ReleasePart.App) to r.tag.removePrefix("app/")
-                r.tag.startsWith("worker/") -> setOf(ReleasePart.Worker) to r.tag.removePrefix("worker/")
-                else -> setOf(ReleasePart.App, ReleasePart.Worker) to r.tag
-            }
-            Semver.parse(version)?.let { Tagged(r.tag, parts, it, r) }
-        }
-        .sortedByDescending { it.tag }
+        Semver.parse(version)?.let { Tagged(r.tag, parts, it, r) }
+    }
+    .sortedByDescending { it.tag }
 
 @Serializable
 internal data class GitHubRelease(
@@ -192,3 +203,10 @@ internal data class GitHubRelease(
 
 @Serializable
 internal data class Asset(val name: String, @SerialName("browser_download_url") val url: String)
+
+private suspend fun HttpClient.listing(): String = try {
+    fromGitHub("https://github.com/$RELEASES/releases/latest/download/releases.json").bodyAsText()
+} catch (e: ApiException) {
+    if (e.status != 404) throw e
+    fromGitHub("https://api.github.com/repos/$RELEASES/releases?per_page=100").bodyAsText()
+}

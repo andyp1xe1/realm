@@ -57,7 +57,7 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         private set
 
     /** This fork's releases, which both the app and the server are updated to. */
-    val releases = ReleaseFeed(platform.prefs, { fetchReleases(engine) })
+    val releases = ReleaseFeed(platform.prefs, { fetchReleases(engine) }, limitedUntil = ::lookAgainAfter)
 
     /** Logging in with Cloudflare, and deploying or updating the worker with it. */
     val cloudflare = CloudflareSetup(this, scope, engine)
@@ -318,6 +318,14 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
         onboarding.start(login, accounts)
     }
 
+    private fun lookAgainAfter(limit: GitHubBusy) {
+        scope.launch {
+            delay((limit.until - Cloudflare.now()).coerceAtLeast(0) * 1000 + 1000)
+            appUpdates.refresh()
+            (phase as? Phase.SignedIn)?.let { serverSettings.lookAt(it, known = null, force = false) }
+        }
+    }
+
     private fun fetchAhead(p: Phase.SignedIn?, known: Info?, force: Boolean) {
         p?.let { serverSettings.lookAt(it, known, force) }
         refreshing?.cancel()
@@ -481,14 +489,3 @@ class Home(val platform: Platform, private val scope: CoroutineScope, private va
 }
 
 private const val NO_ACCOUNT = "no-account"
-
-/** What the settings button shows besides itself. */
-enum class SettingsMark {
-    None,
-
-    /** Something runs on: a download, a deploy, a change to the server's addresses. */
-    Busy,
-
-    /** Something waits for you: an update to start, a question, a restart, or what went wrong. */
-    Waiting,
-}

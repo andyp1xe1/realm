@@ -108,6 +108,15 @@ jobs:
       # A release candidate is a pre-release, which the app never installs.
       - run: >-
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
-          ${{ contains(github.ref_name, '-rc.') && '--prerelease' || '' }}
+          ${{ contains(github.ref_name, '-rc.') && '--prerelease' || '--latest' }}
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: List every release in releases.json
+        if: ${{ !contains(github.ref_name, '-rc.') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq \
+            '.[] | select(.draft | not) | {tag_name, draft, prerelease, assets: [.assets[] | {name, browser_download_url}]}' |
+            jq -s . >releases.json
+          gh release upload "$GITHUB_REF_NAME" releases.json --repo "$GITHUB_REPOSITORY"

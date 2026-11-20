@@ -46,7 +46,7 @@ class AppUpdatesTest {
 
     private var listed = Releases(emptyList(), emptyList())
 
-    private fun feed() = ReleaseFeed(prefs, { listed }) { now }
+    private fun feed() = ReleaseFeed(prefs, { listed }, now = { now })
 
     private fun TestScope.updates(updater: Updater? = FakeUpdater(), feed: ReleaseFeed = feed()) =
         AppUpdates(prefs, updater, feed, backgroundScope)

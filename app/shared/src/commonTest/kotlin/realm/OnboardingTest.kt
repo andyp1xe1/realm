@@ -52,6 +52,8 @@ class OnboardingTest {
 
         /** Whether the worker turns this login down as its owner's, as one bound to another account would. */
         var refuses = false
+
+        var limitedUntil: Long? = null
         val gh = "github.com/andyp1xe1/realm/releases/download/v1.2.0"
 
         // On the test's clock, so advancing it runs every request to the end.
@@ -65,7 +67,13 @@ class OnboardingTest {
         private fun MockRequestHandleScope.answer(req: HttpRequestData): HttpResponseData {
             val route = "${req.method.value} ${req.url.host}${req.url.encodedPath}".replace("api.cloudflare.com/client/v4", "cf")
             return when (route) {
-                "GET api.github.com/repos/andyp1xe1/realm/releases" -> json(
+                "GET github.com/andyp1xe1/realm/releases/latest/download/releases.json" -> limitedUntil?.let {
+                    respond(
+                        """{"message":"rate limited"}""",
+                        HttpStatusCode.TooManyRequests,
+                        headersOf("x-ratelimit-remaining" to listOf("0"), "x-ratelimit-reset" to listOf("$it")),
+                    )
+                } ?: json(
                     """[{"tag_name":"v1.2.0","assets":[{"name":"worker.json","browser_download_url":"https://$gh/worker.json"},
                         {"name":"worker.js","browser_download_url":"https://$gh/worker.js"}]}]""",
                 )
@@ -237,6 +245,24 @@ class OnboardingTest {
         }
 
         override fun restart() {}
+    }
+
+    @Test
+    fun gitHubLimitingThisNetworkSaysSoThenAsksAgainByItself() = runTest {
+        val prefs = MapPrefs().apply { saveOwn(Connection.ByCloudflare("https://realm.jo.workers.dev", login.copy(account = "a1"))) }
+        val cloud = Cloud(this).apply {
+            worker = true
+            build = "v1.1.0"
+            limitedUntil = Cloudflare.now() - 1
+        }
+        val home = home(prefs, cloud)
+        runCurrent()
+        assertIs<UpdatesView.Limited>(home.updating.view)
+
+        cloud.limitedUntil = null
+        advanceUntilIdle()
+        assertNull(home.releases.limited)
+        assertEquals(Due(null, Semver(1, 2, 0), null), home.updating.due)
     }
 
     @Test

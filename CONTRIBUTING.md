@@ -22,6 +22,8 @@ The app and the worker have their own versions, and each is released only when i
 
 Add `-rc.N` for a release candidate. It becomes a GitHub pre-release, which the app never installs or deploys.
 
+Each stable release is marked latest and carries `releases.json`, every release as GitHub lists them. The app reads it through an ordinary download link, because GitHub's API limits how often one network may ask.
+
 The two talk through a protocol, `VERSION` in `worker/src/common.ts` and `Api.VERSION`. When a worker change needs a new protocol, release an app that speaks it first: the worker workflow refuses a worker no released app speaks the protocol of.
 
 The app workflow signs the APK with the key in the secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Phones refuse an update signed with another key, so never change the key.

@@ -112,6 +112,8 @@ private fun Said(v: UpdatesView) {
 
         is UpdatesView.Held -> Line(v.reason)
 
+        is UpdatesView.Limited -> Line(v.reason)
+
         is UpdatesView.Failed -> Text(v.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
 
         UpdatesView.Current -> Line("Up to date.")
@@ -123,7 +125,7 @@ private fun Action(v: UpdatesView, updating: Updating, updates: AppUpdates) {
     when (v) {
         UpdatesView.NotYet -> EndButton("Check for updates", updating::check)
 
-        UpdatesView.Loading, UpdatesView.Checking -> {}
+        UpdatesView.Loading, UpdatesView.Checking, is UpdatesView.Limited -> {}
 
         is UpdatesView.Out -> EndButton("Update", updating::start)
 
