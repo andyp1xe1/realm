@@ -53,6 +53,7 @@ class AppUpdates internal constructor(
     fun refresh() {
         val u = updater ?: return
         if (busy || work is SelfUpdate.Ready || settled) return
+        looking = true
         job = scope.launch {
             try {
                 look(u, force = false)
@@ -60,9 +61,15 @@ class AppUpdates internal constructor(
                 throw e
             } catch (e: Exception) {
                 logFailure("Looking for a newer app", e)
+            } finally {
+                looking = false
             }
         }
     }
+
+    /** Whether a look [refresh] started is under way: what was found before may not hold for the releases now listed. */
+    var looking by mutableStateOf(false)
+        private set
 
     /** Looks for a newer release now. */
     fun check() = work(installs = false, SelfUpdate.Checking) { u ->

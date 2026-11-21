@@ -45,7 +45,7 @@ class Updating internal constructor(private val home: Home, prefs: Prefs) {
             val signedIn = home.phase as? Phase.SignedIn
             val limited = home.releases.limited
             return when {
-                work is SelfUpdate.Checking || check is Check.Checking -> UpdatesView.Checking
+                work is SelfUpdate.Checking || check is Check.Checking || home.appUpdates.looking -> UpdatesView.Checking
                 work != null -> UpdatesView.App(work)
                 limited != null -> UpdatesView.Limited(limited.message.orEmpty())
                 check is Check.Failed -> UpdatesView.Failed(check.message)
