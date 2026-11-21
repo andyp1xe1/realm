@@ -68,6 +68,8 @@ class ServerSettings internal constructor(private val home: Home, private val en
                 home.appUpdates.refresh()
             } catch (e: CancellationException) {
                 throw e
+            } catch (_: GitHubBusy) {
+                check = Check.Idle
             } catch (e: Exception) {
                 logFailure("Checking for updates", e)
                 check = Check.Failed(explain(e))

@@ -169,7 +169,7 @@ internal class FakeCloud(
 
             route.endsWith("/links") -> json("""{"links":[]}""")
 
-            route.startsWith("GET api.github.com/") -> null
+            route.startsWith("GET api.github.com/") || route.startsWith("GET github.com/andyp1xe1/realm/releases/latest/") -> null
 
             else -> json("""{"items":[],"next":null}""")
         }

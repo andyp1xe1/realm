@@ -43,9 +43,11 @@ class Updating internal constructor(private val home: Home, prefs: Prefs) {
             val check = home.serverSettings.check
             val d = due
             val signedIn = home.phase as? Phase.SignedIn
+            val limited = home.releases.limited
             return when {
                 work is SelfUpdate.Checking || check is Check.Checking -> UpdatesView.Checking
                 work != null -> UpdatesView.App(work)
+                limited != null -> UpdatesView.Limited(limited.message.orEmpty())
                 check is Check.Failed -> UpdatesView.Failed(check.message)
                 signedIn != null && home.serverStatus == null -> UpdatesView.Loading
                 d.app != null || d.server != null -> UpdatesView.Out(home.appUpdates.version, d.app, runs(signedIn), d.server)
@@ -117,6 +119,9 @@ sealed interface UpdatesView {
     data class App(val work: SelfUpdate.Work) : UpdatesView
 
     data class Held(val reason: String) : UpdatesView
+
+    /** GitHub is turning this network away for a while, as [reason] says; realm asks again by itself after. */
+    data class Limited(val reason: String) : UpdatesView
 
     data class Failed(val message: String) : UpdatesView
 

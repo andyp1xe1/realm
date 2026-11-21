@@ -134,6 +134,39 @@ class ReleaseTest {
     }
 
     @Test
+    fun listsReleasesFromTheLatestReleaseRatherThanGitHubsApi() = runTest {
+        val gh = FakeClouds { route, _ ->
+            when {
+                route == "GET github.com/andyp1xe1/realm/releases/latest/download/releases.json" -> asset("[${release("v1.2.0")}]")
+                route.endsWith("/worker.json") -> asset(manifest(3))
+                else -> null
+            }
+        }
+        assertEquals(Semver(1, 2, 0), fetchReleases(gh.engine).deployable?.tag)
+        assertTrue(gh.routes.none { "api.github.com" in it }, gh.routes.toString())
+    }
+
+    @Test
+    fun gitHubTurningThisNetworkAwaySaysForHowLong() = runTest {
+        val until = Cloudflare.now() + 30 * 60
+        val limited = FakeClouds { route, _ ->
+            if (route == "GET $gh") {
+                respond(
+                    """{"message":"API rate limit exceeded"}""",
+                    HttpStatusCode.Forbidden,
+                    headersOf("x-ratelimit-remaining" to listOf("0"), "x-ratelimit-reset" to listOf("$until")),
+                )
+            } else {
+                null
+            }
+        }
+        val e = assertFailsWith<GitHubBusy> { fetchReleases(limited.engine) }
+        assertEquals(until, e.until)
+        assertTrue("about 30 minutes" in e.message.orEmpty(), e.message)
+        assertTrue("about a minute." in GitHubBusy(until, until - 20).message.orEmpty())
+    }
+
+    @Test
     fun readsGitHubsOwnReleaseList() = runTest {
         val github = FakeClouds { route, _ ->
             when {

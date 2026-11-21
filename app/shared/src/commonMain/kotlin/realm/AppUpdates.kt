@@ -117,6 +117,8 @@ class AppUpdates internal constructor(
                 block(u)
             } catch (e: CancellationException) {
                 throw e
+            } catch (_: GitHubBusy) {
+                work = null
             } catch (e: Exception) {
                 logFailure("Updating the app", e)
                 work = SelfUpdate.Failed(explain(e), retriesInstall = installs)
