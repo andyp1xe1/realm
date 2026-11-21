@@ -63,9 +63,9 @@ class ServerSettings internal constructor(private val home: Home, private val en
                 home.releases.get(force = true)
                 Snapshot.withMutableSnapshot {
                     p.facts.update { it.copy(info = info) }
+                    home.appUpdates.refresh()
                     check = Check.Idle
                 }
-                home.appUpdates.refresh()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: GitHubBusy) {
